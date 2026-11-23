@@ -99,6 +99,26 @@ fn hash_exact(reader: &mut impl Read, expected: u64) -> Result<String> {
     aq_node_service::source_hash::exact(reader, expected, 1024 * 1024 * 1024)
 }
 
+fn validate_manifest(native: &GitManifest, m: &TransferManifest) -> Result<()> {
+    ensure!(
+        native.format_version == 1
+            && native.repository_id == m.source.repository_id
+            && native.repository_identity == m.source.logical_identity
+            && native.binding_generation == m.source.binding_generation
+            && native.transfer_id == m.artifact_id
+            && matches_bundle(native, m),
+        "native source manifest originals"
+    );
+    Ok(())
+}
+fn matches_bundle(native: &GitManifest, m: &TransferManifest) -> bool {
+    native.object_format == "sha1"
+        && native.base == m.source.base
+        && native.source == m.checkpoint
+        && native.bundle_size == m.bundle_bytes
+        && native.bundle_sha256 == m.bundle_digest
+        && !native.reference_only
+}
 pub(crate) struct Staging {
     root: File,
     path: PathBuf,
@@ -258,20 +278,7 @@ impl Staging {
             "native source manifest digest"
         );
         let native: GitManifest = serde_json::from_slice(&bytes)?;
-        ensure!(
-            native.format_version == 1
-                && native.repository_id == m.source.repository_id
-                && native.repository_identity == m.source.logical_identity
-                && native.binding_generation == m.source.binding_generation
-                && native.transfer_id == m.artifact_id
-                && native.object_format == "sha1"
-                && native.base == m.source.base
-                && native.source == m.checkpoint
-                && native.bundle_size == m.bundle_bytes
-                && native.bundle_sha256 == m.bundle_digest
-                && !native.reference_only,
-            "native source manifest originals"
-        );
+        validate_manifest(&native, m)?;
         let mut bundle = member(&dir, "objects.bundle", false)?;
         ensure!(
             bundle.metadata()?.len() == m.bundle_bytes,

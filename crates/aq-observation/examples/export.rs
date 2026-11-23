@@ -1,7 +1,10 @@
 use aq_observation::lifecycle::Text;
 use aq_observation::*;
 use serde_json::json;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use uuid::Uuid;
 fn source(format: Format) -> Source {
     Source{binding:serde_json::from_value(json!({"project_id":Uuid::from_u128(1),"task_id":Uuid::from_u128(2),"lineage_id":Uuid::from_u128(3),"attempt_id":Uuid::from_u128(4),"attempt_generation":1,"session":{"kind":"remote","node_id":Uuid::from_u128(5),"boot_id":Uuid::from_u128(6),"session_id":Uuid::from_u128(7),"attempt_id":Uuid::from_u128(4),"assignment_generation":1}})).unwrap(),source_id:Uuid::from_u128(8),generation:1,native_session_key:Text::new("native-fixture").unwrap(),format,provider:Text::new("fixture-provider").unwrap(),account_reference:Text::new("fixture-account").unwrap(), registered_session_key: None }
@@ -65,15 +68,7 @@ fn main() {
     for (name, value) in documents() {
         let content = format!("{}\n", serde_json::to_string_pretty(&value).unwrap());
         let path = base.join("artifacts").join(name);
-        if check {
-            assert_eq!(
-                fs::read_to_string(path).unwrap(),
-                content,
-                "generated artifact drift"
-            );
-        } else {
-            fs::write(path, content).unwrap();
-        }
+        export_file(&path, &content, check, "generated artifact drift");
     }
     let root = base.join("../..");
     if root
@@ -82,14 +77,14 @@ fn main() {
     {
         let content = fs::read_to_string(base.join("artifacts/source-formats.json")).unwrap();
         let path = root.join("docs/implementation/WRK-15-source-formats.json");
-        if check {
-            assert_eq!(
-                fs::read_to_string(path).unwrap(),
-                content,
-                "format inventory mirror drift"
-            );
-        } else {
-            fs::write(path, content).unwrap();
-        }
+        export_file(&path, &content, check, "format inventory mirror drift");
+    }
+}
+
+fn export_file(path: &Path, content: &str, check: bool, message: &str) {
+    if check {
+        assert_eq!(fs::read_to_string(path).unwrap(), content, "{message}");
+    } else {
+        fs::write(path, content).unwrap();
     }
 }

@@ -1,12 +1,7 @@
 use aq_admission_sandbox::sandbox::{self, Fixture, FixtureCase};
 use std::collections::BTreeSet;
 
-#[test]
-fn permit_fixture_conformance() {
-    let fixtures: Vec<Fixture> = serde_json::from_str(include_str!(
-        "../../../protocol/aq-admission/artifacts/sandbox-v1.fixtures.json"
-    ))
-    .unwrap();
+fn assert_required_names(fixtures: &[Fixture]) {
     let names: BTreeSet<_> = fixtures.iter().map(|f| f.name.as_str()).collect();
     for required in [
         "valid_preparation",
@@ -62,6 +57,9 @@ fn permit_fixture_conformance() {
     ] {
         assert!(names.contains(format!("ended_refuses_{operation}").as_str()));
     }
+}
+
+fn assert_other_attempt(fixtures: &[Fixture]) {
     let other = fixtures.iter().find(|f| f.name == "other_attempt").unwrap();
     let FixtureCase::Permit {
         permit, context, ..
@@ -70,6 +68,16 @@ fn permit_fixture_conformance() {
         panic!("permit fixture required")
     };
     assert_ne!(permit.binding.attempt_id, context.binding.attempt_id);
+}
+
+#[test]
+fn permit_fixture_conformance() {
+    let fixtures: Vec<Fixture> = serde_json::from_str(include_str!(
+        "../../../protocol/aq-admission/artifacts/sandbox-v1.fixtures.json"
+    ))
+    .unwrap();
+    assert_required_names(&fixtures);
+    assert_other_attempt(&fixtures);
     for fixture in fixtures {
         assert_eq!(
             sandbox::validate_fixture(&fixture),

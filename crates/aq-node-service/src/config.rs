@@ -224,6 +224,29 @@ pub fn valid_profile(p: &str) -> bool {
 /// What systemd allows beyond the shutdown grace before it kills the service: the forced stop
 /// fits inside it (asserted in the supervisor).
 pub const STOP_MARGIN: std::time::Duration = std::time::Duration::from_secs(30);
+impl ObservationConfig {
+    fn valid_storage(&self) -> bool {
+        const MIB: u64 = 1024 * 1024;
+        (MIB..=128 * MIB).contains(&self.store_file_bytes)
+            && (2 * MIB..=16 * MIB).contains(&self.store_data_bytes)
+            && self.store_data_bytes < self.store_file_bytes
+            && (65_536..=8 * MIB).contains(&self.store_cache_bytes)
+            && self.tracked_identities >= 16
+            && self.max_sources >= 1
+            && self.transcript_max_bytes >= MIB
+            && (16..=1_000_000).contains(&self.transcript_max_files)
+    }
+
+    fn valid_timing(&self) -> bool {
+        self.resume_grace_ms <= 3_600_000
+            && (10..=60_000).contains(&self.poll_ms)
+            && (100..=600_000).contains(&self.retry_start_ms)
+            && (self.retry_start_ms..=3_600_000).contains(&self.retry_max_ms)
+            && (1_000..=60_000).contains(&self.request_timeout_ms)
+            && self.finish_drain_ms <= 600_000
+    }
+}
+
 impl ServiceConfig {
     /// The unit's TimeoutStopSec: the grace, rounded up to seconds, plus `STOP_MARGIN`.
     pub fn runtime_root(&self) -> PathBuf {
@@ -271,6 +294,14 @@ impl ServiceConfig {
             (1..=MAX_MACHINE_SLOTS).contains(&self.nodes),
             "nodes must be 1..={MAX_MACHINE_SLOTS}"
         );
+        self.validate_paths()?;
+        self.validate_repositories()?;
+        self.validate_retry()?;
+        self.validate_observations()?;
+        self.validate_manual()
+    }
+
+    fn validate_paths(&self) -> Result<()> {
         for (name, path) in [
             ("native_template", &self.native_template),
             ("state_root", &self.state_root),
@@ -282,7 +313,10 @@ impl ServiceConfig {
         if let Some(root) = &self.runtime_root {
             ensure!(root.is_absolute(), "runtime_root must be an absolute path");
         }
-        crate::layout::check_socket_paths(&self.runtime_root(), self.nodes)?;
+        crate::layout::check_socket_paths(&self.runtime_root(), self.nodes)
+    }
+
+    fn validate_repositories(&self) -> Result<()> {
         ensure!(self.repositories.len() <= 16, "at most 16 repositories");
         for r in &self.repositories {
             ensure!(
@@ -291,6 +325,10 @@ impl ServiceConfig {
             );
             ensure!(r.object_format == "sha1", "unsupported object_format");
         }
+        Ok(())
+    }
+
+    fn validate_retry(&self) -> Result<()> {
         ensure!(
             (10_000..=600_000).contains(&self.shutdown_grace_ms),
             "shutdown_grace_ms must be 10000..=600000"
@@ -303,24 +341,15 @@ impl ServiceConfig {
                 && (r.fault_backoff_start_ms..=86_400_000).contains(&r.fault_backoff_max_ms),
             "invalid [retry]: offer_pause_ms 100..=60000 <= offer_pause_max_ms <= 600000, fault_backoff_start_ms 1000..=3600000 <= fault_backoff_max_ms <= 86400000"
         );
+        Ok(())
+    }
+
+    fn validate_observations(&self) -> Result<()> {
         let o = &self.observations;
-        const MIB: u64 = 1024 * 1024;
+        let storage = o.valid_storage();
+        let timing = o.valid_timing();
         ensure!(
-            (MIB..=128 * MIB).contains(&o.store_file_bytes)
-                && (2 * MIB..=16 * MIB).contains(&o.store_data_bytes)
-                && o.store_data_bytes < o.store_file_bytes
-                && (65_536..=8 * MIB).contains(&o.store_cache_bytes)
-                && o.tracked_identities >= 16
-                && o.max_sources >= 1
-                && o.resume_grace_ms <= 3_600_000
-                && (1..=4096).contains(&o.discovery_entries)
-                && (10..=60_000).contains(&o.poll_ms)
-                && (100..=600_000).contains(&o.retry_start_ms)
-                && (o.retry_start_ms..=3_600_000).contains(&o.retry_max_ms)
-                && (1_000..=60_000).contains(&o.request_timeout_ms)
-                && o.finish_drain_ms <= 600_000
-                && o.transcript_max_bytes >= MIB
-                && (16..=1_000_000).contains(&o.transcript_max_files),
+            storage && timing && (1..=4096).contains(&o.discovery_entries),
             "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities >= 16, max_sources >= 1, resume_grace_ms <= 3600000, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
         );
         #[cfg(feature = "project_environments")]
@@ -330,9 +359,13 @@ impl ServiceConfig {
                 self.environments.max_reply_bytes
             ]
             .iter()
-            .all(|n| (64 * 1024..=256 * MIB).contains(n)),
+            .all(|n| (64 * 1024..=256 * 1024 * 1024).contains(n)),
             "invalid [environments]: max_list_bytes and max_reply_bytes 64 KiB..=256 MiB"
         );
+        Ok(())
+    }
+
+    fn validate_manual(&self) -> Result<()> {
         if let Some(m) = &self.manual {
             ensure!(
                 m.podman_executable.is_absolute() && (1..=8).contains(&m.max_slots),
@@ -481,485 +514,4 @@ fn keep_first_copy(path: &Path, body: &[u8]) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn old_slots_key_is_node_count_and_new_files_name_nodes() {
-        let config = valid();
-        let current = toml::to_string(&config).unwrap();
-        assert!(current.contains("nodes = 2"));
-        let legacy = current.replace("nodes = 2", "slots = 2");
-        assert_eq!(ServiceConfig::parse(&legacy).unwrap().nodes, 2);
-        assert!(ServiceConfig::parse(&format!("nodes = 1\n{legacy}")).is_err());
-    }
-    fn valid() -> ServiceConfig {
-        ServiceConfig {
-            schema_version: 1,
-            profile: "local".into(),
-            machine_key: "desk".into(),
-            nodes: 2,
-            native_template: "/etc/aq/native.json".into(),
-            state_root: "/var/aq".into(),
-            runtime_root: Some("/run/user/1000/aq/local".into()),
-            aq_git: AqGitConfig {
-                binary: "/opt/aq-git".into(),
-                git_executable: "/usr/bin/git".into(),
-            },
-            repositories: vec![],
-            manual: None,
-            shutdown_grace_ms: 120_000,
-            retry: Default::default(),
-            observations: Default::default(),
-            #[cfg(feature = "project_environments")]
-            environments: Default::default(),
-        }
-    }
-    fn manual(token: &str) -> ManualConfig {
-        ManualConfig {
-            podman_executable: "/usr/bin/podman".into(),
-            max_slots: 1,
-            claude_token_file: token.into(),
-            source_slugs: Default::default(),
-            codex: None,
-        }
-    }
-    const MINIMAL: &str = r#"schema_version = 1
-profile = "local"
-machine_key = "desk"
-slots = 1
-native_template = "/n.json"
-state_root = "/s"
-runtime_root = "/run/user/1000/aq/local"
-[aq_git]
-binary = "/g"
-git_executable = "/usr/bin/git"
-"#;
-    fn load_text(text: &str) -> Result<ServiceConfig> {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("service.toml");
-        write_private(&path, text.as_bytes()).unwrap();
-        ServiceConfig::load(&path)
-    }
-    const MANUAL: &str = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
-    fn mode(path: &Path) -> u32 {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
-    }
-    fn backup_of(path: &Path) -> PathBuf {
-        path.with_file_name(format!("service.toml.{BEFORE_MEASUREMENT_REMOVAL}"))
-    }
-    fn names(dir: &Path) -> Vec<String> {
-        let mut names: Vec<String> = (std::fs::read_dir(dir).unwrap())
-            .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .collect();
-        names.sort();
-        names
-    }
-    /// Loads `text` from a file and returns the result, the directory and the file's path.
-    fn migrate(text: &str) -> (Result<ServiceConfig>, tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("service.toml");
-        write_private(&path, text.as_bytes()).unwrap();
-        (ServiceConfig::load(&path), dir, path)
-    }
-    /// A machine updated remotely still has the configuration its installer wrote. The worker
-    /// rewrites it once: the measurement setting goes, its token file becomes the manual
-    /// sessions' token file, every other key keeps its value, the comments and the order
-    /// stay, the file as it was is kept (0600), and the result loads.
-    #[test]
-    fn an_old_measurement_setting_is_removed_once_and_its_token_file_carried() {
-        let slugs = "\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n\n[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n";
-        let section = "\n# set by Push logins\n[measurement]\nenabled = true\ntoken_file = \"/c/provider-auth/claude-token\"\nmodel = \"m\"\nrenew_before_ms = 14400000\n";
-        let inline = "measurement = { enabled = true, token_file = \"/c/provider-auth/claude-token\", model = \"m\" }\n";
-        let dotted = "measurement.token_file = \"/c/provider-auth/claude-token\"\n";
-        for old in [
-            // As the hosted installer leaves it: the section, then the manual settings.
-            format!(
-                "# the owner's note\nshutdown_grace_ms = 30000 # short\n{MINIMAL}{section}\n{MANUAL}{slugs}"
-            ),
-            format!("{MINIMAL}{MANUAL}{slugs}{section}"),
-            // As a hand-written file has it: one line among the top-level keys.
-            format!("{inline}{MINIMAL}\n{MANUAL}{slugs}"),
-            format!("{dotted}{MINIMAL}\n{MANUAL}{slugs}"),
-        ] {
-            let (loaded, _dir, path) = migrate(&old);
-            let loaded = loaded.unwrap();
-            let manual = loaded.manual.as_ref().unwrap();
-            assert_eq!(
-                manual.claude_token_file,
-                Path::new("/c/provider-auth/claude-token")
-            );
-            assert_eq!(manual.source_slugs.len(), 1);
-            let new = std::fs::read_to_string(&path).unwrap();
-            assert_eq!(mode(&path), 0o600);
-            // Apart from the two intended changes every key has the value it had.
-            let mut expected: toml::Table = toml::from_str(&old).unwrap();
-            expected.remove("measurement").unwrap();
-            expected["manual"].as_table_mut().unwrap().insert(
-                "claude_token_file".into(),
-                "/c/provider-auth/claude-token".into(),
-            );
-            assert_eq!(toml::from_str::<toml::Table>(&new).unwrap(), expected);
-            assert!(!new.contains("measurement"), "{new}");
-            assert_eq!(
-                new.contains("# the owner's note"),
-                old.contains("# the owner's note")
-            );
-            assert_eq!(new.contains("30000 # short"), old.contains("30000 # short"));
-            let backup = backup_of(&path);
-            assert_eq!(std::fs::read_to_string(&backup).unwrap(), old);
-            assert_eq!(mode(&backup), 0o600);
-            // A second start finds the new file and leaves it and the copy alone.
-            ServiceConfig::load(&path).unwrap();
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), new);
-            assert_eq!(std::fs::read_to_string(&backup).unwrap(), old);
-            assert_eq!(
-                names(path.parent().unwrap()),
-                ["service.toml", "service.toml.before-measurement-removal"]
-            );
-        }
-        // The exact text of the common case: the key lands in `[manual]`, before its tables.
-        let (text, carried) =
-            without_measurement(&format!("{MINIMAL}{section}\n{MANUAL}{slugs}")).unwrap();
-        assert_eq!(carried, CarriedToken::Moved);
-        assert_eq!(
-            text,
-            format!(
-                "{MINIMAL}\n{MANUAL}claude_token_file = \"/c/provider-auth/claude-token\"\n{slugs}"
-            )
-        );
-    }
-    /// Without manual sessions nothing needs the token file; a token file `[manual]` already
-    /// names is kept, whatever the old setting said.
-    #[test]
-    fn the_measurement_setting_is_removed_without_manual_sessions_or_with_their_token_named() {
-        for old in [
-            "[measurement]\nenabled = false\nrenew_before_ms = 14400000\n",
-            "[measurement]\nenabled = true\ntoken_file = \"/t\"\nmodel = \"m\"\n",
-            "[measurement]\n",
-        ] {
-            let (loaded, _dir, path) = migrate(&format!("{MINIMAL}{old}"));
-            assert!(loaded.unwrap().manual.is_none());
-            assert_eq!(std::fs::read_to_string(&path).unwrap(), MINIMAL);
-            assert!(backup_of(&path).exists());
-        }
-        let named = format!(
-            "{MINIMAL}{MANUAL}claude_token_file = \"/mine\"\n[measurement]\ntoken_file = \"/t\"\n"
-        );
-        let (loaded, _dir, path) = migrate(&named);
-        assert_eq!(
-            loaded.unwrap().manual.unwrap().claude_token_file,
-            Path::new("/mine")
-        );
-        assert_eq!(
-            std::fs::read_to_string(&path).unwrap(),
-            format!("{MINIMAL}{MANUAL}claude_token_file = \"/mine\"\n")
-        );
-    }
-    /// Manual sessions with no token file anywhere: no path is invented. The setting is
-    /// removed, the file is whole, and the load fails naming the key that is needed.
-    #[test]
-    fn manual_sessions_without_any_token_file_fail_naming_the_key() {
-        for old in [
-            "[measurement]\nenabled = false\n",
-            "[measurement]\ntoken_file = \"\"\n",
-        ] {
-            let (loaded, dir, path) = migrate(&format!("{MINIMAL}{MANUAL}{old}"));
-            let e = format!("{:#}", loaded.unwrap_err());
-            assert!(e.contains("missing field `claude_token_file`"), "{e}");
-            assert!(e.contains(path.to_str().unwrap()), "{e}");
-            assert_eq!(
-                std::fs::read_to_string(&path).unwrap(),
-                format!("{MINIMAL}{MANUAL}")
-            );
-            assert_eq!(
-                names(dir.path()),
-                ["service.toml", "service.toml.before-measurement-removal"]
-            );
-        }
-    }
-    /// A file without the setting is not touched: same bytes, same file, no copy. Any other
-    /// unknown key is still refused, and so is a document that is not TOML.
-    #[test]
-    fn a_file_without_the_measurement_setting_is_not_rewritten() {
-        use std::os::unix::fs::MetadataExt;
-        let text = format!("# kept\n{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n");
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("service.toml");
-        write_private(&path, text.as_bytes()).unwrap();
-        let before = std::fs::metadata(&path).unwrap();
-        ServiceConfig::load(&path).unwrap();
-        let after = std::fs::metadata(&path).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
-        assert_eq!(
-            (before.ino(), before.mtime(), before.mtime_nsec()),
-            (after.ino(), after.mtime(), after.mtime_nsec())
-        );
-        assert_eq!(names(dir.path()), ["service.toml"]);
-        let e = format!(
-            "{:#}",
-            load_text(&format!("{MINIMAL}[other]\n")).unwrap_err()
-        );
-        assert!(e.contains("unknown field `other`"), "{e}");
-        let e = format!(
-            "{:#}",
-            load_text(&format!("{MINIMAL}{MANUAL}token_file = \"/t\"\n")).unwrap_err()
-        );
-        assert!(e.contains("unknown field `token_file`"), "{e}");
-        let (broken, dir, _path) = migrate("[measurement\nslots = ");
-        assert!(broken.is_err());
-        assert_eq!(names(dir.path()), ["service.toml"]);
-    }
-    /// The service and the terminal relays load the same file and may start together: every
-    /// one of them loads, and what is left is one whole file and one copy of the old one.
-    #[test]
-    fn programs_starting_together_leave_one_whole_file() {
-        let old = format!("{MINIMAL}[measurement]\ntoken_file = \"/t\"\n{MANUAL}");
-        for _ in 0..20 {
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("service.toml");
-            write_private(&path, old.as_bytes()).unwrap();
-            let start = std::sync::Barrier::new(8);
-            std::thread::scope(|scope| {
-                for _ in 0..8 {
-                    scope.spawn(|| {
-                        start.wait();
-                        let loaded = ServiceConfig::load(&path).unwrap();
-                        assert_eq!(loaded.manual.unwrap().claude_token_file, Path::new("/t"));
-                    });
-                }
-            });
-            assert_eq!(
-                std::fs::read_to_string(&path).unwrap(),
-                format!("{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n")
-            );
-            assert_eq!(std::fs::read_to_string(backup_of(&path)).unwrap(), old);
-            assert_eq!(
-                names(dir.path()),
-                ["service.toml", "service.toml.before-measurement-removal"]
-            );
-        }
-    }
-    /// A directory the worker cannot write to: the error names the file, which is unchanged.
-    #[test]
-    fn a_file_that_cannot_be_rewritten_is_refused_naming_it() {
-        use std::os::unix::fs::PermissionsExt;
-        if unsafe { libc::geteuid() } == 0 {
-            return; // root writes anywhere
-        }
-        let old = format!("{MINIMAL}[measurement]\nenabled = false\n");
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("service.toml");
-        write_private(&path, old.as_bytes()).unwrap();
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
-        let e = format!("{:#}", ServiceConfig::load(&path).unwrap_err());
-        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(
-            e.contains(&format!(
-                "{} still has the measurement setting, which was removed, and could not be rewritten without it",
-                path.display()
-            )),
-            "{e}"
-        );
-        assert!(e.contains("Permission denied"), "{e}");
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
-        assert_eq!(names(dir.path()), ["service.toml"]);
-    }
-    /// Manual sessions name their Claude subscription token file in `[manual]`; it is
-    /// required there and must be absolute.
-    #[test]
-    fn manual_sessions_name_their_claude_token_file() {
-        let manual = MANUAL;
-        let c = load_text(&format!(
-            "{MINIMAL}{manual}claude_token_file = \"/etc/aq/token\"\n"
-        ))
-        .unwrap();
-        assert_eq!(
-            c.manual.as_ref().unwrap().claude_token_file,
-            Path::new("/etc/aq/token")
-        );
-        let saved = toml::to_string(&c).unwrap();
-        assert!(
-            saved.contains("claude_token_file = \"/etc/aq/token\""),
-            "{saved}"
-        );
-        assert!(!saved.contains("measurement"), "{saved}");
-        let e = format!(
-            "{:#}",
-            load_text(&format!("{MINIMAL}{manual}")).unwrap_err()
-        );
-        assert!(e.contains("missing field `claude_token_file`"), "{e}");
-        let relative = format!("{MINIMAL}{manual}claude_token_file = \"token\"\n");
-        let e = format!("{:#}", load_text(&relative).unwrap_err());
-        assert!(
-            e.contains("manual.claude_token_file must be an absolute path"),
-            "{e}"
-        );
-    }
-    #[test]
-    fn loads_valid_and_refuses_bounds() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("service.toml");
-        valid().save(&path).unwrap();
-        assert_eq!(ServiceConfig::load(&path).unwrap().nodes, 2);
-        let bad: [fn(&mut ServiceConfig); 9] = [
-            |c| c.nodes = 0,
-            |c| c.nodes = 9,
-            |c| c.native_template = "native.json".into(),
-            |c| c.profile = "Bad_Name".into(),
-            |c| c.machine_key = "Desk".into(),
-            |c| c.manual = Some(manual("token")),
-            |c| {
-                c.manual = Some(ManualConfig {
-                    max_slots: 9,
-                    ..manual("/t")
-                })
-            },
-            |c| c.runtime_root = Some("run/aq".into()),
-            |c| {
-                c.repositories = vec![RepositoryBinding {
-                    repository_id: Uuid::nil(),
-                    identity: "x".into(),
-                    binding_generation: 1,
-                    object_format: "sha256".into(),
-                }]
-            },
-        ];
-        for edit in bad {
-            let mut c = valid();
-            edit(&mut c);
-            assert!(c.validate().is_err());
-        }
-    }
-    /// Spec 0017: the admitted-list cap is an operator setting with a default and bounds.
-    #[cfg(feature = "project_environments")]
-    #[test]
-    fn the_admitted_list_cap_is_a_bounded_setting() {
-        let c = valid();
-        assert_eq!(c.environments.max_list_bytes, 4 * 1024 * 1024);
-        assert!(!toml::to_string(&c).unwrap().contains("environments"));
-        let text = format!(
-            "{}[environments]\nmax_list_bytes = 16777216\n",
-            toml::to_string(&c).unwrap()
-        );
-        let tuned = ServiceConfig::parse(&text).unwrap();
-        tuned.validate().unwrap();
-        assert_eq!(tuned.environments.max_list_bytes, 16 * 1024 * 1024);
-        assert_eq!(tuned.environments.max_reply_bytes, 1024 * 1024);
-        for bad in [0, 1024, 512 * 1024 * 1024] {
-            let mut list = c.clone();
-            list.environments.max_list_bytes = bad;
-            let mut reply = c.clone();
-            reply.environments.max_reply_bytes = bad;
-            for refused in [list.validate(), reply.validate()] {
-                let refused = refused.unwrap_err().to_string();
-                assert!(refused.contains("max_reply_bytes"), "{refused}");
-            }
-        }
-    }
-    #[test]
-    fn defaults_fill_the_grace() {
-        let text = r#"schema_version = 1
-profile = "local"
-machine_key = "desk"
-slots = 1
-native_template = "/n.json"
-state_root = "/s"
-[aq_git]
-binary = "/g"
-git_executable = "/usr/bin/git"
-"#;
-        let c: ServiceConfig = toml::from_str(text).unwrap();
-        c.validate().unwrap();
-        assert_eq!(c.shutdown_grace_ms, 120_000);
-        // No repositories list: every repository is registered from its offer. No [retry]:
-        // the defaults, which are not written back.
-        assert!(c.repositories.is_empty());
-        let r = &c.retry;
-        assert_eq!(
-            (r.offer_pause_ms, r.offer_pause_max_ms),
-            (3_000, 30_000),
-            "the short pause and its ceiling"
-        );
-        assert_eq!(
-            (r.fault_backoff_start_ms, r.fault_backoff_max_ms),
-            (30_000, 300_000)
-        );
-        assert!(!toml::to_string(&c).unwrap().contains("retry"));
-        // No [observations]: the defaults, and one key overrides only itself.
-        assert_eq!(c.observations, ObservationConfig::default());
-        assert!(!toml::to_string(&c).unwrap().contains("observations"));
-        let tuned = format!("{text}[observations]\npoll_ms = 1000\n");
-        let tuned: ServiceConfig = toml::from_str(&tuned).unwrap();
-        tuned.validate().unwrap();
-        assert_eq!(tuned.observations.poll_ms, 1_000);
-        assert_eq!(tuned.observations.store_file_bytes, 64 * 1024 * 1024);
-        let mut small = tuned.clone();
-        small.observations.store_data_bytes = small.observations.store_file_bytes;
-        assert!(small.validate().is_err());
-        let set = format!("{text}[retry]\noffer_pause_max_ms = 10000\n");
-        let set = ServiceConfig::parse(&set).unwrap();
-        set.validate().unwrap();
-        assert_eq!(set.retry.offer_pause_max_ms, 10_000);
-        assert_eq!(set.retry.offer_pause_ms, 3_000, "each key is optional");
-        let again = ServiceConfig::parse(&toml::to_string(&set).unwrap()).unwrap();
-        assert_eq!(again.retry, set.retry);
-        let mut bad = set.clone();
-        bad.retry.offer_pause_max_ms = 1_000;
-        assert!(bad.validate().is_err(), "a ceiling below the pause");
-        assert_eq!(c.stop_timeout_secs(), 150, "the template's default");
-        let longest = ServiceConfig {
-            shutdown_grace_ms: 600_000,
-            ..c.clone()
-        };
-        assert_eq!(longest.stop_timeout_secs(), 630);
-        assert!(c.repositories.is_empty() && c.manual.is_none());
-        assert!(c.runtime_root.is_none());
-        assert!(!toml::to_string(&c).unwrap().contains("runtime_root"));
-    }
-    /// D1: with a long home, the default state root holds no socket; the runtime root keeps
-    /// every socket path under the limit, and a runtime root whose paths cannot fit is refused
-    /// when the configuration is loaded, naming the path and its length.
-    #[test]
-    fn socket_paths_fit_or_the_config_is_refused() {
-        let home = format!("/home/{}", "u".repeat(60));
-        let mut c = valid();
-        c.nodes = 8;
-        c.state_root = format!("{home}/.local/state/agent-q/service/{}", c.profile).into();
-        c.runtime_root = None;
-        let layout = crate::Layout::for_service(Path::new("/c"), &c);
-        for slot in 1..=8 {
-            for socket in [
-                layout.git_socket(slot),
-                layout
-                    .host_root(slot)
-                    .join(format!("{}/tmux.sock", Uuid::nil())),
-            ] {
-                assert!(!socket.starts_with(&c.state_root), "{}", socket.display());
-            }
-        }
-        c.validate().unwrap();
-        // The longest uid and the longest profile each fallback root allows.
-        c.runtime_root = Some(format!("/run/user/4294967294/aq/{}", "a".repeat(14)).into());
-        c.validate().unwrap();
-        c.runtime_root = Some(format!("/run/user/4294967294/aq/{}", "a".repeat(15)).into());
-        assert!(c.validate().is_err());
-        let fallback = PathBuf::from("/tmp/aq-1000").join("a".repeat(25));
-        crate::layout::check_socket_paths(&fallback, 8).unwrap();
-        // The live failure: the state root of a normal home cannot hold the sockets.
-        let live = Path::new("/home/jkern/.local/state/agent-q/service/ms1/slots/1/current");
-        assert!(crate::layout::check_socket_paths(live, 1).is_err());
-        c.runtime_root = Some(format!("{home}/run").into());
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("service.toml");
-        let text = toml::to_string(&c).unwrap();
-        crate::enrollment_file::write_private(&path, text.as_bytes()).unwrap();
-        let e = format!("{:#}", ServiceConfig::load(&path).unwrap_err());
-        let long = format!("{home}/run/8/host/{}/terminal-", Uuid::nil());
-        assert!(e.contains(&long), "{e}");
-        assert!(
-            e.contains("would be 135 bytes, over the 103-byte limit"),
-            "{e}"
-        );
-    }
-}
+mod tests;

@@ -52,35 +52,22 @@ impl SandboxOutput {
             demand,
         })
     }
-    pub(crate) fn terminal(&self) -> Result<aq_session_protocol::TerminalIdentity> {
-        Ok(self
-            .output
-            .lock()
-            .map_err(|_| anyhow::anyhow!("output queue poisoned"))?
-            .terminal()
-            .clone())
-    }
-    pub fn accept(&self, event: &ControlEvent) -> Result<()> {
+    fn output(&self) -> Result<std::sync::MutexGuard<'_, TerminalOutput>> {
         self.output
             .lock()
-            .map_err(|_| anyhow::anyhow!("output queue poisoned"))?
-            .accept(event)
+            .map_err(|_| anyhow::anyhow!("output queue poisoned"))
+    }
+    pub(crate) fn terminal(&self) -> Result<aq_session_protocol::TerminalIdentity> {
+        Ok(self.output()?.terminal().clone())
+    }
+    pub fn accept(&self, event: &ControlEvent) -> Result<()> {
+        self.output()?.accept(event)
     }
     pub fn retained_bytes(&self) -> Result<usize> {
-        Ok(self
-            .output
-            .lock()
-            .map_err(|_| anyhow::anyhow!("output queue poisoned"))?
-            .retained_bytes())
+        Ok(self.output()?.retained_bytes())
     }
     pub fn has_gap(&self) -> Result<bool> {
-        Ok(self
-            .output
-            .lock()
-            .map_err(|_| anyhow::anyhow!("output queue poisoned"))?
-            .gaps()
-            .next()
-            .is_some())
+        Ok(self.output()?.gaps().next().is_some())
     }
     /// A reconnect requests a cut; it never reopens or relaunches the host.
     pub fn request_snapshot(&self) {
@@ -95,10 +82,7 @@ impl SandboxOutput {
             .try_lock()
             .context("sandbox output upload busy")?;
         if upload.pending.is_none() {
-            let output = self
-                .output
-                .lock()
-                .map_err(|_| anyhow::anyhow!("output queue poisoned"))?;
+            let output = self.output()?;
             upload.pending = output.prepare(
                 &self.peer,
                 upload.through,
@@ -113,6 +97,12 @@ impl SandboxOutput {
             return Ok(None);
         }
         let pending = upload.pending.as_ref().unwrap();
+        let ack = self.send(pending).await?;
+        upload.through = pending.through;
+        upload.pending = None;
+        Ok(Some(ack))
+    }
+    async fn send(&self, pending: &OutputBatch) -> Result<UploadAck> {
         ensure!(
             Digest::of(&serde_json::to_vec(&pending.request)?) == pending.digest,
             "output retry changed"
@@ -137,31 +127,8 @@ impl SandboxOutput {
                 && ack.retirements.is_empty(),
             "output acknowledgement binding mismatch"
         );
-        ensure!(
-            ack.dropped_output.iter().all(|gap| {
-                gap.last_missing
-                    .checked_sub(gap.first_missing)
-                    .and_then(|n| n.checked_add(1))
-                    .is_some_and(|count| {
-                        count <= 64
-                            && pending
-                                .request
-                                .frames
-                                .iter()
-                                .filter(|f| {
-                                    f.terminal == gap.terminal
-                                        && f.sequence >= gap.first_missing
-                                        && f.sequence <= gap.last_missing
-                                })
-                                .count() as u64
-                                == count
-                    })
-            }),
-            "foreign output drop range"
-        );
-        upload.through = pending.through;
-        upload.pending = None;
-        Ok(Some(ack))
+        validate_drops(pending, &ack)?;
+        Ok(ack)
     }
     /// Upload runs independently from the observer and execution loop. Dropping
     /// a held HTTP future retains the exact pending exchange in this owner.
@@ -191,12 +158,7 @@ impl SandboxOutput {
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
         ensure!(
-            observer.terminal()
-                == self
-                    .output
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("output queue poisoned"))?
-                    .terminal(),
+            observer.terminal() == self.output()?.terminal(),
             "observer output identity mismatch"
         );
         let mut timer = tokio::time::interval(std::time::Duration::from_millis(10));
@@ -208,12 +170,49 @@ impl SandboxOutput {
             tokio::select! { biased;
                 changed = shutdown.changed() => { if changed.is_err() || *shutdown.borrow() { return Ok(()); } }
                 _ = timer.tick() => {
-                    match observer.poll() {
-                        Ok(events) => for event in events { self.accept(&event)?; },
-                        Err(error) => { self.accept(&ControlEvent::CommandError)?; return Err(error); }
-                    }
+                    self.poll_observer(&mut observer)?;
                 }
             }
         }
     }
+    fn poll_observer(&self, observer: &mut OutputObserver) -> Result<()> {
+        match observer.poll() {
+            Ok(events) => {
+                for event in events {
+                    self.accept(&event)?;
+                }
+            }
+            Err(error) => {
+                self.accept(&ControlEvent::CommandError)?;
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_drops(pending: &OutputBatch, ack: &UploadAck) -> Result<()> {
+    ensure!(
+        ack.dropped_output.iter().all(|gap| {
+            gap.last_missing
+                .checked_sub(gap.first_missing)
+                .and_then(|n| n.checked_add(1))
+                .is_some_and(|count| {
+                    count <= 64
+                        && pending
+                            .request
+                            .frames
+                            .iter()
+                            .filter(|f| {
+                                f.terminal == gap.terminal
+                                    && f.sequence >= gap.first_missing
+                                    && f.sequence <= gap.last_missing
+                            })
+                            .count() as u64
+                            == count
+                })
+        }),
+        "foreign output drop range"
+    );
+    Ok(())
 }

@@ -19,6 +19,16 @@ pub enum SandboxStartup<'a> {
         channels: Arc<SandboxChannels>,
     },
 }
+pub(super) struct Launch<'a> {
+    pub(super) root: &'a Path,
+    pub(super) frozen: &'a super::FrozenLaunch,
+    pub(super) permit: aq_session_host::ExecutionPermit,
+    pub(super) local: &'a LocalEnvironment,
+    pub(super) journal: &'a mut journal::Journal,
+    pub(super) agent: Option<aq_session_host::users::AgentIdentity>,
+    pub(super) shutdown: watch::Receiver<bool>,
+    pub(super) login: Option<LoginEnv<'a>>,
+}
 impl<'a, A: HarnessAdapter> From<&'a A> for SandboxStartup<'a> {
     fn from(adapter: &'a A) -> Self {
         Self::Unobserved(adapter)
@@ -56,30 +66,23 @@ impl<'a> SandboxStartup<'a> {
         }
         Ok(())
     }
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn launch(
         self,
-        root: &Path,
-        frozen: &super::FrozenLaunch,
-        permit: aq_session_host::ExecutionPermit,
-        local: &LocalEnvironment,
-        journal: &mut journal::Journal,
-        agent: Option<aq_session_host::users::AgentIdentity>,
-        mut shutdown: watch::Receiver<bool>,
-        login: Option<LoginEnv<'_>>,
+        launch: Launch<'_>,
     ) -> Result<(SessionHandle, Option<OutputRuntime>)> {
         use crate::native::launch::sandbox as host;
+        let mut shutdown = launch.shutdown;
         match self {
             Self::Unobserved(adapter) => Ok((
                 host::launch(
-                    root,
-                    frozen.launch_id,
-                    &frozen.manifest,
-                    permit,
-                    local,
-                    &HarnessRef(adapter, login),
-                    journal,
-                    agent,
+                    launch.root,
+                    launch.frozen.launch_id,
+                    &launch.frozen.manifest,
+                    launch.permit,
+                    launch.local,
+                    &HarnessRef(adapter, launch.login),
+                    launch.journal,
+                    launch.agent,
                 )?,
                 None,
             )),
@@ -89,18 +92,18 @@ impl<'a> SandboxStartup<'a> {
                 channels,
             } => {
                 let pending = host::prepare_observed(
-                    root,
-                    frozen.launch_id,
+                    launch.root,
+                    launch.frozen.launch_id,
                     startup,
-                    permit,
-                    local,
-                    &ObservedRef(adapter, login),
-                    journal,
-                    agent,
+                    launch.permit,
+                    launch.local,
+                    &ObservedRef(adapter, launch.login),
+                    launch.journal,
+                    launch.agent,
                 )?;
                 let (observer, baseline) = pending.open_baseline_observer()?;
-                let output = channels.open_output(&baseline, &frozen.manifest.terminal)?;
-                let mut released = pending.release_after_baseline(&baseline, journal)?;
+                let output = channels.open_output(&baseline, &launch.frozen.manifest.terminal)?;
+                let mut released = pending.release_after_baseline(&baseline, launch.journal)?;
                 let mut runtime = OutputRuntime::start(channels, output, shutdown.clone());
                 runtime.drain(observer, shutdown.clone());
                 let until = tokio::time::Instant::now() + Duration::from_secs(3);
@@ -109,7 +112,7 @@ impl<'a> SandboxStartup<'a> {
                         released.stop()?;
                         anyhow::bail!("cancelled before observed Running");
                     }
-                    if let Some(handle) = released.poll_started(journal)? {
+                    if let Some(handle) = released.poll_started(launch.journal)? {
                         return Ok((handle, Some(runtime)));
                     }
                     ensure!(

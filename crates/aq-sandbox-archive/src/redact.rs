@@ -9,52 +9,47 @@ pub struct Redactor {
 }
 impl Redactor {
     pub fn frame(&mut self, bytes: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(bytes.len());
-        for &b in bytes {
-            if self.escape != 0 {
-                out.push(b);
-                self.escape = match (self.escape, b) {
-                    (1, b'[') => 2,
-                    (1, b']') => 3,
-                    (1, _) => 0,
-                    (2, 0x40..=0x7e) => 0,
-                    (2, _) => 2,
-                    (3, 7) => 0,
-                    (3, 27) => 4,
-                    (3, _) => 3,
-                    (4, b'\\') => 0,
-                    (4, _) => 3,
-                    _ => 0,
-                };
-                continue;
-            }
-            if b == 27 {
-                self.escape = 1;
-                out.push(b);
-                continue;
-            }
-            if self.masked {
-                if b.is_ascii_alphanumeric() || b == b'-' || b == b'_' {
-                    out.push(b'*');
-                    continue;
-                }
-                if b == b'\r' || b == b'\n' {
-                    out.push(b);
-                    continue;
-                }
-                self.masked = false;
-            }
-            out.push(b);
-            self.suffix.push(b);
-            if self.suffix.len() > 7 {
-                self.suffix.remove(0);
-            }
-            if self.suffix.ends_with(b"aqa_") || self.suffix.ends_with(b"sk-ant-") {
-                self.masked = true;
-                self.suffix.clear();
+        bytes.iter().map(|&byte| self.redact_byte(byte)).collect()
+    }
+
+    fn redact_byte(&mut self, byte: u8) -> u8 {
+        if self.escape != 0 || byte == 0x1b {
+            self.escape = self.next_escape(byte);
+            return byte;
+        }
+        if self.masked {
+            match byte {
+                b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'_' => return b'*',
+                b'\r' | b'\n' => return byte,
+                _ => self.masked = false,
             }
         }
-        out
+        self.suffix.push(byte);
+        if self.suffix.len() > 7 {
+            self.suffix.remove(0);
+        }
+        if self.suffix.ends_with(b"aqa_") || self.suffix.ends_with(b"sk-ant-") {
+            self.masked = true;
+            self.suffix.clear();
+        }
+        byte
+    }
+
+    fn next_escape(&self, b: u8) -> u8 {
+        match (self.escape, b) {
+            (0, 0x1b) => 1,
+            (1, b'[') => 2,
+            (1, b']') => 3,
+            (1, _) => 0,
+            (2, 0x40..=0x7e) => 0,
+            (2, _) => 2,
+            (3, 7) => 0,
+            (3, 27) => 4,
+            (3, _) => 3,
+            (4, b'\\') => 0,
+            (4, _) => 3,
+            _ => 0,
+        }
     }
 }
 #[cfg(test)]

@@ -75,19 +75,68 @@ impl DurableStoppedResult {
         Ok(())
     }
 }
+impl DurableStoppedResult {
+    fn record(
+        &self,
+        journal: &mut crate::native::journal::Journal,
+        proof_digest: Digest,
+        cause: ResultStopCause,
+    ) -> Result<Option<ResultHistory>> {
+        let id = self.attempt_id();
+        let a = journal.state().result_attempt(id)?;
+        let old = a.result.as_ref().context("result history absent")?;
+        if old.claim.is_none() {
+            return Ok(None);
+        }
+        let stopped = a
+            .native_host
+            .as_ref()
+            .and_then(|h| h.stopped.as_ref())
+            .context("result physical stop not durable")?;
+        ensure!(
+            proof_digest == stopped.proof_digest && self.proof.observation().kernel_wait_echild,
+            "result actual stopped proof differs"
+        );
+        let (_, receipt) = crate::native::journal::result_terminal_stop(a)?;
+        if matches!(cause, ResultStopCause::Expired) {
+            ensure!(
+                boot_ns()? >= self.custody.scope.deadline,
+                "result premature expiry"
+            );
+        }
+        let outcome = cause.process_outcome();
+        if let Some(stop) = &old.stop {
+            ensure!(
+                stop.proof_digest == proof_digest && stop.stopped_receipt == receipt,
+                "changed result stop replay"
+            );
+            return Ok(Some(old.clone()));
+        }
+        let digest = old.digest()?;
+        let native_revision = stopped.recorded_revision;
+        Ok(Some(journal.update_result(
+            id,
+            &digest,
+            |h, revision| {
+                h.stop = Some(StopAnchor {
+                    proof_digest,
+                    native_stopped_revision: native_revision,
+                    recorded_revision: revision,
+                    stopped_receipt: receipt,
+                    outcome,
+                });
+                Ok(())
+            },
+        )?))
+    }
+}
 impl InputPipeline {
     pub async fn retain_stopped_result(
         &self,
         id: Uuid,
         cause: ResultStopCause,
     ) -> Result<Option<DurableStoppedResult>> {
-        let custody = self
-            .results
-            .entries
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
-            .get(&id)
-            .cloned();
+        let custody = self.results.custody(id)?;
         let Some(custody) = custody else {
             return Ok(None);
         };
@@ -95,66 +144,20 @@ impl InputPipeline {
         custody.roots.verify()?;
         let proof = self.launch.result_stopped(&custody.scope)?;
         let proof_digest = crate::native::journal::canonical_digest(&proof)?;
-        let kept = proof.clone();
-        let c = custody.clone();
-        let h = self
+        let stopped = DurableStoppedResult { custody, proof };
+        let (stopped, h) = self
             .storage(move |owner| {
-                let a = owner
-                    .journal
-                    .state()
-                    .attempts
-                    .get(&id)
-                    .context("result attempt absent")?;
-                let old = a.result.as_ref().context("result history absent")?;
-                if old.claim.is_none() {
-                    return Ok(None);
-                }
-                let stopped = a
-                    .native_host
-                    .as_ref()
-                    .and_then(|h| h.stopped.as_ref())
-                    .context("result physical stop not durable")?;
-                ensure!(
-                    proof_digest == stopped.proof_digest && kept.observation().kernel_wait_echild,
-                    "result actual stopped proof differs"
-                );
-                let (_, receipt) = crate::native::journal::result_terminal_stop(a)?;
-                if matches!(cause, ResultStopCause::Expired) {
-                    ensure!(boot_ns()? >= c.scope.deadline, "result premature expiry");
-                }
-                let outcome = cause.process_outcome();
-                if let Some(stop) = &old.stop {
-                    ensure!(
-                        stop.proof_digest == proof_digest && stop.stopped_receipt == receipt,
-                        "changed result stop replay"
-                    );
-                    return Ok(Some(old.clone()));
-                }
-                let digest = old.digest()?;
-                let native_revision = stopped.recorded_revision;
-                Ok(Some(owner.journal.update_result(
-                    id,
-                    &digest,
-                    |h, revision| {
-                        h.stop = Some(StopAnchor {
-                            proof_digest,
-                            native_stopped_revision: native_revision,
-                            recorded_revision: revision,
-                            stopped_receipt: receipt,
-                            outcome,
-                        });
-                        Ok(())
-                    },
-                )?))
+                let h = stopped.record(&mut owner.journal, proof_digest, cause)?;
+                Ok((stopped, h))
             })
             .await?;
         let Some(h) = h else { return Ok(None) };
         if let Some(ack) = h.acknowledgment()?
-            && custody.storage.write_ack(&ack).is_err()
+            && stopped.custody.storage.write_ack(&ack).is_err()
         {
             tracing::warn!(attempt_id=%id,"stopped result retained; local acknowledgement projection unavailable");
         }
-        Ok(Some(DurableStoppedResult { custody, proof }))
+        Ok(Some(stopped))
     }
 }
 

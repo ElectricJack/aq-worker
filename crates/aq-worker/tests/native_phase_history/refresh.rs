@@ -1,10 +1,11 @@
 //! Actual local HTTP transport with independently published typed synthetic facts.
-use super::*;
+use super::{NativeClient, WorkerConfig, fixture};
 use aq_phase_terminal_protocol::refresh_v1 as wire;
+use aq_session_protocol::SessionIdentity;
 #[tokio::test]
 async fn refresh_terminal_and_history_use_exact_new_profile_on_shared_routes() {
     let fixtures: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../../../vendor/aq-phase-terminal-protocol-0.1.1/artifacts/refresh-v1/fixtures.json"
+        "../../../../vendor/aq-phase-terminal-protocol-0.1.1/artifacts/refresh-v1/fixtures.json"
     ))
     .unwrap();
     let started: wire::StartedRequest =
@@ -17,28 +18,11 @@ async fn refresh_terminal_and_history_use_exact_new_profile_on_shared_routes() {
         SessionIdentity::Remote { node_id, .. } => *node_id,
         _ => panic!("worker fixture"),
     };
-    let routes = axum::Router::new().route(
-        "/v1/worker/profiled-v2/{kind}",
-        axum::routing::post(
-            move |axum::extract::Path(kind): axum::extract::Path<String>,
-                  axum::Json(_): axum::Json<serde_json::Value>| {
-                let fixture = fixtures.clone();
-                async move {
-                    let value = match kind.as_str() {
-                        "started" => fixture["started_receipt"].clone(),
-                        "stopped" => fixture["stopped_receipt"].clone(),
-                        "history" => fixture["history_known"].clone(),
-                        _ => panic!("unexpected route"),
-                    };
-                    ([("aq-phase-terminal-api-version", "1")], axum::Json(value))
-                }
-            },
-        ),
-    );
+    let routes = fixture_routes(fixtures);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let server = tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
-    let client = NativeClient::from_config(&crate::config::WorkerConfig {
+    let client = NativeClient::from_config(&WorkerConfig {
         server_url: format!("http://{address}"),
         node_id,
         credential: "synthetic-refresh-terminal".into(),
@@ -64,12 +48,30 @@ async fn refresh_terminal_and_history_use_exact_new_profile_on_shared_routes() {
         .unwrap()
         .validate_for(&history)
         .unwrap();
-    let old: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../../../vendor/aq-phase-terminal-protocol-0.1.0/artifacts/fixtures.json"
-    ))
-    .unwrap();
+    let old = fixture();
     let old_started: aq_phase_terminal_protocol::StartedRequest =
         serde_json::from_value(old["started_request"].clone()).unwrap();
     assert!(client.phase_terminal_started(&old_started).await.is_err());
     server.abort();
+}
+
+fn fixture_routes(fixtures: serde_json::Value) -> axum::Router {
+    axum::Router::new().route(
+        "/v1/worker/profiled-v2/{kind}",
+        axum::routing::post(
+            move |axum::extract::Path(kind): axum::extract::Path<String>,
+                  axum::Json(_): axum::Json<serde_json::Value>| {
+                let fixture = fixtures.clone();
+                async move {
+                    let value = match kind.as_str() {
+                        "started" => fixture["started_receipt"].clone(),
+                        "stopped" => fixture["stopped_receipt"].clone(),
+                        "history" => fixture["history_known"].clone(),
+                        _ => panic!("unexpected route"),
+                    };
+                    ([("aq-phase-terminal-api-version", "1")], axum::Json(value))
+                }
+            },
+        ),
+    )
 }

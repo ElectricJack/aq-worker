@@ -8,7 +8,37 @@ use aq_worker::{
     transfer_client::TransferClient,
 };
 
-pub(super) async fn run(
+#[derive(Args)]
+pub struct Checkout {
+    #[arg(long)]
+    profile: String,
+    #[arg(long)]
+    node: u32,
+    #[arg(long)]
+    slot: u32,
+    #[arg(long)]
+    attempt_id: Uuid,
+    #[arg(long)]
+    expected_head: String,
+    /// Use the original clean checkout and keep the credential-quarantined sandbox stopped.
+    #[arg(long)]
+    original_checkpoint: bool,
+}
+impl Checkout {
+    pub(super) async fn run(&self) -> Result<()> {
+        run(
+            &self.profile,
+            self.node,
+            self.slot,
+            self.attempt_id,
+            &self.expected_head,
+            self.original_checkpoint,
+        )
+        .await
+    }
+}
+
+async fn run(
     profile: &str,
     node: u32,
     slot: u32,

@@ -1,14 +1,9 @@
 use super::*;
-use std::{
-    collections::BTreeMap,
-    io::{Read, Write},
-};
-use zeroize::Zeroizing;
+use std::collections::BTreeMap;
+mod publication;
+pub use publication::CandidatePublishedInputs;
 
 pub const PROFILE: &str = "linux-x86_64-prepared-static-capsule-candidate-v1";
-const AUTH: &str = "auth.json";
-const CONFIG: &str = "candidate-config.json";
-const MAX_FILE: u64 = 65536;
 pub(super) fn digest(value: &impl Serialize) -> Result<Digest> {
     let mut value = serde_json::to_value(value)?;
     value.sort_all_objects();
@@ -97,11 +92,15 @@ pub(super) fn validate_plan(plan: &PlanRecord, files: &[File]) -> Result<()> {
     );
     Ok(())
 }
+pub(super) struct PreparedProcesses {
+    pub(super) guardian: ProcessEvidence,
+    pub(super) init: ProcessEvidence,
+    pub(super) stub: ProcessEvidence,
+}
+
 pub(super) fn info(
     plan: &PlanRecord,
-    guardian: ProcessEvidence,
-    init: ProcessEvidence,
-    stub: ProcessEvidence,
+    processes: PreparedProcesses,
     origin: String,
 ) -> Result<CandidatePreparedInfo> {
     let spec = plan.prepared.as_ref().context("prepared mode absent")?;
@@ -115,160 +114,13 @@ pub(super) fn info(
         preparation_digest: spec.preparation_digest.clone(),
         capsule_id: plan.nonce,
         original_deadline_boot_ms: plan.deadline,
-        guardian,
-        namespace_init: init,
-        exec_stub: stub,
+        guardian: processes.guardian,
+        namespace_init: processes.init,
+        exec_stub: processes.stub,
         origin,
         argument_prefix: plan.arguments.clone(),
         auth_directory: (grant.pin.device, grant.pin.inode),
     })
-}
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct FilePin {
-    device: u64,
-    inode: u64,
-    bytes: u64,
-    digest: Digest,
-}
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CandidatePublishedInputs {
-    auth: FilePin,
-    config: FilePin,
-    capability_digest: Digest,
-}
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    profile: String,
-    owner_intent: ArtifactRef,
-    preparation_digest: Digest,
-    capsule_id: Uuid,
-    origin: String,
-    deadline_boot_ms: u64,
-    capability_digest: Digest,
-}
-fn config(info: &CandidatePreparedInfo, cap: Digest) -> Config {
-    Config {
-        profile: PROFILE.into(),
-        owner_intent: info.owner_intent.clone(),
-        preparation_digest: info.preparation_digest.clone(),
-        capsule_id: info.capsule_id,
-        origin: info.origin.clone(),
-        deadline_boot_ms: info.original_deadline_boot_ms,
-        capability_digest: cap,
-    }
-}
-fn private_directory(path: &Path, expected: (u64, u64)) -> Result<File> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(path)?;
-    let m = file.metadata()?;
-    ensure!(
-        m.is_dir()
-            && m.uid() == unsafe { libc::geteuid() }
-            && m.mode() & 0o7777 == 0o700
-            && (m.dev(), m.ino()) == expected,
-        "prepared derived directory identity"
-    );
-    Ok(file)
-}
-fn read_member(directory: &File, name: &str) -> Result<(Zeroizing<Vec<u8>>, FilePin)> {
-    let name = std::ffi::CString::new(name)?;
-    let fd = unsafe {
-        libc::openat(
-            directory.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-        )
-    };
-    ensure!(fd >= 0, "prepared derived member unavailable");
-    let mut file = unsafe { File::from_raw_fd(fd) };
-    let before = file.metadata()?;
-    ensure!(
-        before.is_file()
-            && before.uid() == unsafe { libc::geteuid() }
-            && before.mode() & 0o7777 == 0o600
-            && before.nlink() == 1
-            && before.len() > 0
-            && before.len() <= MAX_FILE,
-        "prepared derived member shape"
-    );
-    let mut body = Zeroizing::new(Vec::new());
-    Read::by_ref(&mut file)
-        .take(MAX_FILE + 1)
-        .read_to_end(&mut body)?;
-    let after = file.metadata()?;
-    ensure!(
-        body.len() as u64 == before.len()
-            && before.dev() == after.dev()
-            && before.ino() == after.ino()
-            && before.len() == after.len()
-            && before.mtime() == after.mtime()
-            && before.mtime_nsec() == after.mtime_nsec(),
-        "prepared derived member changed"
-    );
-    let pin = FilePin {
-        device: before.dev(),
-        inode: before.ino(),
-        bytes: before.len(),
-        digest: Digest::of(&body),
-    };
-    Ok((body, pin))
-}
-fn write_member(directory: &File, name: &str, body: &[u8]) -> Result<()> {
-    let name = std::ffi::CString::new(name)?;
-    let fd = unsafe {
-        libc::openat(
-            directory.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0o600,
-        )
-    };
-    ensure!(fd >= 0, "prepared synthetic publication reserve");
-    let mut file = unsafe { File::from_raw_fd(fd) };
-    file.write_all(body)?;
-    file.sync_all()?;
-    Ok(())
-}
-impl CandidatePublishedInputs {
-    /// Synthetic fixture publication only; no original provider source is accepted.
-    pub fn publish_synthetic(
-        info: &CandidatePreparedInfo,
-        path: &Path,
-        local_capability: &[u8],
-    ) -> Result<Self> {
-        ensure!(
-            ownership::raw_boot_ms() < info.original_deadline_boot_ms,
-            "prepared publication expired"
-        );
-        let directory = private_directory(path, info.auth_directory)?;
-        ensure!(
-            std::fs::read_dir(format!("/proc/thread-self/fd/{}", directory.as_raw_fd()))?
-                .next()
-                .is_none(),
-            "prepared publication must be empty"
-        );
-        let capability_digest = Digest::of(local_capability);
-        let mut auth = Zeroizing::new(b"{\"OPENAI_API_KEY\":\"".to_vec());
-        auth.extend_from_slice(local_capability);
-        auth.extend_from_slice(b"\"}");
-        crate::private_inputs::verify_local_capability_auth(&auth, &capability_digest)?;
-        let cfg = serde_json::to_vec(&config(info, capability_digest.clone()))?;
-        write_member(&directory, AUTH, &auth)?;
-        write_member(&directory, CONFIG, &cfg)?;
-        directory.sync_all()?;
-        let (_, auth) = read_member(&directory, AUTH)?;
-        let (_, config) = read_member(&directory, CONFIG)?;
-        Ok(Self {
-            auth,
-            config,
-            capability_digest,
-        })
-    }
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -362,11 +214,17 @@ pub(super) fn verify_exec(
     port: u16,
     record: &CommitRecord,
 ) -> Result<CandidateStaticRecipe> {
+    let scope = &record.scope;
+    verify_scope(plan, port, scope)?;
+    validate_record(record, scope)?;
+    record.published.verify(scope)?;
+    Ok(record.recipe.clone())
+}
+fn verify_scope(plan: &PlanRecord, port: u16, scope: &CandidatePreparedInfo) -> Result<()> {
     let spec = plan
         .prepared
         .as_ref()
         .context("prepared commit on legacy mode")?;
-    let scope = &record.scope;
     ensure!(
         scope.owner_intent == spec.owner_intent
             && scope.preparation_digest == spec.preparation_digest
@@ -376,32 +234,9 @@ pub(super) fn verify_exec(
             && scope.argument_prefix == plan.arguments,
         "prepared stub exact identity"
     );
-    validate_record(record, scope)?;
-    let directory = private_directory(Path::new("/auth"), scope.auth_directory)?;
-    let names = std::fs::read_dir("/auth")?
-        .map(|entry| Ok(entry?.file_name()))
-        .collect::<Result<Vec<_>>>()?;
-    ensure!(
-        names.len() == 2 && names.iter().all(|n| n == AUTH || n == CONFIG),
-        "prepared fixed derived members"
-    );
-    let (auth, auth_pin) = read_member(&directory, AUTH)?;
-    let (cfg, cfg_pin) = read_member(&directory, CONFIG)?;
-    ensure!(
-        auth_pin == record.published.auth && cfg_pin == record.published.config,
-        "prepared actual file digest/identity"
-    );
-    crate::private_inputs::verify_local_capability_auth(
-        &auth,
-        &record.published.capability_digest,
-    )?;
-    let actual: Config = serde_json::from_slice(&cfg)?;
-    ensure!(
-        actual == config(scope, record.published.capability_digest.clone()),
-        "prepared actual config binding"
-    );
-    Ok(record.recipe.clone())
+    Ok(())
 }
+
 pub struct CandidatePreparedStopReport {
     info: CandidatePreparedInfo,
     reaped: u64,
@@ -469,9 +304,11 @@ impl CandidatePreparedHandle {
         };
         let expected = super::prepared::info(
             &plan.record,
-            info.guardian.clone(),
-            info.namespace_init.clone(),
-            info.exec_stub.clone(),
+            PreparedProcesses {
+                guardian: info.guardian.clone(),
+                init: info.namespace_init.clone(),
+                stub: info.exec_stub.clone(),
+            },
             info.origin.clone(),
         )?;
         ensure!(
@@ -606,101 +443,4 @@ impl CandidatePreparedHandle {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    fn info(directory: &Path) -> CandidatePreparedInfo {
-        let meta = std::fs::metadata(directory).unwrap();
-        let reference = ArtifactRef {
-            id: aq_session_protocol::Text::new("synthetic-owner").unwrap(),
-            version: aq_session_protocol::Text::new("1").unwrap(),
-            digest: Digest::of(b"no authority"),
-        };
-        CandidatePreparedInfo {
-            owner_intent: reference,
-            preparation_digest: Digest::of(b"fixture-plan"),
-            capsule_id: Uuid::new_v4(),
-            original_deadline_boot_ms: ownership::raw_boot_ms() + 5000,
-            guardian: ProcessEvidence {
-                pid: 10,
-                start_ticks: 1,
-            },
-            namespace_init: ProcessEvidence {
-                pid: 11,
-                start_ticks: 2,
-            },
-            exec_stub: ProcessEvidence {
-                pid: 12,
-                start_ticks: 3,
-            },
-            origin: "http://127.0.0.1:32123".into(),
-            argument_prefix: vec!["fixture-only".into()],
-            auth_directory: (meta.dev(), meta.ino()),
-        }
-    }
-    #[test]
-    fn synthetic_publication_is_private_and_commit_metadata_does_not_contain_capability_bytes() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let info = info(root.path());
-        let cap = format!(
-            "aq-responses-{}{}",
-            Uuid::new_v4().simple(),
-            Uuid::new_v4().simple()
-        );
-        let published =
-            CandidatePublishedInputs::publish_synthetic(&info, root.path(), cap.as_bytes())
-                .unwrap();
-        let commit = CandidateCommit::new(
-            &info,
-            published,
-            CandidateStaticRecipe::new(&info),
-            Digest::of(b"synthetic transport"),
-        )
-        .unwrap();
-        assert!(!serde_json::to_string(&commit).unwrap().contains(&cap));
-        assert_eq!(
-            std::fs::metadata(root.path().join(AUTH)).unwrap().mode() & 0o7777,
-            0o600
-        );
-        let directory = private_directory(root.path(), info.auth_directory).unwrap();
-        let (auth, _) = read_member(&directory, AUTH).unwrap();
-        crate::private_inputs::verify_local_capability_auth(&auth, &Digest::of(cap.as_bytes()))
-            .unwrap();
-        assert!(
-            CandidatePublishedInputs::publish_synthetic(&info, root.path(), cap.as_bytes())
-                .is_err()
-        );
-    }
-    #[test]
-    fn correctly_rehashed_conflicting_scope_and_recipe_still_refuse() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-        let info = info(root.path());
-        let cap = format!(
-            "aq-responses-{}{}",
-            Uuid::new_v4().simple(),
-            Uuid::new_v4().simple()
-        );
-        let published =
-            CandidatePublishedInputs::publish_synthetic(&info, root.path(), cap.as_bytes())
-                .unwrap();
-        let commit = CandidateCommit::new(
-            &info,
-            published,
-            CandidateStaticRecipe::new(&info),
-            Digest::of(b"synthetic"),
-        )
-        .unwrap();
-        let mut changed = commit.0.clone();
-        changed.scope.origin = "http://127.0.0.1:1".into();
-        changed.digest = commit_digest(&changed).unwrap();
-        assert!(validate_record(&changed, &info).is_err());
-        let mut changed = commit.0;
-        changed
-            .recipe
-            .environment
-            .insert("HOME".into(), "/unqualified".into());
-        changed.digest = commit_digest(&changed).unwrap();
-        assert!(validate_record(&changed, &info).is_err());
-    }
-}
+mod tests;

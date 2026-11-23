@@ -92,12 +92,35 @@ async fn phase_join(
     joined
 }
 
-#[tokio::test]
-async fn actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only() {
+async fn refresh_inputs() -> (Inputs, GitPeer) {
     let export = synthetic();
     let manifest = export.manifest.clone();
-    let mut h = Inputs::new_phase(export).await;
+    let h = Inputs::new_phase(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
+    (h, git)
+}
+async fn observe_refresh(
+    h: &Inputs,
+    intent: &aq_admission::preparation_refresh_v1::AcceptRequest,
+    inputs: &crate::native::preparation::PreparedRefreshInputs,
+) -> Arc<crate::native::http::preparation_refresh_v1::ExecutionObservation> {
+    Arc::new(
+        h.client
+            .prepare_refresh_execution(
+                h.proposed.as_ref().unwrap(),
+                intent,
+                h.phase.as_ref().unwrap(),
+                inputs.request(),
+                None,
+            )
+            .await
+            .unwrap(),
+    )
+}
+#[tokio::test]
+async fn actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
+    let (mut h, git) = refresh_inputs().await;
     let inputs = phase_join(&h, git.client.clone()).await;
     assert_eq!(
         inputs.materials()[0].read_private().unwrap().as_slice(),
@@ -106,18 +129,7 @@ async fn actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only
     let state = h.pipeline().snapshot().await.unwrap();
     let a = &state.attempts[&h.id];
     let intent = a.refresh_acceptance.as_ref().unwrap();
-    let observed = std::sync::Arc::new(
-        h.client
-            .prepare_refresh_execution(
-                h.proposed.as_ref().unwrap(),
-                &intent.request,
-                h.phase.as_ref().unwrap(),
-                inputs.request(),
-                None,
-            )
-            .await
-            .unwrap(),
-    );
+    let observed = observe_refresh(&h, &intent.request, &inputs).await;
     let crate::native::preparation::PhaseExecutionCommit::Usable(owner) = h
         .pipeline()
         .record_refresh_execution(inputs, observed.clone())
@@ -164,6 +176,9 @@ async fn actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only
     );
     drop(owner);
     drop(h.pipeline.take());
+    check_reopened_authority(&h, &first);
+}
+fn check_reopened_authority(h: &Inputs, first: &[u8]) {
     let mut cap = limits();
     cap.disk_bytes = 64 * 1024 * 1024 * 1024;
     let reopened = Journal::open(&h.root, identity().node_id, cap).unwrap();
@@ -185,26 +200,12 @@ async fn actual_refresh_inputs_join_execution_and_reopen_stay_typed_history_only
 async fn refresh_unpolled_request_retains_actual_bundle_before_network_and_retry_keeps_first_owner()
 {
     let _clock = crate::native::http::test_clock::TestClock::new();
-    let export = synthetic();
-    let manifest = export.manifest.clone();
-    let mut h = Inputs::new_phase(export).await;
-    let git = GitPeer::new(h.root.clone(), manifest);
+    let (mut h, git) = refresh_inputs().await;
     let inputs = phase_join(&h, git.client.clone()).await;
     let state = h.pipeline().snapshot().await.unwrap();
     let a = &state.attempts[&h.id];
     let intent = a.refresh_acceptance.as_ref().unwrap();
-    let observed = Arc::new(
-        h.client
-            .prepare_refresh_execution(
-                h.proposed.as_ref().unwrap(),
-                &intent.request,
-                h.phase.as_ref().unwrap(),
-                inputs.request(),
-                None,
-            )
-            .await
-            .unwrap(),
-    );
+    let observed = observe_refresh(&h, &intent.request, &inputs).await;
     let accepted = crate::native::preparation::RefreshPreparation {
         proposed: Arc::new(h.proposed.take().unwrap()),
         request: intent.request.clone(),
@@ -238,26 +239,12 @@ async fn refresh_fsync_loss_reopens_history_without_live_authority_and_keeps_eve
         WriteFault::AfterRename,
         WriteFault::AfterDirectorySync,
     ] {
-        let export = synthetic();
-        let manifest = export.manifest.clone();
-        let mut h = Inputs::new_phase(export).await;
-        let git = GitPeer::new(h.root.clone(), manifest);
+        let (mut h, git) = refresh_inputs().await;
         let inputs = phase_join(&h, git.client.clone()).await;
         let state = h.pipeline().snapshot().await.unwrap();
         let a = &state.attempts[&h.id];
         let intent = a.refresh_acceptance.as_ref().unwrap();
-        let observed = Arc::new(
-            h.client
-                .prepare_refresh_execution(
-                    h.proposed.as_ref().unwrap(),
-                    &intent.request,
-                    h.phase.as_ref().unwrap(),
-                    inputs.request(),
-                    None,
-                )
-                .await
-                .unwrap(),
-        );
+        let observed = observe_refresh(&h, &intent.request, &inputs).await;
         h.pipeline().test_journal_fault(fault).await.unwrap();
         assert!(
             h.pipeline()
@@ -288,10 +275,7 @@ async fn refresh_fsync_loss_reopens_history_without_live_authority_and_keeps_eve
 
 #[tokio::test]
 async fn refresh_shared_saved_owner_cannot_be_rehashed_around_capture_or_mixed_profile_history() {
-    let export = synthetic();
-    let manifest = export.manifest.clone();
-    let h = Inputs::new_phase(export).await;
-    let git = GitPeer::new(h.root.clone(), manifest);
+    let (h, git) = refresh_inputs().await;
     let _inputs = phase_join(&h, git.client.clone()).await;
     let saved = h.pipeline().snapshot().await.unwrap();
     let mut cap = limits();
@@ -356,11 +340,12 @@ async fn production_collect_dispatch_retains_actual_refresh_inputs_without_launc
         serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();
     config.maximum_preparation_ms = 30000;
     config.renderer = a.reservation.offer.startup.renderer_qualification.clone();
-    let grant = crate::native::runner::test_collect(
-        h.pipeline(),
-        &h.inventory().await,
-        &config,
-        h.id,
+    let grant = crate::native::runner::TestPreparation {
+        pipeline: h.pipeline(),
+        inventory: &h.inventory().await,
+        config: &config,
+    }
+    .collect(
         &a.reservation.offer,
         a.reservation.deadline_ns,
         git.client.clone(),

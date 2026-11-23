@@ -130,6 +130,43 @@ fn has_credential(state: &Path) -> bool {
     state.join("credential.json").exists()
 }
 
+fn check_attempt_fence(
+    access: &AgentAccess,
+    attempt: AgentGrant,
+    now: u64,
+    state: &Path,
+) -> SessionDelivery {
+    // A delivery for another attempt or node is refused before installation.
+    let inside = delivery("2020-06-01T00:00:00Z");
+    for other in [
+        AgentGrant {
+            attempt_id: Uuid::new_v4(),
+            ..attempt
+        },
+        AgentGrant {
+            node_id: Uuid::new_v4(),
+            ..attempt
+        },
+    ] {
+        assert!(access.provision(&inside, &other, now).is_err());
+    }
+    assert!(!has_credential(state));
+
+    // Expired grants and lost authority stop provisioning.
+    assert!(
+        access
+            .provision(&inside, &attempt, attempt.not_after_ms)
+            .is_err()
+    );
+    let lost = AgentGrant {
+        live: false,
+        ..attempt
+    };
+    assert!(access.provision(&inside, &lost, now).is_err());
+
+    inside
+}
+
 #[tokio::test]
 async fn agent_credential_expires_with_attempt() {
     let (_root, state) = agent_root();
@@ -157,33 +194,7 @@ async fn agent_credential_expires_with_attempt() {
     edged.client = serde_json::to_vec(&cfg).unwrap();
     assert!(access.provision(&edged, &attempt, now).is_err());
 
-    // A delivery for another attempt or node is refused before installation.
-    let inside = delivery("2020-06-01T00:00:00Z");
-    for other in [
-        AgentGrant {
-            attempt_id: Uuid::new_v4(),
-            ..attempt
-        },
-        AgentGrant {
-            node_id: Uuid::new_v4(),
-            ..attempt
-        },
-    ] {
-        assert!(access.provision(&inside, &other, now).is_err());
-    }
-    assert!(!has_credential(&state));
-
-    // Expired grants and lost authority stop provisioning.
-    assert!(
-        access
-            .provision(&inside, &attempt, attempt.not_after_ms)
-            .is_err()
-    );
-    let lost = AgentGrant {
-        live: false,
-        ..attempt
-    };
-    assert!(access.provision(&inside, &lost, now).is_err());
+    let inside = check_attempt_fence(&access, attempt, now, &state);
 
     // An in-grant credential installs; its expiry never exceeds the grant.
     let installed = access.provision(&inside, &attempt, now).unwrap();
@@ -228,6 +239,63 @@ struct Seen {
     heads: Vec<String>,
     bodies: Vec<Value>,
 }
+async fn read_agent_request(
+    socket: &mut BufReader<tokio::net::TcpStream>,
+) -> Option<(String, Vec<u8>)> {
+    let mut head = String::new();
+    loop {
+        let mut line = String::new();
+        if socket.read_line(&mut line).await.unwrap() == 0 {
+            return None;
+        }
+        head.push_str(&line);
+        if line == "\r\n" {
+            break;
+        }
+    }
+    let lower = head.to_lowercase();
+    let length: usize = lower
+        .lines()
+        .find_map(|l| l.strip_prefix("content-length: "))
+        .map(|v| v.trim().parse().unwrap())
+        .unwrap_or(0);
+    let mut body = vec![0; length];
+    socket.read_exact(&mut body).await.unwrap();
+    Some((lower, body))
+}
+
+fn agent_response(lower: &str, body: &[u8], seen: &Mutex<Seen>) -> Value {
+    let fixture = base();
+    if lower.starts_with("get /v1/agent/context ") {
+        fixture["context"].clone()
+    } else if lower.starts_with("post /v1/agent/graph/commands ") {
+        let request: Value = serde_json::from_slice(body).unwrap();
+        let mut value = fixture["operation_statuses"]["confirmed"].clone();
+        value["operation_id"] = request["operation_id"].clone();
+        value["payload_digest"] = json!(digest(&request).unwrap());
+        seen.lock().unwrap().bodies.push(request);
+        value
+    } else {
+        panic!("unexpected upstream route");
+    }
+}
+
+async fn serve_agent(socket: tokio::net::TcpStream, seen: Arc<Mutex<Seen>>) {
+    let mut socket = BufReader::new(socket);
+    while let Some((lower, body)) = read_agent_request(&mut socket).await {
+        let value = agent_response(&lower, &body, &seen);
+        seen.lock().unwrap().heads.push(lower);
+        let body = serde_json::to_vec(&value).unwrap();
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-AQ-Agent-API-Version: 1\r\nCache-Control: no-store\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        );
+        let socket = socket.get_mut();
+        socket.write_all(head.as_bytes()).await.unwrap();
+        socket.write_all(&body).await.unwrap();
+    }
+}
+
 /// Raw loopback AQ upstream behind the proxy: answers context and commands.
 async fn upstream(seen: Arc<Mutex<Seen>>) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -236,52 +304,7 @@ async fn upstream(seen: Arc<Mutex<Seen>>) -> String {
         loop {
             let (socket, _) = listener.accept().await.unwrap();
             let seen = seen.clone();
-            tokio::spawn(async move {
-                let mut socket = BufReader::new(socket);
-                loop {
-                    let mut head = String::new();
-                    loop {
-                        let mut line = String::new();
-                        if socket.read_line(&mut line).await.unwrap() == 0 {
-                            return;
-                        }
-                        head.push_str(&line);
-                        if line == "\r\n" {
-                            break;
-                        }
-                    }
-                    let lower = head.to_lowercase();
-                    let length: usize = lower
-                        .lines()
-                        .find_map(|l| l.strip_prefix("content-length: "))
-                        .map(|v| v.trim().parse().unwrap())
-                        .unwrap_or(0);
-                    let mut body = vec![0; length];
-                    socket.read_exact(&mut body).await.unwrap();
-                    let fixture = base();
-                    let value = if lower.starts_with("get /v1/agent/context ") {
-                        fixture["context"].clone()
-                    } else if lower.starts_with("post /v1/agent/graph/commands ") {
-                        let request: Value = serde_json::from_slice(&body).unwrap();
-                        let mut value = fixture["operation_statuses"]["confirmed"].clone();
-                        value["operation_id"] = request["operation_id"].clone();
-                        value["payload_digest"] = json!(digest(&request).unwrap());
-                        seen.lock().unwrap().bodies.push(request);
-                        value
-                    } else {
-                        panic!("unexpected upstream route");
-                    };
-                    seen.lock().unwrap().heads.push(lower);
-                    let body = serde_json::to_vec(&value).unwrap();
-                    let head = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nX-AQ-Agent-API-Version: 1\r\nCache-Control: no-store\r\nContent-Length: {}\r\n\r\n",
-                        body.len()
-                    );
-                    let socket = socket.get_mut();
-                    socket.write_all(head.as_bytes()).await.unwrap();
-                    socket.write_all(&body).await.unwrap();
-                }
-            });
+            tokio::spawn(serve_agent(socket, seen));
         }
     });
     origin

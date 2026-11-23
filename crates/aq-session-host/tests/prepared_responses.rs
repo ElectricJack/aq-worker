@@ -484,39 +484,36 @@ async fn wrong_model_or_local_cap_never_reaches_parent_upstream() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "explicit aggregate cancellation/original expiry; no Codex/provider"]
 async fn cancellation_and_original_expiry_fence_completed_guest_requests_before_upstream() {
-    for mode in ["cancel", "expiry"] {
-        let mut peer = Peer::new().await;
-        let credential = Credential::new(true);
-        let _release = CallbackRelease(credential.clone());
-        let mut owner = Aggregate::start(
-            mode,
-            if mode == "expiry" { 1600 } else { 8000 },
-            &peer,
-            credential.clone(),
-        )
-        .await;
-        let deadline = owner.info().deadline_boot_ms();
-        let fds = pidfds(&owner);
-        let commit = owner.commit();
-        owner.release(commit).unwrap();
-        owner.marker("guest-ready").await;
-        owner.send();
-        credential.second_read().await;
-        assert!(owner.fixture.workspace.join("request-attempt").exists());
-        if mode == "expiry" {
-            while ownership::raw_boot_ms() <= deadline {
-                tokio::time::sleep(Duration::from_millis(2)).await;
-            }
+    check_fenced_request("cancel", 8000).await;
+    check_fenced_request("expiry", 1600).await;
+}
+
+async fn check_fenced_request(mode: &str, lifetime_ms: u64) {
+    let mut peer = Peer::new().await;
+    let credential = Credential::new(true);
+    let _release = CallbackRelease(credential.clone());
+    let mut owner = Aggregate::start(mode, lifetime_ms, &peer, credential.clone()).await;
+    let deadline = owner.info().deadline_boot_ms();
+    let fds = pidfds(&owner);
+    let commit = owner.commit();
+    owner.release(commit).unwrap();
+    owner.marker("guest-ready").await;
+    owner.send();
+    credential.second_read().await;
+    assert!(owner.fixture.workspace.join("request-attempt").exists());
+    if mode == "expiry" {
+        while ownership::raw_boot_ms() <= deadline {
+            tokio::time::sleep(Duration::from_millis(2)).await;
         }
-        let _service_ok = owner.shutdown().await.unwrap();
-        assert!(owner.transport_closed && owner.echild);
-        credential.release();
-        credential.drain().await;
-        ended(&fds).await;
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        assert!(!owner.fixture.workspace.join("response-complete").exists());
-        peer.finish(0).await;
     }
+    let _service_ok = owner.shutdown().await.unwrap();
+    assert!(owner.transport_closed && owner.echild);
+    credential.release();
+    credential.drain().await;
+    ended(&fds).await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(!owner.fixture.workspace.join("response-complete").exists());
+    peer.finish(0).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

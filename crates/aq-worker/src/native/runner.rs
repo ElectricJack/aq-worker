@@ -1,4 +1,5 @@
 //! Readiness precedes admission; retained journal/resources survive every exit.
+mod admission;
 mod claude_docker;
 mod codex;
 mod config;
@@ -10,15 +11,13 @@ pub use claude_docker::{
     destroy_claimed_sandboxes, launch_pins, release_claimed_sandboxes, release_preserved_sandbox,
     write_back_login,
 };
-#[cfg(all(test, feature = "test-support"))]
-pub(crate) use codex::drive_running;
 pub use codex::{CodexExecutor, CodexSettings, ExecutorConfig};
 #[cfg(all(test, feature = "test-support"))]
-pub(crate) use codex::{PreStop, drive_running_with_pre_stop};
+pub(crate) use codex::{DriveOptions, PreStop, RunningHost};
 mod heartbeat;
 mod prepare;
 #[cfg(test)]
-pub(crate) use prepare::collect as test_collect;
+pub(crate) use prepare::Preparation as TestPreparation;
 mod profile;
 mod recovery;
 pub use recovery::{
@@ -96,7 +95,8 @@ pub async fn run_once<E: NativeExecutor>(
     executor: &mut E,
     shutdown: watch::Receiver<bool>,
 ) -> Result<RunDisposition> {
-    run_admitted(worker, config, executor, shutdown, None, None).await
+    let polling = admission::Polling::new(shutdown, None, None);
+    admission::run(worker, config, executor, polling).await
 }
 /// Poll until offer/pause/shutdown, renewing inventory near expiry; for `hold` it only reports.
 pub async fn run_until_attempt<E: NativeExecutor>(
@@ -107,8 +107,8 @@ pub async fn run_until_attempt<E: NativeExecutor>(
     pause: watch::Receiver<bool>,
     hold: std::time::Duration,
 ) -> Result<RunDisposition> {
-    let pause = Some((pause, hold));
-    run_admitted(worker, config, executor, shutdown, pause, None).await
+    let polling = admission::Polling::new(shutdown, Some((pause, hold)), None);
+    admission::run(worker, config, executor, polling).await
 }
 /// A slot in a node boot already registered by the service, independently of recovery.
 pub async fn run_node_slot<E: NativeExecutor>(
@@ -121,219 +121,8 @@ pub async fn run_node_slot<E: NativeExecutor>(
     node: Arc<aq_node_service::session::NodeSession>,
     slot: u32,
 ) -> Result<RunDisposition> {
-    let node = Some((node, slot));
-    run_admitted(worker, config, executor, shutdown, Some(pause), node).await
-}
-async fn run_admitted<E: NativeExecutor>(
-    worker: &WorkerConfig,
-    mut config: NativeConfig,
-    executor: &mut E,
-    shutdown: watch::Receiver<bool>,
-    pause: Option<(watch::Receiver<bool>, std::time::Duration)>,
-    node: Option<(Arc<aq_node_service::session::NodeSession>, u32)>,
-) -> Result<RunDisposition> {
-    config.validate()?;
-    config.capacity.slots = 1;
-    // The service keeps one heartbeat per node, also against a server without node slots.
-    let serviced = node.is_some();
-    let node = node.filter(|(n, _)| n.aware());
-    // No network or state-directory publication precedes this implementation gate.
-    executor.preflight(&config)?;
-    if *shutdown.borrow() {
-        return Ok(RunDisposition::ShutdownBeforeAdmission);
-    }
-    let profile = config.presence_profile()?;
-    let git = config.git_client(worker)?;
-    let disk = git.native_reservation_bytes()?;
-    ensure!(
-        disk <= config.capacity.disk_bytes,
-        "native Git reservation exceeds configured capacity"
-    );
-    let mut client = NativeClient::from_config(worker)?
-        .with_git_author_support(git.supports_checkpoint_author());
-    if let Some((node, slot)) = &node {
-        client = client.for_node_slot(*slot, node.registered_slots());
-    }
-    let held = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&config.state_dir)?;
-    fs2::FileExt::try_lock_exclusive(&held).context("native state scope already owned")?;
-    check_root(&config, &held)?;
-    let journal = if let Some((node, _)) = &node {
-        Journal::create_identity(
-            &config.state_dir.join("journal"),
-            aq_admission::transport::WorkerIdentity {
-                node_id: worker.node_id,
-                boot_id: node.boot_id,
-            },
-            config.capacity.clone(),
-        )?
-    } else {
-        open_journal(&config, worker.node_id)?
-    };
-    ensure!(
-        !journal.recovery_required(),
-        "native history cannot admit new work; use reconcile-native to report retained outcome"
-    );
-    let (heartbeat, shutdown) = if serviced {
-        (None, shutdown)
-    } else {
-        let (heartbeat, shutdown) = heartbeat::Heartbeat::start(worker, shutdown).await?;
-        (Some(heartbeat), shutdown)
-    };
-    let identity = journal.state().identity.clone();
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(config.state_dir.join("materials"))?;
-    held.sync_all()?;
-    let materials = MaterialStore::open(&config.state_dir.join("materials"), identity.clone(), 32)?;
-    let mut pipeline = InputPipeline::new(journal, materials, client.clone());
-    if let Some((node, _)) = &node {
-        pipeline = pipeline.with_inventory(node.inventory.clone());
-    }
-    let pipeline = Arc::new(pipeline);
-    check_root(&config, &held)?;
-    if node.is_none() {
-        client
-            .register(&Register {
-                schema_version: 1,
-                operation_id: Uuid::new_v4(),
-                identity: identity.clone(),
-                runtime: config.runtime.runtime.clone(),
-                capabilities: config.capabilities.clone(),
-                features: config.features.clone(),
-            })
-            .await?;
-    }
-    let producer = pipeline
-        .scoped_presence(profile, config.harness_qualifications.clone(), 0)
-        .await?;
-    let mut poll_shutdown = shutdown.clone();
-    let report_only = std::sync::atomic::AtomicBool::new(false);
-    let poll_once = || async {
-        if let Some(h) = &heartbeat {
-            h.check()?;
-        }
-        let _inventory = pipeline.inventory.gate.lock().await;
-        let need = pipeline.inventory.poll_need(config.inventory_ttl_ms);
-        let sequence = node_inventory(&pipeline, &producer, config.inventory_ttl_ms, need).await?;
-        if report_only.load(std::sync::atomic::Ordering::Relaxed) || *shutdown.borrow() {
-            return Ok(None);
-        }
-        let available = pipeline.available().await?;
-        let mut page = client
-            .poll(&Poll {
-                schema_version: 1,
-                operation_id: Uuid::new_v4(),
-                identity: identity.clone(),
-                inventory_sequence: sequence,
-                available: Resources {
-                    slots: available.slots,
-                    memory_bytes: available.memory_bytes,
-                    cpu_millis: available.cpu_millis,
-                    disk_bytes: available.disk_bytes,
-                },
-                limit: 1,
-                after_offer: None,
-            })
-            .await?;
-        ensure!(
-            page.page.offers.len() <= 1 && page.page.offers.len() == page.offer_deadlines_ns.len(),
-            "native poll cardinality"
-        );
-        let found = page.page.offers.pop().zip(page.offer_deadlines_ns.pop());
-        // From here a renewal of the node's report waits for this slot (see `poll_need`).
-        Ok(found.map(|(offer, deadline)| {
-            let git_author = page.git_authors.pop().flatten();
-            (
-                aq_worker_protocol::git_author::AttemptOffer { offer, git_author },
-                deadline,
-                pipeline.inventory.flight(),
-            )
-        }))
-    };
-    let (first, interval) = aq_node_service::polling::staggered(IDLE_POLL_INTERVAL);
-    let (offer, offer_deadline, in_flight) = match pause {
-        None => match poll_once().await? {
-            Some(found) => found,
-            None if *poll_shutdown.borrow() => return Ok(RunDisposition::ShutdownBeforeAdmission),
-            None => return Ok(RunDisposition::NoOffer),
-        },
-        Some((mut pause, hold)) => {
-            let poll = |offers: bool| {
-                report_only.store(!offers, std::sync::atomic::Ordering::Relaxed);
-                poll_once()
-            };
-            tokio::time::sleep(first).await;
-            match poll_until_offer(poll, interval, hold, &mut poll_shutdown, &mut pause).await? {
-                PollLoop::Offer(found) => found,
-                PollLoop::Paused => return Ok(RunDisposition::PollingPaused),
-                PollLoop::Shutdown => return Ok(RunDisposition::ShutdownBeforeAdmission),
-            }
-        }
-    };
-    check_root(&config, &held)?;
-    if *shutdown.borrow() {
-        return Ok(RunDisposition::ShutdownBeforeAdmission);
-    };
-    let maximum = super::http::boot_ns()?
-        .checked_add(
-            offer
-                .offer
-                .offered
-                .reservation_ttl_ms
-                .checked_mul(1_000_000)
-                .context("native reservation overflow")?,
-        )
-        .context("native reservation overflow")?;
-    let deadline = maximum.min(offer_deadline);
-    let original = offer.offer.clone();
-    let id = pipeline
-        .reserve(offer, config.runtime.clone(), deadline, disk)
-        .await?;
-    let grant =
-        prepare::collect(&pipeline, &producer, &config, id, &original, deadline, git).await?;
-    drop(in_flight);
-    check_root(&config, &held)?;
-    if let Some(h) = &heartbeat {
-        h.check()?;
-    }
-    let prepared_state = pipeline.snapshot().await?;
-    ensure!(
-        profile::TerminalProfile::for_execution(
-            prepared_state
-                .attempts
-                .get(&id)
-                .context("native prepared attempt absent")?
-        )? == config.negotiation.profile(),
-        "native collected profile differs from explicit configuration"
-    );
-    pipeline.check_phase_execution(&grant).await?;
-    // Never select/cancel this future on shutdown: the executor owns physical stop
-    // and durable evidence. Its guardian enforces the original execution caps.
-    executor.execute(pipeline.clone(), grant, shutdown).await?;
-    let state = pipeline.snapshot().await?;
-    let host = state
-        .attempts
-        .get(&id)
-        .and_then(|a| a.native_host.as_ref())
-        .context("native executor returned without retained host history")?;
-    ensure!(
-        host.stopped.is_some(),
-        "native executor returned without retained physical stop"
-    );
-    ensure!(
-        config
-            .negotiation
-            .profile()
-            .complete(state.attempts.get(&id).unwrap())?,
-        "native executor missing matching durable lifecycle acknowledgments"
-    );
-    if let Some(h) = &heartbeat {
-        h.check()?;
-    }
-    Ok(RunDisposition::AttemptStopped)
+    let polling = admission::Polling::new(shutdown, Some(pause), Some((node, slot)));
+    admission::run(worker, config, executor, polling).await
 }
 /// The node's one inventory stream (its gate held): every slot uses the sequence the node last
 /// had acknowledged, and a new report is sent only when that one has `need_ns` or less left.

@@ -25,11 +25,9 @@ impl BoatKey {
         let meta = file
             .metadata()
             .map_err(|_| BackendError::InvalidRequest("boat key unreadable"))?;
-        if !meta.is_file()
-            || meta.mode() & 0o077 != 0
-            || meta.uid() != unsafe { libc::geteuid() }
-            || meta.len() > 4096
-        {
+        let private = meta.mode() & 0o077 == 0 && meta.uid() == unsafe { libc::geteuid() };
+        let bounded_file = meta.is_file() && meta.len() <= 4096;
+        if !private || !bounded_file {
             return Err(BackendError::InvalidRequest(
                 "boat key must be a private node-local file",
             ));
@@ -113,71 +111,90 @@ impl BoatConfig {
         self.attempt_org == PERSONAL_SCOPE
     }
     pub fn validate(&self) -> Result<(), BackendError> {
-        let url = reqwest::Url::parse(&self.api_url)
-            .map_err(|_| BackendError::InvalidRequest("invalid boat endpoint"))?;
-        // Plain HTTP is exclusively for the loopback conformance double.
-        let local = url
-            .host_str()
-            .is_some_and(|s| s == "127.0.0.1" || s == "[::1]" || s == "::1");
-        if !(url.scheme() == "https" || url.scheme() == "http" && local)
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-        {
-            return Err(BackendError::InvalidRequest(
-                "boat requires authenticated HTTPS",
-            ));
-        }
-        if self.node_id.is_nil()
-            || !safe_id(&self.attempt_org)
-            || !safe_id(&self.template_org)
-            // Separate org scopes, or one personal account whose template
-            // builds are an on-demand owner step (no standing build key).
-            || (self.attempt_org == self.template_org && !self.personal())
-            || (self.personal() != (self.template_org == PERSONAL_SCOPE))
-            || !self.journal_path.is_absolute()
-            || !self.key_file.is_absolute()
-            || !(1..=120_000).contains(&self.api_timeout_ms)
-            || !(1..=300_000).contains(&self.poll_timeout_ms)
-            || !(1..=5_000).contains(&self.poll_interval_ms)
-            || self.templates.is_empty()
-        {
+        validate_endpoint(&self.api_url)?;
+        if !self.valid_scope() || !self.valid_bounds() {
             return Err(BackendError::InvalidRequest("invalid boat scope or bounds"));
         }
-        if self.runner_command.as_ref().is_some_and(|args| {
-            args.is_empty()
-                || args.len() > 64
-                || args.iter().any(|s| {
-                    s.is_empty() || s.len() > 4096 || s.bytes().any(|b| b.is_ascii_control())
-                })
-        }) {
+        if !self.runner_command.as_deref().is_none_or(valid_command) {
             return Err(BackendError::InvalidRequest("invalid fixed runner command"));
         }
         let mut seen = std::collections::BTreeSet::new();
-        for t in &self.templates {
-            if !t
-                .image
-                .as_bytes()
-                .first()
-                .is_some_and(u8::is_ascii_alphanumeric)
-                || !t.image.ends_with(&format!("@{}", t.digest.as_str()))
-                || !t
-                    .image
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || b"./:@_-".contains(&c))
-                || t.saved_snapshot.is_some() != t.snapshot_id.is_some()
-                || t.saved_snapshot.as_deref().is_some_and(|s| !safe_id(s))
-                || t.snapshot_id.as_deref().is_some_and(|s| !safe_id(s))
-                || t.scan_policy != "aq-credential-scan-v1"
-                || !seen.insert(t.digest.as_str())
-            {
+        for template in &self.templates {
+            if !template.is_scanned() || !seen.insert(template.digest.as_str()) {
                 return Err(BackendError::InvalidRequest(
                     "boat template lacks scanned pinned materialization",
                 ));
             }
         }
         Ok(())
+    }
+
+    fn valid_scope(&self) -> bool {
+        let scopes = if self.personal() {
+            self.template_org == PERSONAL_SCOPE
+        } else {
+            self.template_org != PERSONAL_SCOPE && self.attempt_org != self.template_org
+        };
+        !self.node_id.is_nil()
+            && safe_id(&self.attempt_org)
+            && safe_id(&self.template_org)
+            && scopes
+    }
+
+    fn valid_bounds(&self) -> bool {
+        self.journal_path.is_absolute()
+            && self.key_file.is_absolute()
+            && !self.templates.is_empty()
+            && (1..=120_000).contains(&self.api_timeout_ms)
+            && (1..=300_000).contains(&self.poll_timeout_ms)
+            && (1..=5_000).contains(&self.poll_interval_ms)
+    }
+}
+
+fn validate_endpoint(endpoint: &str) -> Result<(), BackendError> {
+    let url = reqwest::Url::parse(endpoint)
+        .map_err(|_| BackendError::InvalidRequest("invalid boat endpoint"))?;
+    // Plain HTTP is exclusively for the loopback conformance double.
+    let local = matches!(url.host_str(), Some("127.0.0.1" | "[::1]" | "::1"));
+    let transport = url.scheme() == "https" || (url.scheme() == "http" && local);
+    let bare = url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none();
+    if transport && bare {
+        Ok(())
+    } else {
+        Err(BackendError::InvalidRequest(
+            "boat requires authenticated HTTPS",
+        ))
+    }
+}
+
+fn valid_command(args: &[String]) -> bool {
+    (1..=64).contains(&args.len())
+        && args.iter().all(|arg| {
+            (1..=4096).contains(&arg.len()) && !arg.bytes().any(|b| b.is_ascii_control())
+        })
+}
+
+impl BoatTemplate {
+    fn is_scanned(&self) -> bool {
+        let pinned = self
+            .image
+            .as_bytes()
+            .first()
+            .is_some_and(u8::is_ascii_alphanumeric)
+            && self.image.ends_with(&format!("@{}", self.digest.as_str()))
+            && self
+                .image
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"./:@_-".contains(&c));
+        let snapshots = match (&self.saved_snapshot, &self.snapshot_id) {
+            (Some(name), Some(id)) => safe_id(name) && safe_id(id),
+            (None, None) => true,
+            _ => false,
+        };
+        pinned && snapshots && self.scan_policy == "aq-credential-scan-v1"
     }
 }
 pub(super) fn safe_id(s: &str) -> bool {

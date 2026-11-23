@@ -40,18 +40,19 @@ impl VmTimeFact {
     }
     pub(super) fn validate(&self) -> Result<(), BackendError> {
         let at = now()?;
-        if self.attempt_id.is_nil()
-            || !(config::safe_id(&self.sandbox_id) || self.is_not_created())
-            || self.started_at_ms == 0
-            || self.started_at_ms > at
-            || self
-                .stopped_at_ms
-                .is_some_and(|end| end < self.started_at_ms || end > at)
-            || (self.is_not_created() && self.stopped_at_ms != Some(self.started_at_ms))
-        {
-            return Err(BackendError::InvalidRequest("invalid VM-time fact"));
+        let valid_identity = !self.attempt_id.is_nil()
+            && (config::safe_id(&self.sandbox_id) || self.is_not_created());
+        if valid_identity && self.valid_interval(at) {
+            return Ok(());
         }
-        Ok(())
+        Err(BackendError::InvalidRequest("invalid VM-time fact"))
+    }
+    fn valid_interval(&self, at: u64) -> bool {
+        let end = self.started_at_ms..=at;
+        let instant = !self.is_not_created() || self.stopped_at_ms == Some(self.started_at_ms);
+        (1..=at).contains(&self.started_at_ms)
+            && self.stopped_at_ms.is_none_or(|time| end.contains(&time))
+            && instant
     }
     pub(super) fn succeeds(&self, old: &Self) -> bool {
         self.attempt_id == old.attempt_id

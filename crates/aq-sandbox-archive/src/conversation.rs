@@ -1,8 +1,6 @@
 //! Project user and assistant messages from provider session JSONL.
-use crate::{
-    redact::Redactor,
-    tar::{InvalidArchive, TreeEntry, read_tree, single_file},
-};
+use crate::tar::{InvalidArchive, TreeEntry, read_tree, single_file};
+mod message;
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -49,112 +47,28 @@ impl Provider {
             }
         }
     }
-
-    fn message(self, row: &Value, id: Uuid, mut safe: impl FnMut(&str) -> bool) -> Option<Message> {
-        let (role, content, block_type) = match self {
-            Self::Claude => {
-                if row["sessionId"]
-                    .as_str()
-                    .and_then(|s| Uuid::parse_str(s).ok())
-                    != Some(id)
-                    || row["isSidechain"] == true
-                    || row["isMeta"] == true
-                {
-                    return None;
-                }
-                (row["type"].as_str()?, &row["message"]["content"], "text")
-            }
-            Self::Codex => {
-                let p = &row["payload"];
-                if row["type"] != "response_item" || p["type"] != "message" {
-                    return None;
-                }
-                let role = p["role"].as_str()?;
-                (
-                    role,
-                    &p["content"],
-                    if role == "user" {
-                        "input_text"
-                    } else {
-                        "output_text"
-                    },
-                )
-            }
-        };
-        let role = match role {
-            "user" => "user",
-            "assistant" => "assistant",
-            _ => return None,
-        };
-        let visible = |text: &&str| {
-            role != "user"
-                || match self {
-                    Self::Claude => !text.trim_start().starts_with("<local-command-"),
-                    Self::Codex => {
-                        !text
-                            .trim_start()
-                            .starts_with("# AGENTS.md instructions for ")
-                            && !text.trim_start().starts_with("<environment_context>")
-                    }
-                }
-        };
-        let text = if let Some(text) = content.as_str() {
-            visible(&text).then_some(text)?.to_owned()
-        } else {
-            content
-                .as_array()?
-                .iter()
-                .filter(|block| block["type"] == block_type)
-                .filter_map(|block| block["text"].as_str())
-                .filter(visible)
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        if !safe(&text) {
-            return None;
-        }
-        let text = sanitize_message(&text);
-        (!text.trim().is_empty() && safe(&text)).then_some(Message { role, text })
-    }
 }
 
-// Provider messages are plain text. Drop terminal controls (including payloads
-// within control strings) before applying the shared credential masking.
-fn sanitize_message(text: &str) -> String {
-    enum Escape {
-        Text,
-        Start,
-        Csi,
-        String,
-        StringEnd,
+fn root_session(payload: &Value, id: Uuid) -> bool {
+    let session = payload["id"].as_str().and_then(|s| Uuid::parse_str(s).ok());
+    session == Some(id)
+        && payload["cwd"] == "/aq/work"
+        && payload["source"].get("subagent").is_none()
+}
+
+impl Snapshot {
+    fn push_bounded(&mut self, message: Message, bytes: &mut usize) -> bool {
+        *bytes += serde_json::to_vec(&message)
+            .expect("message is serializable")
+            .len()
+            + 1;
+        if *bytes > MAX_SNAPSHOT_BYTES || self.messages.len() == MAX_MESSAGES {
+            self.partial = true;
+            return false;
+        }
+        self.messages.push(message);
+        true
     }
-    let mut state = Escape::Text;
-    let mut visible = String::with_capacity(text.len());
-    for ch in text.replace("\r\n", "\n").chars() {
-        state = match (state, ch) {
-            (Escape::Text, '\x1b') => Escape::Start,
-            (Escape::Text, '\u{009b}') => Escape::Csi,
-            (Escape::Text, '\u{0090}' | '\u{009d}' | '\u{009e}' | '\u{009f}') => Escape::String,
-            (Escape::Text, ch) => {
-                if !ch.is_control() || matches!(ch, '\n' | '\t') {
-                    visible.push(ch);
-                } else if ch == '\r' {
-                    visible.push('\n');
-                }
-                Escape::Text
-            }
-            (Escape::Start, '[') => Escape::Csi,
-            (Escape::Start, ']' | 'P' | '^' | '_') => Escape::String,
-            (Escape::Start, _) | (Escape::Csi, '@'..='~') => Escape::Text,
-            (Escape::Csi, _) => Escape::Csi,
-            (Escape::String | Escape::StringEnd, '\x07' | '\u{009c}')
-            | (Escape::StringEnd, '\\') => Escape::Text,
-            (Escape::String | Escape::StringEnd, '\x1b') => Escape::StringEnd,
-            (Escape::String | Escape::StringEnd, _) => Escape::String,
-        };
-    }
-    String::from_utf8(Redactor::default().frame(visible.as_bytes()))
-        .expect("masking preserves UTF-8")
 }
 
 fn parse(provider: Provider, id: Uuid, data: &[u8], token: Option<&[u8]>) -> Snapshot {
@@ -167,11 +81,7 @@ fn parse(provider: Provider, id: Uuid, data: &[u8], token: Option<&[u8]>) -> Sna
             continue;
         };
         if matches!(provider, Provider::Codex) && row["type"] == "session_meta" {
-            let p = &row["payload"];
-            if p["id"].as_str().and_then(|s| Uuid::parse_str(s).ok()) != Some(id)
-                || p["cwd"] != "/aq/work"
-                || p["source"].get("subagent").is_some()
-            {
+            if !root_session(&row["payload"], id) {
                 return Snapshot::default();
             }
             identified = true;
@@ -179,21 +89,14 @@ fn parse(provider: Provider, id: Uuid, data: &[u8], token: Option<&[u8]>) -> Sna
         if !identified {
             continue;
         }
-        if let Some(message) = provider.message(&row, id, |text| {
+        let message = provider.message(&row, id, |text| {
             let safe =
                 token.is_none_or(|token| !aq_handoff_note::holds_secret(text.as_bytes(), token));
             out.partial |= !safe;
             safe
-        }) {
-            bytes += serde_json::to_vec(&message)
-                .expect("message is serializable")
-                .len()
-                + 1;
-            if bytes > MAX_SNAPSHOT_BYTES || out.messages.len() == MAX_MESSAGES {
-                out.partial = true;
-                break;
-            }
-            out.messages.push(message);
+        });
+        if message.is_some_and(|message| !out.push_bounded(message, &mut bytes)) {
+            break;
         }
     }
     out
@@ -213,19 +116,19 @@ pub fn from_archive(
     }
     let mut candidate = None;
     for entry in read_tree(raw, MAX_LOG_BYTES as u64)? {
-        if let TreeEntry::File { path, data, .. } = entry {
-            let data = zeroize::Zeroizing::new(data);
-            if let Some(id) = provider.session_id(&path)
-                && expected_session.is_none_or(|expected| id == expected)
-            {
-                let snapshot = parse(provider, id, &data, token);
-                if !snapshot.messages.is_empty() {
-                    if candidate.is_some() {
-                        return Ok(None);
-                    }
-                    candidate = Some(snapshot);
-                }
-            }
+        let TreeEntry::File { path, data, .. } = entry else {
+            continue;
+        };
+        let data = zeroize::Zeroizing::new(data);
+        let Some(id) = provider
+            .session_id(&path)
+            .filter(|id| expected_session.is_none_or(|expected| expected == *id))
+        else {
+            continue;
+        };
+        let snapshot = parse(provider, id, &data, token);
+        if !snapshot.messages.is_empty() && candidate.replace(snapshot).is_some() {
+            return Ok(None);
         }
     }
     Ok(candidate)

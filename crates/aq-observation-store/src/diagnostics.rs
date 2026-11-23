@@ -24,25 +24,13 @@ impl Store {
         let mut hash = Sha256::new();
         hash.update(b"aq-observation-row-diagnostic-v1\0");
         for definition in [META, DELIVERY] {
-            let table = tx.open_table(definition)?;
-            header(&mut hash, definition.name(), table.len()?);
-            for row in table.iter()? {
-                let (k, v) = row?;
-                part(&mut hash, k.value().as_bytes());
-                part(&mut hash, v.value());
-            }
+            hash_table(&tx, definition, &mut hash)?;
         }
         for definition in [SOURCES, SEEN, EVENTS]
             .into_iter()
             .chain(engine_store::TABLES)
         {
-            let table = tx.open_table(definition)?;
-            header(&mut hash, definition.name(), table.len()?);
-            for row in table.iter()? {
-                let (k, v) = row?;
-                part(&mut hash, k.value());
-                part(&mut hash, v.value());
-            }
+            hash_table(&tx, definition, &mut hash)?;
         }
         let table = tx.open_table(OUTBOX)?;
         header(&mut hash, OUTBOX.name(), table.len()?);
@@ -70,29 +58,11 @@ impl Store {
             "diagnostic exclusion bound"
         );
         let tx = self.db.begin_read()?;
-        let mut found = std::collections::BTreeSet::new();
-        for row in tx.open_table(OUTBOX)?.iter()? {
-            let (_, value) = row?;
-            let event: ObservationRecord = decode(value.value())?;
-            if excluded.contains(&event.event_id) {
-                ensure!(
-                    budget::is_urgent(&event),
-                    "only trusted local control may be excluded"
-                );
-                found.insert(event.event_id);
-            }
-        }
-        ensure!(found == excluded, "excluded control event absent");
+        validate_exclusions(&tx, &excluded)?;
         let mut hash = Sha256::new();
         hash.update(b"aq-observation-retained-diagnostic-v1\0");
         for definition in [SEEN].into_iter().chain(engine_store::TABLES) {
-            let table = tx.open_table(definition)?;
-            header(&mut hash, definition.name(), table.len()?);
-            for row in table.iter()? {
-                let (k, v) = row?;
-                part(&mut hash, k.value());
-                part(&mut hash, v.value());
-            }
+            hash_table(&tx, definition, &mut hash)?;
         }
         let table = tx.open_table(EVENTS)?;
         header(
@@ -113,4 +83,41 @@ impl Store {
         }
         Ok(format!("{:x}", hash.finalize()))
     }
+}
+
+fn hash_table<K: redb::Key + 'static>(
+    tx: &redb::ReadTransaction,
+    definition: TableDefinition<K, &[u8]>,
+    hash: &mut Sha256,
+) -> Result<()>
+where
+    for<'a> K::SelfType<'a>: AsRef<[u8]>,
+{
+    let table = tx.open_table(definition)?;
+    header(hash, definition.name(), table.len()?);
+    for row in table.iter()? {
+        let (key, value) = row?;
+        part(hash, key.value().as_ref());
+        part(hash, value.value());
+    }
+    Ok(())
+}
+fn validate_exclusions(
+    tx: &redb::ReadTransaction,
+    excluded: &std::collections::BTreeSet<Uuid>,
+) -> Result<()> {
+    let mut found = std::collections::BTreeSet::new();
+    for row in tx.open_table(OUTBOX)?.iter()? {
+        let (_, value) = row?;
+        let event: ObservationRecord = decode(value.value())?;
+        if excluded.contains(&event.event_id) {
+            ensure!(
+                budget::is_urgent(&event),
+                "only trusted local control may be excluded"
+            );
+            found.insert(event.event_id);
+        }
+    }
+    ensure!(&found == excluded, "excluded control event absent");
+    Ok(())
 }

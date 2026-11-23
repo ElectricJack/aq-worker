@@ -195,10 +195,17 @@ fn unlink(dir: &File, name: &CStr, flags: i32) -> Result<()> {
     dir.sync_all()?;
     Ok(())
 }
-fn replace(dir: &File, name: &CStr, next: &CStr, bytes: &[u8], secret: bool) -> Result<()> {
+enum Replacement<'a> {
+    Credential(&'a [u8]),
+    Journal(&'a [u8]),
+}
+fn replace(dir: &File, name: &CStr, next: &CStr, replacement: Replacement<'_>) -> Result<()> {
+    let bytes = match replacement {
+        Replacement::Credential(v) | Replacement::Journal(v) => v,
+    };
     if exists(dir, next)? {
         let (previous, _) = read_member(dir, next, MAX_MATERIAL)?;
-        if secret {
+        if matches!(replacement, Replacement::Credential(_)) {
             ensure!(
                 previous.as_slice() == bytes,
                 "different pending owner credential preserved"
@@ -251,7 +258,12 @@ fn replace(dir: &File, name: &CStr, next: &CStr, bytes: &[u8], secret: bool) -> 
     Ok(())
 }
 fn save(root: &File, record: &RefreshRecord) -> Result<()> {
-    replace(root, STATE, STATE_NEXT, &serde_json::to_vec(record)?, false)
+    replace(
+        root,
+        STATE,
+        STATE_NEXT,
+        Replacement::Journal(&serde_json::to_vec(record)?),
+    )
 }
 fn load(root: &File, pin: &PrivateInputRecord) -> Result<Option<RefreshRecord>> {
     if !exists(root, STATE)? {
@@ -271,19 +283,25 @@ fn load(root: &File, pin: &PrivateInputRecord) -> Result<Option<RefreshRecord>> 
             && record.refreshed_bytes <= MAX_MATERIAL,
         "credential refresh state binding changed"
     );
-    if let Some(revision) = &record.status.server_revision {
-        validate_revision(revision)?;
-    }
-    ensure!(
-        record.status.phase == LoginRefreshPhase::Conflict
-            || record.status.server_revision.is_some()
-                == matches!(
-                    record.status.phase,
-                    LoginRefreshPhase::Acknowledged | LoginRefreshPhase::Complete
-                ),
-        "credential refresh revision/phase mismatch"
-    );
+    record.status.validate_phase()?;
     Ok(Some(record))
+}
+impl LoginRefreshStatus {
+    fn validate_phase(&self) -> Result<()> {
+        if let Some(revision) = &self.server_revision {
+            validate_revision(revision)?;
+        }
+        ensure!(
+            self.phase == LoginRefreshPhase::Conflict
+                || self.server_revision.is_some()
+                    == matches!(
+                        self.phase,
+                        LoginRefreshPhase::Acknowledged | LoginRefreshPhase::Complete
+                    ),
+            "credential refresh revision/phase mismatch"
+        );
+        Ok(())
+    }
 }
 pub(super) fn cleanup_guard(root: &File, pin: &PrivateInputRecord) -> Result<Option<File>> {
     if pin.chatgpt.is_none() {
@@ -332,35 +350,77 @@ enum Boundary {
     AuthUnlinked,
 }
 
-fn reconcile(
-    root: &File,
-    pin: &PrivateInputRecord,
-    owner: &File,
-    writer: &mut impl LoginWriteBack,
-    mut boundary: impl FnMut(Boundary) -> Result<()>,
-) -> Result<LoginRefreshStatus> {
-    let chatgpt = pin.chatgpt.as_ref().context("ChatGPT input required")?;
-    ensure!(pin.scoped.is_none(), "mixed credential profiles");
-    let owner_meta = private_directory(owner)?;
-    let root_meta = private_directory(root)?;
-    ensure!(
-        (owner_meta.dev(), owner_meta.ino()) != (pin.home_device, pin.home_inode)
-            && (owner_meta.dev(), owner_meta.ino()) != (root_meta.dev(), root_meta.ino()),
-        "desktop credential owner must be separate from disposable session storage"
-    );
-    let _root_lock = lock(root, c".aq-refresh.lock")?;
-    let _owner_lock = lock(owner, c".aq-auth.lock")?;
-    let mut record = if let Some(record) = load(root, pin)? {
-        record
-    } else {
-        let home = private_home(root, pin)?;
+struct CredentialHomes<'a> {
+    root: &'a File,
+    pin: &'a PrivateInputRecord,
+    owner: &'a File,
+}
+impl CredentialHomes<'_> {
+    fn reconcile(
+        &self,
+        writer: &mut impl LoginWriteBack,
+        mut boundary: impl FnMut(Boundary) -> Result<()>,
+    ) -> Result<LoginRefreshStatus> {
+        let chatgpt = self
+            .pin
+            .chatgpt
+            .as_ref()
+            .context("ChatGPT input required")?;
+        ensure!(self.pin.scoped.is_none(), "mixed credential profiles");
+        let owner_meta = private_directory(self.owner)?;
+        let root_meta = private_directory(self.root)?;
+        ensure!(
+            (owner_meta.dev(), owner_meta.ino()) != (self.pin.home_device, self.pin.home_inode)
+                && (owner_meta.dev(), owner_meta.ino()) != (root_meta.dev(), root_meta.ino()),
+            "desktop credential owner must be separate from disposable session storage"
+        );
+        let _root_lock = lock(self.root, c".aq-refresh.lock")?;
+        let _owner_lock = lock(self.owner, c".aq-auth.lock")?;
+        let mut record = match load(self.root, self.pin)? {
+            Some(record) => record,
+            None => self.begin(chatgpt.launch_id, &owner_meta)?,
+        };
+        ensure!(
+            owner_meta.dev() == record.owner_device && owner_meta.ino() == record.owner_inode,
+            "desktop owner directory changed; preserved"
+        );
+        ensure!(
+            record.status.phase != LoginRefreshPhase::Conflict,
+            "desktop credential conflict requires owner intervention"
+        );
+        if record.status.phase == LoginRefreshPhase::Complete {
+            ensure!(
+                !exists(self.root, c"codex-home")?,
+                "completed credential home reappeared"
+            );
+            return Ok(record.status);
+        }
+        self.update_owner(&mut record, &mut boundary)?;
+        if record.status.phase == LoginRefreshPhase::OwnerUpdated {
+            self.acknowledge(&mut record, writer, &mut boundary)?;
+        }
+        // Cooperating writers are excluded by the lock. Also catch an operator or
+        // non-cooperating writer changing the owner during the protected exchange.
+        if owner_digest(self.owner)? != record.refreshed_digest {
+            record.status.phase = LoginRefreshPhase::Conflict;
+            save(self.root, &record)?;
+            bail!("desktop credential changed during write-back; rotated copy retained");
+        }
+        self.cleanup(&record, &mut boundary)?;
+        record.status.phase = LoginRefreshPhase::Complete;
+        save(self.root, &record)?;
+        Ok(record.status)
+    }
+
+    fn begin(&self, launch_id: Uuid, owner_meta: &std::fs::Metadata) -> Result<RefreshRecord> {
+        let home = private_home(self.root, self.pin)?;
         let (bytes, m) = read_member(&home, c"auth.json", MAX_MATERIAL)?;
         PrivateLaunchInput::validate_chatgpt_auth_json(&bytes)?;
         let record = RefreshRecord {
             schema_version: 1,
-            launch_id: chatgpt.launch_id,
-            original_auth_digest: pin.auth_digest.clone(),
-            original_record_digest: pin.source.record_digest.clone(),
+            launch_id,
+            original_auth_digest: self.pin.auth_digest.clone(),
+            original_record_digest: self.pin.source.record_digest.clone(),
             owner_device: owner_meta.dev(),
             owner_inode: owner_meta.ino(),
             auth_device: m.dev(),
@@ -373,45 +433,57 @@ fn reconcile(
                 server_revision: None,
             },
         };
-        save(root, &record)?;
-        record
-    };
-    ensure!(
-        owner_meta.dev() == record.owner_device && owner_meta.ino() == record.owner_inode,
-        "desktop owner directory changed; preserved"
-    );
-    ensure!(
-        record.status.phase != LoginRefreshPhase::Conflict,
-        "desktop credential conflict requires owner intervention"
-    );
-    if record.status.phase == LoginRefreshPhase::Complete {
-        ensure!(
-            !exists(root, c"codex-home")?,
-            "completed credential home reappeared"
-        );
-        return Ok(record.status);
+        save(self.root, &record)?;
+        Ok(record)
     }
-    let current = owner_digest(owner)?;
-    let pending = record.status.phase == LoginRefreshPhase::PendingOwner;
-    if current != record.refreshed_digest && !(pending && current == record.original_auth_digest) {
-        record.status.phase = LoginRefreshPhase::Conflict;
-        save(root, &record)?;
-        bail!("desktop credential changed; both copies preserved");
+
+    fn update_owner(
+        &self,
+        record: &mut RefreshRecord,
+        boundary: &mut impl FnMut(Boundary) -> Result<()>,
+    ) -> Result<()> {
+        let current = owner_digest(self.owner)?;
+        let pending = record.status.phase == LoginRefreshPhase::PendingOwner;
+        let accepted =
+            current == record.refreshed_digest || pending && current == record.original_auth_digest;
+        if !accepted {
+            record.status.phase = LoginRefreshPhase::Conflict;
+            save(self.root, record)?;
+            bail!("desktop credential changed; both copies preserved");
+        }
+        if pending {
+            let bytes = refreshed(&private_home(self.root, self.pin)?, record)?;
+            // Even same-byte recovery repeats the fsync boundary after an uncertain
+            // rename. The original material installation remains immutable.
+            replace(
+                self.owner,
+                c"auth.json",
+                OWNER_NEXT,
+                Replacement::Credential(&bytes),
+            )?;
+            boundary(Boundary::OwnerPublished)?;
+            record.status.phase = LoginRefreshPhase::OwnerUpdated;
+            save(self.root, record)?;
+        }
+        Ok(())
     }
-    if pending {
-        let bytes = refreshed(&private_home(root, pin)?, &record)?;
-        // Even same-byte recovery repeats the fsync boundary after an uncertain
-        // rename. The original material installation remains immutable.
-        replace(owner, c"auth.json", OWNER_NEXT, &bytes, true)?;
-        boundary(Boundary::OwnerPublished)?;
-        record.status.phase = LoginRefreshPhase::OwnerUpdated;
-        save(root, &record)?;
-    }
-    if record.status.phase == LoginRefreshPhase::OwnerUpdated {
-        let bytes = refreshed(&private_home(root, pin)?, &record)?;
+
+    fn acknowledge(
+        &self,
+        record: &mut RefreshRecord,
+        writer: &mut impl LoginWriteBack,
+        boundary: &mut impl FnMut(Boundary) -> Result<()>,
+    ) -> Result<()> {
+        let binding = &self
+            .pin
+            .chatgpt
+            .as_ref()
+            .context("ChatGPT input required")?
+            .binding;
+        let bytes = refreshed(&private_home(self.root, self.pin)?, record)?;
         let request = LoginRefreshRequest {
-            record: &record,
-            binding: &chatgpt.binding,
+            record,
+            binding,
             material: &bytes,
         };
         // An adapter error may contain a response body. Never expose it through
@@ -427,36 +499,35 @@ fn reconcile(
         validate_revision(&ack.revision)?;
         record.status.server_revision = Some(ack.revision);
         record.status.phase = LoginRefreshPhase::Acknowledged;
-        save(root, &record)?;
+        save(self.root, record)?;
         boundary(Boundary::AckPersisted)?;
+        Ok(())
     }
-    // Cooperating writers are excluded by the lock. Also catch an operator or
-    // non-cooperating writer changing the owner during the protected exchange.
-    if owner_digest(owner)? != record.refreshed_digest {
-        record.status.phase = LoginRefreshPhase::Conflict;
-        save(root, &record)?;
-        bail!("desktop credential changed during write-back; rotated copy retained");
-    }
-    if exists(root, c"codex-home")? {
-        let home = private_home(root, pin)?;
-        if exists(&home, c"auth.json")? {
-            drop(refreshed(&home, &record)?);
-            boundary(Boundary::BeforeUnlink)?;
-            unlink(&home, c"auth.json", 0)?;
-            boundary(Boundary::AuthUnlinked)?;
+
+    fn cleanup(
+        &self,
+        record: &RefreshRecord,
+        boundary: &mut impl FnMut(Boundary) -> Result<()>,
+    ) -> Result<()> {
+        if exists(self.root, c"codex-home")? {
+            let home = private_home(self.root, self.pin)?;
+            if exists(&home, c"auth.json")? {
+                drop(refreshed(&home, record)?);
+                boundary(Boundary::BeforeUnlink)?;
+                unlink(&home, c"auth.json", 0)?;
+                boundary(Boundary::AuthUnlinked)?;
+            } else {
+                home.sync_all()?;
+            }
+            cleanup_codex_config(&home)?;
+            // Never recursively remove unknown generated files. A cleanup failure
+            // leaves Acknowledged durable and retries cleanup without another write.
+            unlink(self.root, c"codex-home", libc::AT_REMOVEDIR)?;
         } else {
-            home.sync_all()?;
+            self.root.sync_all()?;
         }
-        cleanup_codex_config(&home)?;
-        // Never recursively remove unknown generated files. A cleanup failure
-        // leaves Acknowledged durable and retries cleanup without another write.
-        unlink(root, c"codex-home", libc::AT_REMOVEDIR)?;
-    } else {
-        root.sync_all()?;
+        Ok(())
     }
-    record.status.phase = LoginRefreshPhase::Complete;
-    save(root, &record)?;
-    Ok(record.status)
 }
 
 impl SessionHandle {
@@ -496,7 +567,12 @@ impl SessionHandle {
         let pin = self.refresh_pin(proof)?;
         let root = open_directory(&self.directory)?;
         let owner = open_directory(owner_home)?;
-        let status = reconcile(&root, &pin, &owner, writer, |_| Ok(()))?;
+        let status = CredentialHomes {
+            root: &root,
+            pin: &pin,
+            owner: &owner,
+        }
+        .reconcile(writer, |_| Ok(()))?;
         self.private_source.take();
         Ok(status)
     }

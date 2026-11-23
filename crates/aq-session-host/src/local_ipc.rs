@@ -188,26 +188,8 @@ impl Socket {
             }
             return Err(e.into());
         }
-        let mut fds = Vec::new();
-        unsafe {
-            let mut header = libc::CMSG_FIRSTHDR(&msg);
-            while !header.is_null() {
-                if (*header).cmsg_level == libc::SOL_SOCKET
-                    && (*header).cmsg_type == libc::SCM_RIGHTS
-                {
-                    let length = (*header)
-                        .cmsg_len
-                        .saturating_sub(libc::CMSG_LEN(0) as usize)
-                        / size_of::<RawFd>();
-                    for n in 0..length {
-                        fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(
-                            libc::CMSG_DATA(header).cast::<RawFd>().add(n),
-                        )));
-                    }
-                }
-                header = libc::CMSG_NXTHDR(&msg, header);
-            }
-        }
+        // The kernel populated msg and its descriptor control buffer above.
+        let mut fds = unsafe { received_descriptors(&msg) };
         ensure!(
             msg.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) == 0 && fds.len() <= 1,
             "reader closed or malformed packet"
@@ -218,4 +200,31 @@ impl Socket {
             fd: fds.pop(),
         }))
     }
+}
+
+/// Take ownership of SCM_RIGHTS descriptors in a freshly received message.
+///
+/// # Safety
+/// The control buffer must be live and contain the ancillary data supplied by
+/// recvmsg. Each descriptor must have exactly one owner after this call.
+unsafe fn received_descriptors(msg: &libc::msghdr) -> Vec<OwnedFd> {
+    let mut fds = Vec::new();
+    unsafe {
+        let mut header = libc::CMSG_FIRSTHDR(msg);
+        while !header.is_null() {
+            if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
+                let length = (*header)
+                    .cmsg_len
+                    .saturating_sub(libc::CMSG_LEN(0) as usize)
+                    / size_of::<RawFd>();
+                for n in 0..length {
+                    fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(
+                        libc::CMSG_DATA(header).cast::<RawFd>().add(n),
+                    )));
+                }
+            }
+            header = libc::CMSG_NXTHDR(msg, header);
+        }
+    }
+    fds
 }

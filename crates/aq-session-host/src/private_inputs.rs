@@ -22,6 +22,20 @@ pub struct ScopedCodexAuthBinding {
     pub origin: String,
     pub deadline_boot_ms: u64,
 }
+impl SealedLaunch {
+    fn matches_private_binding(
+        &self,
+        binding: &aq_session_protocol::LaunchBinding,
+    ) -> Result<bool> {
+        let original = &self.manifest.task()?.bindings;
+        Ok(binding.session == original.session
+            && binding.attempt_id == original.attempt_id
+            && binding.assignment_generation == original.assignment_generation
+            && binding.launch_manifest_digest == canonical_digest(&self.manifest)?
+            && binding.graph_access_profile_digest == original.graph_access_profile.digest)
+    }
+}
+
 impl ScopedCodexAuthBinding {
     fn validate(&self) -> Result<()> {
         use aq_session_protocol::Validate;
@@ -44,19 +58,16 @@ impl ScopedCodexAuthBinding {
         self.validate()?;
         ensure!(
             self.launch_id == config.launch_id
-                && self.binding.session == config.manifest.task()?.bindings.session
-                && self.binding.attempt_id == config.manifest.task()?.bindings.attempt_id
-                && self.binding.assignment_generation
-                    == config.manifest.task()?.bindings.assignment_generation
-                && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
-                && self.binding.graph_access_profile_digest
-                    == config.manifest.task()?.bindings.graph_access_profile.digest
+                && config.matches_private_binding(&self.binding)?
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "scoped auth exact launch binding/deadline"
         );
+        self.verify_route(&config.command.arguments)
+    }
+
+    fn verify_route(&self, arguments: &[String]) -> Result<()> {
         // One route: the runner proxy provider (model_providers), never the
         // legacy top-level openai_base_url override.
-        let arguments = &config.command.arguments;
         let settings: Vec<&str> = arguments
             .windows(2)
             .filter(|v| v[0] == "--config")
@@ -103,13 +114,7 @@ impl ChatgptAuthPin {
         self.binding.validate()?;
         ensure!(
             self.launch_id == config.launch_id
-                && self.binding.session == config.manifest.task()?.bindings.session
-                && self.binding.attempt_id == config.manifest.task()?.bindings.attempt_id
-                && self.binding.assignment_generation
-                    == config.manifest.task()?.bindings.assignment_generation
-                && self.binding.launch_manifest_digest == canonical_digest(&config.manifest)?
-                && self.binding.graph_access_profile_digest
-                    == config.manifest.task()?.bindings.graph_access_profile.digest
+                && config.matches_private_binding(&self.binding)?
                 && self.deadline_boot_ms == config.permit.expires_boot_ms,
             "ChatGPT auth exact launch binding/deadline"
         );
@@ -288,6 +293,10 @@ pub(crate) fn verify_local_capability_auth(auth: &[u8], expected: &Digest) -> Re
     );
     Ok(())
 }
+fn bounded_graphic(value: &str, max: usize) -> bool {
+    !value.is_empty() && value.len() <= max && value.bytes().all(|b| b.is_ascii_graphic())
+}
+
 impl PrivateLaunchInput {
     /// Validate the native Codex subscription credential document, without
     /// logging, returning or copying its token fields into public metadata.
@@ -333,17 +342,10 @@ impl PrivateLaunchInput {
             &auth.tokens.access_token,
             &auth.tokens.refresh_token,
         ] {
-            ensure!(
-                !token.is_empty()
-                    && token.len() <= 32768
-                    && token.bytes().all(|b| b.is_ascii_graphic()),
-                "Codex login token shape"
-            );
+            ensure!(bounded_graphic(token, 32768), "Codex login token shape");
         }
         ensure!(
-            !auth.tokens.account_id.is_empty()
-                && auth.tokens.account_id.len() <= 512
-                && auth.tokens.account_id.bytes().all(|b| b.is_ascii_graphic())
+            bounded_graphic(&auth.tokens.account_id, 512)
                 && auth
                     .last_refresh
                     .as_ref()
@@ -577,16 +579,7 @@ fn verify_record(root: &File, r: &PrivateInputRecord, original: bool) -> Result<
         },
     )?;
     if r.chatgpt.is_some() && !original {
-        // Native Codex may rotate this valid private login. Preserve any changed
-        // document for explicit reconciliation; deleting it could lose refreshed
-        // credentials. Never copy back or modify the operator's original input.
-        ensure!(r.scoped.is_none(), "mixed Codex authentication profiles");
-        PrivateLaunchInput::validate_chatgpt_auth_json(&bytes)?;
-        ensure!(
-            Digest::of(&bytes) == r.auth_digest,
-            "changed private ChatGPT login preserved for credential reconciliation"
-        );
-        return Ok(());
+        return r.verify_rotated_login(&bytes);
     }
     ensure!(
         a.dev() == r.auth_device
@@ -595,28 +588,55 @@ fn verify_record(root: &File, r: &PrivateInputRecord, original: bool) -> Result<
             && Digest::of(&bytes) == r.auth_digest,
         "private auth replaced or changed"
     );
-    if let Some(pin) = &r.scoped {
-        verify_scoped_auth(&bytes, pin)?;
-        if original {
-            drop(read_source(&r.source)?);
+    r.verify_material(&bytes, original)
+}
+
+impl PrivateInputRecord {
+    fn verify_rotated_login(&self, bytes: &[u8]) -> Result<()> {
+        // Native Codex may rotate this valid private login. Preserve any changed
+        // document for explicit reconciliation; deleting it could lose refreshed
+        // credentials. Never copy back or modify the operator's original input.
+        ensure!(self.scoped.is_none(), "mixed Codex authentication profiles");
+        PrivateLaunchInput::validate_chatgpt_auth_json(bytes)?;
+        ensure!(
+            Digest::of(bytes) == self.auth_digest,
+            "changed private ChatGPT login preserved for credential reconciliation"
+        );
+        Ok(())
+    }
+    fn verify_material(&self, bytes: &[u8], original: bool) -> Result<()> {
+        if let Some(pin) = &self.scoped {
+            verify_scoped_auth(bytes, pin)?;
+        } else if self.chatgpt.is_some() {
+            ensure!(self.scoped.is_none(), "mixed Codex authentication profiles");
+            PrivateLaunchInput::validate_chatgpt_auth_json(bytes)?;
         }
-    } else if r.chatgpt.is_some() {
-        ensure!(r.scoped.is_none(), "mixed Codex authentication profiles");
-        PrivateLaunchInput::validate_chatgpt_auth_json(&bytes)?;
         if original {
+            self.verify_original(bytes)?;
+        }
+        Ok(())
+    }
+
+    fn verify_original(&self, bytes: &[u8]) -> Result<()> {
+        let source = read_source(&self.source)?;
+        if self.scoped.is_some() {
+            return Ok(());
+        }
+        if self.chatgpt.is_some() {
             ensure!(
-                read_source(&r.source)?.as_slice() == bytes.as_slice(),
+                source.as_slice() == bytes,
                 "private login/original material mismatch"
             );
+        } else {
+            ensure!(
+                derive_auth(&source)?.as_slice() == bytes,
+                "private auth/original material mismatch"
+            );
         }
-    } else if original {
-        ensure!(
-            derive_auth(&read_source(&r.source)?)?.as_slice() == bytes.as_slice(),
-            "private auth/original material mismatch"
-        );
+        Ok(())
     }
-    Ok(())
 }
+
 pub(crate) fn verify_at_exec(config: &SealedLaunch, root: &Path) -> Result<()> {
     if let Some(r) = &config.private_input {
         let spec = config
@@ -704,27 +724,37 @@ impl SessionHandle {
             Err(e) => return Err(e.into()),
             Ok(_) => {}
         }
-        let home = directory(&root, c"codex-home")?;
+        let removed = r.remove_home(&root, &self.directory)?;
+        self.private_source.take();
+        Ok(PrivateCleanup {
+            auth_removed: true,
+            home_removed: removed,
+        })
+    }
+}
+
+impl PrivateInputRecord {
+    fn remove_home(&self, root: &File, path: &Path) -> Result<bool> {
+        let home = directory(root, c"codex-home")?;
         let h = private_directory(&home)?;
         ensure!(
-            h.dev() == r.home_device && h.ino() == r.home_inode,
+            h.dev() == self.home_device && h.ino() == self.home_inode,
             "private cleanup home replaced"
         );
-        let auth_exists =
-            match std::fs::symlink_metadata(self.directory.join("codex-home/auth.json")) {
-                Ok(_) => true,
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-                Err(e) => return Err(e.into()),
-            };
+        let auth_exists = match std::fs::symlink_metadata(path.join("codex-home/auth.json")) {
+            Ok(_) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => return Err(e.into()),
+        };
         if auth_exists {
-            verify_record(&root, &r, false)?;
+            verify_record(root, self, false)?;
             ensure!(
                 unsafe { libc::unlinkat(home.as_raw_fd(), c"auth.json".as_ptr(), 0) } == 0,
                 "private auth cleanup failed"
             );
             home.sync_all()?;
         }
-        if r.chatgpt.is_some() {
+        if self.chatgpt.is_some() {
             cleanup_codex_config(&home)?;
         }
         let removed =
@@ -737,389 +767,9 @@ impl SessionHandle {
             );
         }
         root.sync_all()?;
-        self.private_source.take();
-        Ok(PrivateCleanup {
-            auth_removed: true,
-            home_removed: removed,
-        })
+        Ok(removed)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    pub(super) fn login(refresh: &str) -> Vec<u8> {
-        serde_json::to_vec(&serde_json::json!({"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"offline-id","access_token":"offline-access","refresh_token":refresh,"account_id":"offline-account"},"last_refresh":"2026-11-01T00:00:00Z"})).unwrap()
-    }
-    #[test]
-    fn subscription_login_is_explicit_closed_bounded_and_errors_hide_tokens() {
-        PrivateLaunchInput::validate_chatgpt_auth_json(&login("offline-refresh")).unwrap();
-        for bytes in [b"sk-api-key".to_vec(), login(""), vec![b'x';65537], br#"{"auth_mode":"chatgpt","auth_mode":"chatgpt","tokens":{"access_token":"private-value"}}"#.to_vec()] {
-            let error=PrivateLaunchInput::validate_chatgpt_auth_json(&bytes).unwrap_err();
-            assert!(!format!("{error:#}").contains("private-value"));
-        }
-    }
-    #[test]
-    fn interactive_executor_private_config_trusts_exactly_launch_workspace() {
-        let dir = tempfile::tempdir().unwrap();
-        let (source, _, _, record) = source(dir.path());
-        let bytes = login("offline-refresh");
-        std::fs::write(dir.path().join("source/material.bin"), &bytes).unwrap();
-        let (scope, _) = scoped();
-        let input = PrivateLaunchInput::codex_chatgpt_auth_json(
-            source,
-            OriginalPrivateMaterial {
-                digest: Digest::of(&bytes),
-                bytes: bytes.len() as u64,
-                record_digest: record,
-            },
-            scope.binding,
-            scope.launch_id,
-            scope.deadline_boot_ms,
-        )
-        .unwrap();
-        let root = root(dir.path());
-        let publication = Publication::reserve(&root, input).unwrap();
-        let record = publication.record();
-        assert!(
-            !serde_json::to_string(&record)
-                .unwrap()
-                .contains("offline-access")
-        );
-        let workspace = dir.path().join("launch workspace.\"quoted\"\\name");
-        let _held = publication.publish(&workspace).unwrap();
-        let config_path = root.join("codex-home/config.toml");
-        let config: toml::Value =
-            toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        let projects = config["projects"].as_table().unwrap();
-        assert_eq!(projects.len(), 1);
-        assert_eq!(
-            projects[workspace.to_str().unwrap()]["trust_level"].as_str(),
-            Some("trusted")
-        );
-        assert_eq!(
-            std::fs::metadata(config_path).unwrap().mode() & 0o777,
-            0o600
-        );
-        assert_eq!(
-            std::fs::read(root.join("codex-home/auth.json")).unwrap(),
-            bytes
-        );
-        assert_eq!(
-            std::fs::metadata(root.join("codex-home/auth.json"))
-                .unwrap()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        verify_record(&File::open(&root).unwrap(), &record, true).unwrap();
-        let replacement = root.join("codex-home/new-auth");
-        std::fs::write(&replacement, login("offline-rotated-refresh")).unwrap();
-        std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o600)).unwrap();
-        std::fs::rename(&replacement, root.join("codex-home/auth.json")).unwrap();
-        assert!(verify_record(&File::open(&root).unwrap(), &record, true).is_err());
-        let refusal = verify_record(&File::open(&root).unwrap(), &record, false).unwrap_err();
-        assert!(!format!("{refusal:#}").contains("offline-rotated-refresh"));
-        assert_eq!(
-            std::fs::read(root.join("codex-home/auth.json")).unwrap(),
-            login("offline-rotated-refresh"),
-            "rotated private login must remain available for reconciliation"
-        );
-        assert_eq!(
-            std::fs::read(dir.path().join("source/material.bin")).unwrap(),
-            bytes,
-            "private refresh never overwrites operator material"
-        );
-    }
-    #[test]
-    fn subscription_publication_refuses_changed_original_before_writing() {
-        let dir = tempfile::tempdir().unwrap();
-        let (source, _, _, record) = source(dir.path());
-        let bytes = login("offline-refresh");
-        std::fs::write(dir.path().join("source/material.bin"), &bytes).unwrap();
-        let (scope, _) = scoped();
-        let input = PrivateLaunchInput::codex_chatgpt_auth_json(
-            source,
-            OriginalPrivateMaterial {
-                digest: Digest::of(&bytes),
-                bytes: bytes.len() as u64,
-                record_digest: record,
-            },
-            scope.binding,
-            scope.launch_id,
-            scope.deadline_boot_ms,
-        )
-        .unwrap();
-        let root = root(dir.path());
-        let publication = Publication::reserve(&root, input).unwrap();
-        std::fs::write(dir.path().join("source/material.bin"), login("changed")).unwrap();
-        assert!(publication.publish(Path::new("/launch/workspace")).is_err());
-        assert_eq!(
-            std::fs::metadata(root.join("codex-home/auth.json"))
-                .unwrap()
-                .len(),
-            0
-        );
-    }
-    pub(super) fn scoped() -> (ScopedCodexAuthBinding, LaunchManifest) {
-        let manifest: LaunchManifest =
-            serde_json::from_str(include_str!("../tests/fixtures/manifest.json")).unwrap();
-        let binding = aq_session_protocol::LaunchBinding {
-            schema_version: 1,
-            session: manifest.bindings.session.clone(),
-            offer_id: Uuid::new_v4(),
-            attempt_id: manifest.bindings.attempt_id,
-            assignment_generation: manifest.bindings.assignment_generation,
-            execution_spec_digest: Digest::of(b"offline exact execution"),
-            launch_manifest_digest: canonical_digest(&manifest).unwrap(),
-            graph_access_profile_digest: manifest.bindings.graph_access_profile.digest.clone(),
-        };
-        (
-            ScopedCodexAuthBinding {
-                binding,
-                launch_id: Uuid::new_v4(),
-                origin: "http://127.0.0.1:12345".into(),
-                deadline_boot_ms: 10000,
-            },
-            manifest,
-        )
-    }
-    pub(super) fn source(root: &Path) -> (File, Digest, u64, Digest) {
-        let dir = root.join("source");
-        std::fs::create_dir(&dir).unwrap();
-        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let key = b"sk-private-offline-only";
-        let record = b"{\"schema_version\":1}";
-        for (name, bytes) in [
-            ("material.bin", key.as_slice()),
-            ("record.json", record.as_slice()),
-        ] {
-            let p = dir.join(name);
-            std::fs::write(&p, bytes).unwrap();
-            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o600)).unwrap();
-        }
-        (
-            File::open(dir).unwrap(),
-            Digest::of(key),
-            key.len() as u64,
-            Digest::of(record),
-        )
-    }
-    pub(super) fn root(path: &Path) -> PathBuf {
-        let p = path.join("launch");
-        std::fs::create_dir(&p).unwrap();
-        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o700)).unwrap();
-        p
-    }
-    #[test]
-    fn reserved_metadata_has_no_auth_bytes_and_original_record_is_rechecked() {
-        let dir = tempfile::tempdir().unwrap();
-        let (fd, digest, bytes, record) = source(dir.path());
-        let root = root(dir.path());
-        let input = PrivateLaunchInput::codex_api_key(fd, digest, bytes, record).unwrap();
-        let publication = Publication::reserve(&root, input).unwrap();
-        assert_eq!(
-            std::fs::metadata(root.join("codex-home/auth.json"))
-                .unwrap()
-                .len(),
-            0
-        );
-        let record = publication.record();
-        let metadata = serde_json::to_string(&record).unwrap();
-        assert!(!metadata.contains("sk-private"));
-        let _held = publication.publish(Path::new("/launch/workspace")).unwrap();
-        assert!(!root.join("codex-home/config.toml").exists());
-        let root_fd = File::open(&root).unwrap();
-        verify_record(&root_fd, &record, true).unwrap();
-        std::fs::write(dir.path().join("source/record.json"), b"changed record").unwrap();
-        assert!(verify_record(&root_fd, &record, true).is_err());
-        // Matching stopped cleanup may still verify the derived file independently.
-        verify_record(&root_fd, &record, false).unwrap();
-    }
-    #[test]
-    fn publication_refuses_changed_original_bytes_without_writing_auth() {
-        let dir = tempfile::tempdir().unwrap();
-        let (fd, digest, bytes, record) = source(dir.path());
-        let root = root(dir.path());
-        let publication = Publication::reserve(
-            &root,
-            PrivateLaunchInput::codex_api_key(fd, digest, bytes, record).unwrap(),
-        )
-        .unwrap();
-        std::fs::write(dir.path().join("source/material.bin"), b"changed key").unwrap();
-        assert!(publication.publish(Path::new("/launch/workspace")).is_err());
-        assert_eq!(
-            std::fs::metadata(root.join("codex-home/auth.json"))
-                .unwrap()
-                .len(),
-            0
-        );
-    }
-    #[test]
-    fn symlink_replacement_and_nonprivate_auth_refuse() {
-        let dir = tempfile::tempdir().unwrap();
-        let (fd, digest, bytes, record) = source(dir.path());
-        let root = root(dir.path());
-        let publication = Publication::reserve(
-            &root,
-            PrivateLaunchInput::codex_api_key(fd, digest, bytes, record).unwrap(),
-        )
-        .unwrap();
-        let record = publication.record();
-        let _held = publication.publish(Path::new("/launch/workspace")).unwrap();
-        std::fs::set_permissions(
-            root.join("codex-home/auth.json"),
-            std::fs::Permissions::from_mode(0o644),
-        )
-        .unwrap();
-        assert!(verify_record(&File::open(&root).unwrap(), &record, false).is_err());
-        std::fs::remove_file(root.join("codex-home/auth.json")).unwrap();
-        std::os::unix::fs::symlink(
-            dir.path().join("source/material.bin"),
-            root.join("codex-home/auth.json"),
-        )
-        .unwrap();
-        assert!(verify_record(&File::open(&root).unwrap(), &record, false).is_err());
-        assert_eq!(
-            std::fs::read(dir.path().join("source/material.bin")).unwrap(),
-            b"sk-private-offline-only"
-        );
-    }
-    #[test]
-    fn scoped_auth_contains_only_fresh_capability_and_rechecks_original() {
-        let dir = tempfile::tempdir().unwrap();
-        let (fd, digest, bytes, record_digest) = source(dir.path());
-        let root = root(dir.path());
-        let (scope, _) = scoped();
-        let cap = Zeroizing::new(format!("aq-responses-{}", "a".repeat(64)).into_bytes());
-        let input = PrivateLaunchInput::codex_scoped_capability(
-            fd,
-            OriginalPrivateMaterial {
-                digest,
-                bytes,
-                record_digest,
-            },
-            scope,
-            cap.clone(),
-        )
-        .unwrap();
-        let publication = Publication::reserve(&root, input).unwrap();
-        assert_eq!(
-            std::fs::metadata(root.join("codex-home/auth.json"))
-                .unwrap()
-                .len(),
-            0
-        );
-        let record = publication.record();
-        let metadata = serde_json::to_string(&record).unwrap();
-        assert!(!metadata.contains("sk-private"));
-        assert!(!metadata.contains(std::str::from_utf8(&cap).unwrap()));
-        let _source = publication.publish(Path::new("/launch/workspace")).unwrap();
-        let auth = std::fs::read(root.join("codex-home/auth.json")).unwrap();
-        assert_eq!(auth, *derive_auth(&cap).unwrap());
-        assert!(!String::from_utf8_lossy(&auth).contains("sk-private"));
-        verify_record(&File::open(&root).unwrap(), &record, true).unwrap();
-        std::fs::write(
-            dir.path().join("source/record.json"),
-            b"changed original record",
-        )
-        .unwrap();
-        assert!(verify_record(&File::open(&root).unwrap(), &record, true).is_err());
-        verify_record(&File::open(&root).unwrap(), &record, false).unwrap();
-    }
-    fn proxy_route(origin: &str) -> Vec<String> {
-        vec![
-            "--config".into(),
-            "model_provider=\"aq-runner-proxy\"".into(),
-            "--config".into(),
-            format!("model_providers.aq-runner-proxy.base_url=\"{origin}/v1\""),
-            "--config".into(),
-            "model_providers.aq-runner-proxy.wire_api=\"responses\"".into(),
-        ]
-    }
-    #[test]
-    fn scoped_auth_requires_exact_launch_manifest_deadline_and_single_route() {
-        let (scope, manifest) = scoped();
-        let mut config = SealedLaunch {
-            launch_id: scope.launch_id,
-            permit: ExecutionPermit {
-                session: manifest.bindings.session.clone(),
-                manifest_digest: canonical_digest(&manifest).unwrap(),
-                sequence: 1,
-                issued_boot_ms: 1,
-                expires_boot_ms: scope.deadline_boot_ms,
-            },
-            resource_policy: ResourcePolicy::CallerAdmission(manifest.harness.environment.clone()),
-            manifest: manifest.into(),
-            workspace: "/work".into(),
-            helper: "/helper".into(),
-            tmux: "/usr/bin/tmux".into(),
-            tmux_version: "tmux 3.4".into(),
-            resource_qualification: None,
-            rendered_startup: None,
-            private_input: None,
-            observed: None,
-            agent_identity: None,
-            command: LocalCommand {
-                executable: "/opt/codex".into(),
-                arguments: proxy_route(&scope.origin),
-                environment: Default::default(),
-            },
-        };
-        scope.verify_launch(&config).unwrap();
-        let route = config.command.arguments.clone();
-        // A duplicated provider base URL is refused.
-        config.command.arguments.extend([
-            "--config".into(),
-            format!(
-                "model_providers.aq-runner-proxy.base_url=\"{}/v1\"",
-                scope.origin
-            ),
-        ]);
-        assert!(scope.verify_launch(&config).is_err());
-        // The legacy top-level route is refused alongside the provider route.
-        config.command.arguments = route.clone();
-        config.command.arguments.extend([
-            "--config".into(),
-            format!("openai_base_url=\"{}/v1\"", scope.origin),
-        ]);
-        assert!(scope.verify_launch(&config).is_err());
-        // The legacy top-level route alone is no longer an accepted route.
-        config.command.arguments = vec![
-            "--config".into(),
-            format!("openai_base_url=\"{}/v1\"", scope.origin),
-        ];
-        assert!(scope.verify_launch(&config).is_err());
-        // Each provider setting is required: selector, base URL and wire API.
-        for i in (1..route.len()).step_by(2) {
-            let mut partial = route.clone();
-            partial.drain(i - 1..=i);
-            config.command.arguments = partial;
-            assert!(
-                scope.verify_launch(&config).is_err(),
-                "missing {}",
-                route[i]
-            );
-        }
-        // A different provider selection or origin is refused.
-        config.command.arguments = route.clone();
-        config.command.arguments[1] = "model_provider=\"openai\"".into();
-        assert!(scope.verify_launch(&config).is_err());
-        config.command.arguments = proxy_route("http://127.0.0.1:1");
-        assert!(scope.verify_launch(&config).is_err());
-        config.command.arguments = route;
-        config.permit.expires_boot_ms += 1;
-        assert!(scope.verify_launch(&config).is_err());
-        config.permit.expires_boot_ms -= 1;
-        config.launch_id = Uuid::new_v4();
-        assert!(scope.verify_launch(&config).is_err());
-        config.launch_id = scope.launch_id;
-        if let LaunchDocument::Task(m) = &mut config.manifest {
-            m.model.max_output_tokens += 1;
-        }
-        assert!(scope.verify_launch(&config).is_err());
-        let mut foreign = scope.clone();
-        foreign.origin = "https://provider.example".into();
-        assert!(foreign.validate().is_err());
-    }
-}
+mod tests;

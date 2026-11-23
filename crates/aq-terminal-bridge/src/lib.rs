@@ -331,53 +331,9 @@ impl Bridge {
         let mut next = self.state.clone();
         let mut prepared = Vec::new();
         for effect in &envelope.effects {
-            let terminal = effect.terminal();
-            let binding = next
-                .bindings
-                .get(&terminal.terminal_id)
-                .ok_or_else(|| anyhow::anyhow!("unregistered bridge terminal"))?;
-            ensure!(
-                binding.terminal == *terminal && self.hosts.contains_key(&terminal.terminal_id),
-                "bridge terminal incarnation mismatch"
-            );
-            ensure!(
-                next.registrations
-                    .get(&terminal.terminal_id)
-                    .is_some_and(|r| r.confirmed && r.request.terminal == *terminal),
-                "bridge terminal registration unconfirmed"
-            );
-            let (id, digest, replayable) = identity(effect)?;
-            let key = key(terminal, id);
-            if let Some(old) = next.entries.get_mut(&key) {
-                ensure!(old.digest == digest, "changed bridge operation payload");
-                if matches!(old.phase, Phase::Complete(_)) {
-                    old.uploaded = false;
-                }
-                continue;
+            if let Some(prepared_effect) = self.prepare_effect(&mut next, effect)? {
+                prepared.push(prepared_effect);
             }
-            ensure!(
-                next.entries.len() < MAX_OPERATIONS,
-                "bridge finite operation capacity"
-            );
-            next.entries.insert(
-                key.clone(),
-                Entry {
-                    terminal: terminal.clone(),
-                    operation_id: id,
-                    digest,
-                    input_deadline_ms: match effect {
-                        Effect::Input(v) => Some(v.deadline_ms),
-                        _ => None,
-                    },
-                    replayable,
-                    phase: Phase::Received,
-                    uploaded: false,
-                },
-            );
-            prepared.push(PreparedEffect {
-                key,
-                effect: effect.clone(),
-            });
         }
         next.cursor = envelope.cursor;
         if next.entries.len() > self.state.entries.len() {
@@ -386,6 +342,56 @@ impl Bridge {
         self.save(next)?;
         Ok(prepared)
     }
+    fn prepare_effect(&self, next: &mut State, effect: &Effect) -> Result<Option<PreparedEffect>> {
+        let terminal = effect.terminal();
+        let binding = next
+            .bindings
+            .get(&terminal.terminal_id)
+            .ok_or_else(|| anyhow::anyhow!("unregistered bridge terminal"))?;
+        ensure!(
+            binding.terminal == *terminal && self.hosts.contains_key(&terminal.terminal_id),
+            "bridge terminal incarnation mismatch"
+        );
+        ensure!(
+            next.registrations
+                .get(&terminal.terminal_id)
+                .is_some_and(|r| r.confirmed && r.request.terminal == *terminal),
+            "bridge terminal registration unconfirmed"
+        );
+        let (id, digest, replayable) = identity(effect)?;
+        let key = key(terminal, id);
+        if let Some(old) = next.entries.get_mut(&key) {
+            ensure!(old.digest == digest, "changed bridge operation payload");
+            if matches!(old.phase, Phase::Complete(_)) {
+                old.uploaded = false;
+            }
+            return Ok(None);
+        }
+        ensure!(
+            next.entries.len() < MAX_OPERATIONS,
+            "bridge finite operation capacity"
+        );
+        next.entries.insert(
+            key.clone(),
+            Entry {
+                terminal: terminal.clone(),
+                operation_id: id,
+                digest,
+                input_deadline_ms: match effect {
+                    Effect::Input(v) => Some(v.deadline_ms),
+                    _ => None,
+                },
+                replayable,
+                phase: Phase::Received,
+                uploaded: false,
+            },
+        );
+        Ok(Some(PreparedEffect {
+            key,
+            effect: effect.clone(),
+        }))
+    }
+
     pub fn execute(&mut self, prepared: PreparedEffect) -> Result<()> {
         self.healthy()?;
         let entry = self
@@ -421,6 +427,24 @@ impl Bridge {
     /// authoritative local absence becomes Rejected under guardian admission.
     pub fn recover_pending(&mut self) -> Result<usize> {
         self.healthy()?;
+        let keys = self.pending_keys();
+        let mut completed = 0;
+        for key in keys {
+            self.recovery_after = Some(key.clone());
+            let entry = self.state.entries[&key].clone();
+            let Some(host) = self.hosts.get(&entry.terminal.terminal_id).cloned() else {
+                continue;
+            };
+            let receipt = self.recover_receipt(&entry, host.as_ref())?;
+            if let Some(receipt) = receipt
+                && self.complete(&key, receipt)?
+            {
+                completed += 1;
+            }
+        }
+        Ok(completed)
+    }
+    fn pending_keys(&self) -> Vec<String> {
         let pending: Vec<_> = self
             .state
             .entries
@@ -433,7 +457,7 @@ impl Bridge {
             })
             .map(|(k, _)| k.clone())
             .collect();
-        let keys: Vec<_> = pending
+        pending
             .iter()
             .filter(|k| self.recovery_after.as_ref().is_none_or(|after| *k > after))
             .chain(pending.iter().filter(|k| {
@@ -443,45 +467,36 @@ impl Bridge {
             }))
             .take(MAX_BATCH)
             .cloned()
-            .collect();
-        let mut completed = 0;
-        for key in keys {
-            self.recovery_after = Some(key.clone());
-            let entry = self.state.entries[&key].clone();
-            let Some(host) = self.hosts.get(&entry.terminal.terminal_id).cloned() else {
-                continue;
-            };
-            let Ok(observed) = host.receipt(entry.operation_id) else {
-                continue;
-            };
-            let receipt = if let Some(receipt) = observed {
-                Some(receipt)
-            } else if let Some(replayable) = &entry.replayable {
-                host.submit(&replayable.effect(), self.clock)
-                    .unwrap_or_default()
-            } else {
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)?
-                    .as_millis();
-                if matches!(entry.phase, Phase::Received | Phase::Publishing)
-                    || entry
-                        .input_deadline_ms
-                        .is_some_and(|deadline| now >= deadline as u128)
-                {
-                    host.reject_unstarted_input(entry.operation_id, &entry.digest)
-                        .ok()
-                } else {
-                    None
-                }
-            };
-            if let Some(receipt) = receipt
-                && self.complete(&key, receipt)?
-            {
-                completed += 1;
-            }
-        }
-        Ok(completed)
+            .collect()
     }
+
+    fn recover_receipt(&self, entry: &Entry, host: &dyn OwnedTerminal) -> Result<Option<Receipt>> {
+        let Ok(observed) = host.receipt(entry.operation_id) else {
+            return Ok(None);
+        };
+        let receipt = if let Some(receipt) = observed {
+            Some(receipt)
+        } else if let Some(replayable) = &entry.replayable {
+            host.submit(&replayable.effect(), self.clock)
+                .unwrap_or_default()
+        } else {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_millis();
+            if matches!(entry.phase, Phase::Received | Phase::Publishing)
+                || entry
+                    .input_deadline_ms
+                    .is_some_and(|deadline| now >= deadline as u128)
+            {
+                host.reject_unstarted_input(entry.operation_id, &entry.digest)
+                    .ok()
+            } else {
+                None
+            }
+        };
+        Ok(receipt)
+    }
+
     fn complete(&mut self, key: &str, receipt: Receipt) -> Result<bool> {
         ensure!(
             serde_json::to_vec(&receipt)?.len() <= 1024,
@@ -641,6 +656,22 @@ fn validate_state(state: &State) -> Result<()> {
         state.registrations.len() <= MAX_TERMINALS,
         "bridge registration capacity"
     );
+    validate_registrations(state)?;
+    for (k, entry) in &state.entries {
+        validate_entry(state, k, entry)?;
+    }
+    if let Some(upload) = &state.upload {
+        upload.request.validate()?;
+        ensure!(
+            upload.request.peer == state.peer
+                && upload.keys.len() <= MAX_BATCH
+                && upload.keys.iter().all(|k| state.entries.contains_key(k)),
+            "bridge journal upload binding"
+        );
+    }
+    Ok(())
+}
+fn validate_registrations(state: &State) -> Result<()> {
     for (id, registration) in &state.registrations {
         registration.request.validate()?;
         ensure!(
@@ -654,42 +685,35 @@ fn validate_state(state: &State) -> Result<()> {
             "bridge registration journal binding"
         );
     }
-    for (k, entry) in &state.entries {
+    Ok(())
+}
+
+fn validate_entry(state: &State, k: &str, entry: &Entry) -> Result<()> {
+    ensure!(
+        entry.replayable.is_none() == entry.input_deadline_ms.is_some()
+            && entry.input_deadline_ms.is_none_or(|deadline| deadline > 0),
+        "bridge journal input deadline"
+    );
+    ensure!(
+        !entry.operation_id.is_nil()
+            && k == key(&entry.terminal, entry.operation_id)
+            && state
+                .bindings
+                .get(&entry.terminal.terminal_id)
+                .is_some_and(|b| b.terminal == entry.terminal),
+        "bridge journal operation identity"
+    );
+    if let Some(replayable) = &entry.replayable {
+        let (id, d, _) = identity(&replayable.effect())?;
         ensure!(
-            entry.replayable.is_none() == entry.input_deadline_ms.is_some()
-                && entry.input_deadline_ms.is_none_or(|deadline| deadline > 0),
-            "bridge journal input deadline"
+            id == entry.operation_id && d == entry.digest,
+            "bridge journal replay digest"
         );
-        ensure!(
-            !entry.operation_id.is_nil()
-                && *k == key(&entry.terminal, entry.operation_id)
-                && state
-                    .bindings
-                    .get(&entry.terminal.terminal_id)
-                    .is_some_and(|b| b.terminal == entry.terminal),
-            "bridge journal operation identity"
-        );
-        if let Some(replayable) = &entry.replayable {
-            let (id, d, _) = identity(&replayable.effect())?;
-            ensure!(
-                id == entry.operation_id && d == entry.digest,
-                "bridge journal replay digest"
-            );
-        }
-        if let Phase::Complete(receipt) = &entry.phase {
-            ensure!(
-                check_receipt(entry, receipt)?,
-                "nonfinal completed bridge receipt"
-            );
-        }
     }
-    if let Some(upload) = &state.upload {
-        upload.request.validate()?;
+    if let Phase::Complete(receipt) = &entry.phase {
         ensure!(
-            upload.request.peer == state.peer
-                && upload.keys.len() <= MAX_BATCH
-                && upload.keys.iter().all(|k| state.entries.contains_key(k)),
-            "bridge journal upload binding"
+            check_receipt(entry, receipt)?,
+            "nonfinal completed bridge receipt"
         );
     }
     Ok(())
@@ -700,23 +724,7 @@ fn check_receipt(entry: &Entry, receipt: &Receipt) -> Result<bool> {
         "bridge receipt byte bound"
     );
     match (receipt, &entry.replayable) {
-        (Receipt::Input(v), None) => {
-            ensure!(
-                v.terminal == entry.terminal
-                    && v.operation_id == entry.operation_id
-                    && v.command_digest == entry.digest,
-                "bridge input receipt mismatch"
-            );
-            if !matches!(
-                v.disposition,
-                InputDisposition::Applied
-                    | InputDisposition::DeliveryUnknown
-                    | InputDisposition::Expired
-                    | InputDisposition::Rejected
-            ) {
-                return Ok(false);
-            }
-        }
+        (Receipt::Input(v), None) => return check_input_receipt(entry, v),
         (Receipt::Fence(v), Some(Replayable::Fence(f))) => ensure!(
             v.terminal == entry.terminal
                 && v.fence_id == entry.operation_id
@@ -731,6 +739,25 @@ fn check_receipt(entry: &Entry, receipt: &Receipt) -> Result<bool> {
             "bridge resize receipt mismatch"
         ),
         _ => bail!("bridge receipt class mismatch"),
+    }
+    Ok(true)
+}
+
+fn check_input_receipt(entry: &Entry, v: &aq_session_protocol::InputReceipt) -> Result<bool> {
+    ensure!(
+        v.terminal == entry.terminal
+            && v.operation_id == entry.operation_id
+            && v.command_digest == entry.digest,
+        "bridge input receipt mismatch"
+    );
+    if !matches!(
+        v.disposition,
+        InputDisposition::Applied
+            | InputDisposition::DeliveryUnknown
+            | InputDisposition::Expired
+            | InputDisposition::Rejected
+    ) {
+        return Ok(false);
     }
     Ok(true)
 }

@@ -131,6 +131,22 @@ async fn send(
     })
 }
 
+async fn assert_listener_rejected(
+    listener: StdTcpListener,
+    origin: &str,
+    credential: &Arc<Credential>,
+) {
+    let result = ScopedResponsesTransport::start_on_listener(
+        listener,
+        origin,
+        policy(Duration::from_secs(5)),
+        UpstreamEndpoint::openai(),
+        credential.clone(),
+    )
+    .await;
+    assert!(result.is_err());
+}
+
 #[tokio::test]
 async fn consumed_listener_requires_exact_listening_numeric_loopback_before_credential_read() {
     let credential = Credential::new(0);
@@ -141,62 +157,22 @@ async fn consumed_listener_requires_exact_listening_numeric_loopback_before_cred
         "http://127.0.0.1:1",
     ] {
         let (listener, _) = listener();
-        assert!(
-            ScopedResponsesTransport::start_on_listener(
-                listener,
-                wrong,
-                policy(Duration::from_secs(5)),
-                UpstreamEndpoint::openai(),
-                credential.clone()
-            )
-            .await
-            .is_err()
-        );
+        assert_listener_rejected(listener, wrong, &credential).await;
     }
     let wildcard = StdTcpListener::bind("0.0.0.0:0").unwrap();
     let origin = format!("http://127.0.0.1:{}", wildcard.local_addr().unwrap().port());
-    assert!(
-        ScopedResponsesTransport::start_on_listener(
-            wildcard,
-            &origin,
-            policy(Duration::from_secs(5)),
-            UpstreamEndpoint::openai(),
-            credential.clone()
-        )
-        .await
-        .is_err()
-    );
+    assert_listener_rejected(wildcard, &origin, &credential).await;
     // A connected TCP descriptor cast as TcpListener is still not listening.
     let accepted = StdTcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let connection = std::net::TcpStream::connect(accepted.local_addr().unwrap()).unwrap();
     use std::os::fd::{FromRawFd, IntoRawFd};
     let connected = unsafe { StdTcpListener::from_raw_fd(connection.into_raw_fd()) };
     let origin = format!("http://{}", connected.local_addr().unwrap());
-    assert!(
-        ScopedResponsesTransport::start_on_listener(
-            connected,
-            &origin,
-            policy(Duration::from_secs(5)),
-            UpstreamEndpoint::openai(),
-            credential.clone()
-        )
-        .await
-        .is_err()
-    );
+    assert_listener_rejected(connected, &origin, &credential).await;
     let datagram = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let origin = format!("http://{}", datagram.local_addr().unwrap());
     let datagram = unsafe { StdTcpListener::from_raw_fd(datagram.into_raw_fd()) };
-    assert!(
-        ScopedResponsesTransport::start_on_listener(
-            datagram,
-            &origin,
-            policy(Duration::from_secs(5)),
-            UpstreamEndpoint::openai(),
-            credential.clone()
-        )
-        .await
-        .is_err()
-    );
+    assert_listener_rejected(datagram, &origin, &credential).await;
 
     // Only exercise SCTP when already registered: never ask the kernel to
     // load an optional protocol module for this qualification.
@@ -233,59 +209,34 @@ async fn consumed_listener_requires_exact_listening_numeric_loopback_before_cred
         );
         assert_eq!(unsafe { libc::listen(socket.as_raw_fd(), 1) }, 0);
         let origin = format!("http://{}", socket.local_addr().unwrap());
-        assert!(
-            ScopedResponsesTransport::start_on_listener(
-                socket,
-                &origin,
-                policy(Duration::from_secs(5)),
-                UpstreamEndpoint::openai(),
-                credential.clone()
-            )
-            .await
-            .is_err()
-        );
+        assert_listener_rejected(socket, &origin, &credential).await;
     }
     assert_eq!(credential.calls.load(Ordering::SeqCst), 0);
 }
 
-#[tokio::test]
-async fn cancelled_initial_reads_hold_physical_admission_and_excess_never_queues() {
-    let peer = peer().await;
-    let admission = Arc::new(Semaphore::new(2));
-    let first = Credential::new(1);
-    let second = Credential::new(1);
-    let _first_release = Release(first.clone());
-    let _second_release = Release(second.clone());
-    let mut tasks = Vec::new();
-    for credential in [&first, &second] {
-        let (listener, origin) = listener();
-        let endpoint = UpstreamEndpoint::development_loopback(&peer.origin).unwrap();
-        let reader = CredentialReader {
-            credential: credential.clone(),
-            admission: admission.clone(),
-        };
-        tasks.push(tokio::spawn(async move {
-            ScopedResponsesTransport::start_with_reader(
-                listener,
-                &origin,
-                policy(Duration::from_secs(5)),
-                endpoint,
-                reader,
-            )
-            .await
-        }));
-        entered(credential).await;
-    }
-    assert_eq!(admission.available_permits(), 0);
-    for task in tasks {
-        task.abort();
-        assert!(matches!(task.await,Err(error) if error.is_cancelled()));
-    }
-    assert_eq!(
-        admission.available_permits(),
-        0,
-        "canceled waiters cannot release live physical read budget"
-    );
+fn spawn_reader(
+    peer_origin: &str,
+    credential: &Arc<Credential>,
+    admission: &Arc<Semaphore>,
+) -> JoinHandle<Result<ScopedResponsesTransport>> {
+    let (listener, origin) = listener();
+    let endpoint = UpstreamEndpoint::development_loopback(peer_origin).unwrap();
+    let reader = CredentialReader {
+        credential: credential.clone(),
+        admission: admission.clone(),
+    };
+    tokio::spawn(async move {
+        ScopedResponsesTransport::start_with_reader(
+            checked_listener(listener, &origin).unwrap(),
+            policy(Duration::from_secs(5)),
+            endpoint,
+            reader,
+        )
+        .await
+    })
+}
+
+async fn assert_excess_rejected(peer: &Peer, admission: &Arc<Semaphore>) -> Arc<Credential> {
     let excess = Credential::new(0);
     for _ in 0..3 {
         let (listener, origin) = listener();
@@ -294,8 +245,7 @@ async fn cancelled_initial_reads_hold_physical_admission_and_excess_never_queues
             admission: admission.clone(),
         };
         let rejected = ScopedResponsesTransport::start_with_reader(
-            listener,
-            &origin,
+            checked_listener(listener, &origin).unwrap(),
             policy(Duration::from_secs(5)),
             UpstreamEndpoint::development_loopback(&peer.origin).unwrap(),
             reader,
@@ -308,23 +258,53 @@ async fn cancelled_initial_reads_hold_physical_admission_and_excess_never_queues
         0,
         "excess work is neither started nor queued"
     );
-    first.release();
-    completed(&first, 1).await;
+    excess
+}
+
+async fn wait_for_permits(admission: &Semaphore, count: usize) {
     tokio::time::timeout(Duration::from_secs(1), async {
-        while admission.available_permits() != 1 {
+        while admission.available_permits() != count {
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     })
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_initial_reads_hold_physical_admission_and_excess_never_queues() {
+    let peer = peer().await;
+    let admission = Arc::new(Semaphore::new(2));
+    let first = Credential::new(1);
+    let second = Credential::new(1);
+    let _first_release = Release(first.clone());
+    let _second_release = Release(second.clone());
+    let mut tasks = Vec::new();
+    for credential in [&first, &second] {
+        tasks.push(spawn_reader(&peer.origin, credential, &admission));
+        entered(credential).await;
+    }
+    assert_eq!(admission.available_permits(), 0);
+    for task in tasks {
+        task.abort();
+        assert!(matches!(task.await,Err(error) if error.is_cancelled()));
+    }
+    assert_eq!(
+        admission.available_permits(),
+        0,
+        "canceled waiters cannot release live physical read budget"
+    );
+    let excess = assert_excess_rejected(&peer, &admission).await;
+    first.release();
+    completed(&first, 1).await;
+    wait_for_permits(&admission, 1).await;
     let (listener, origin) = listener();
     let reader = CredentialReader {
         credential: excess.clone(),
         admission: admission.clone(),
     };
     let owner = ScopedResponsesTransport::start_with_reader(
-        listener,
-        &origin,
+        checked_listener(listener, &origin).unwrap(),
         policy(Duration::from_secs(5)),
         UpstreamEndpoint::development_loopback(&peer.origin).unwrap(),
         reader,
@@ -347,13 +327,7 @@ async fn cancelled_initial_reads_hold_physical_admission_and_excess_never_queues
     owner.stop().await.unwrap();
     second.release();
     completed(&second, 1).await;
-    tokio::time::timeout(Duration::from_secs(1), async {
-        while admission.available_permits() != 2 {
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    })
-    .await
-    .unwrap();
+    wait_for_permits(&admission, 2).await;
 }
 
 #[tokio::test]

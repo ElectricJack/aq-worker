@@ -278,9 +278,13 @@ def secret_shaped(value):
         for match in JSON_ASSIGNMENT.finditer(data)))
 
 
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
 def json_bytes(data):
-    if len(data) > MAX_JSON:
-        raise ValueError('JSON size limit')
+    require(len(data) <= MAX_JSON, 'JSON size limit')
     def pairs(items):
         result = {}
         for key, value in items:
@@ -294,26 +298,32 @@ def json_bytes(data):
         raise ValueError('invalid JSON') from error
 
 
+UNSAFE_ARCHIVE_PATH = re.compile(r'^/|[\\\x00]|(?:^|/)\.\.(?:/|\Z)')
+
+
 def safe_path(name):
-    if len(name) > 4096 or '\\' in name or '\x00' in name or name.startswith('/'):
+    if len(name) > 4096 or UNSAFE_ARCHIVE_PATH.search(name):
         raise ValueError('unsafe archive path')
-    parts = name.split('/')
-    if '..' in parts:
-        raise ValueError('unsafe archive path')
-    return '/'.join(part for part in parts if part not in ('', '.'))
+    return '/'.join(part for part in name.split('/') if part not in ('', '.'))
+
+
+CREDENTIAL_FILES = {'auth.json', '.git-credentials', '.netrc', '.claude.json',
+                    'application_default_credentials.json', 'credentials.db',
+                    'oauth_creds.json', '.credentials.json'}
+CREDENTIAL_DIRECTORIES = {'.codex', '.claude', '.gemini', '.aws', '.azure'}
+CONFIG_DIRECTORIES = ['.config/gcloud', '.config/gh', '.config/doctl', '.config/oci', '.config/ascii/boat']
 
 
 def credential_path(name):
-    parts = name.lower().strip('/').split('/')
-    base = parts[-1]
-    return (base in {'auth.json', '.git-credentials', '.netrc', '.claude.json',
-                     'application_default_credentials.json', 'credentials.db',
-                     'oauth_creds.json', '.credentials.json'}
-            or any(p in {'.codex', '.claude', '.gemini', '.aws', '.azure'} for p in parts[:-1])
-            or any('/' + p + '/' in '/' + name.lower() + '/' for p in
-                   ['.config/gcloud', '.config/gh', '.config/doctl', '.config/oci', '.config/ascii/boat'])
-            or ('.ssh' in parts[:-1] and base.startswith('id_'))
-            or ('.docker' in parts[:-1] and base == 'config.json'))
+    lower = name.lower()
+    *parents, base = lower.strip('/').split('/')
+    if base in CREDENTIAL_FILES or CREDENTIAL_DIRECTORIES.intersection(parents):
+        return True
+    if any('/' + path + '/' in '/' + lower + '/' for path in CONFIG_DIRECTORIES):
+        return True
+    if '.ssh' in parents and base.startswith('id_'):
+        return True
+    return '.docker' in parents and base == 'config.json'
 
 
 def credential_env(name):
@@ -334,6 +344,21 @@ def credential_link_path(name):
     } for part in name.lower().strip('/').split('/'))
 
 
+def append_manifest(buffer, data):
+    require(len(buffer) + len(data) <= MAX_JSON, 'bundle manifest size limit')
+    buffer.extend(data)
+
+
+def check_reviewed_content(digest, size, capture):
+    # A public constant is established only after hashing every original byte.
+    # Any edit, appended credential, truncation or unknown package version
+    # refuses. Sensitive paths/links/config/history are checked separately;
+    # captured bundle metadata always uses the strict content policy.
+    reviewed = PUBLIC_FILE_CONSTANTS.get(digest.hexdigest()) == size
+    if capture or not reviewed:
+        raise ValueError('credential content detected')
+
+
 def scan_content(stream, capture=False):
     tail = b''
     collected = bytearray() if capture else None
@@ -346,183 +371,265 @@ def scan_content(stream, capture=False):
         credential_found = credential_found or secret_shaped(tail + data)
         tail = (tail + data)[-4096:]
         if capture:
-            if len(collected) + len(data) > MAX_JSON:
-                raise ValueError('bundle manifest size limit')
-            collected.extend(data)
-    # A public constant is established only after hashing every original byte.
-    # Any edit, appended credential, truncation or unknown package version
-    # refuses. Sensitive paths/links/config/history are checked separately;
-    # captured bundle metadata always uses the strict content policy.
-    if credential_found and (capture or PUBLIC_FILE_CONSTANTS.get(digest.hexdigest()) != size):
-        raise ValueError('credential content detected')
+            append_manifest(collected, data)
+    if credential_found:
+        check_reviewed_content(digest, size, capture)
     return bytes(collected) if capture else None
 
 
-def validate_bundle(value):
-    if not isinstance(value, dict) or value.get('schema_version') != 1 or value.get('platform') != 'linux/amd64':
-        raise ValueError('unsupported bundle manifest')
+def validate_metadata(value):
+    require(isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.+@-]{1,128}', value),
+            'invalid bundle artifact metadata')
+
+
+def positive_size(value):
+    return type(value) is int and value > 0
+
+
+def validate_artifact_path(path):
+    require(path.startswith('/opt/aq/') and safe_path(path[1:]) == path[1:],
+            'invalid bundle artifact path')
+
+
+def validate_artifact(item):
+    require(isinstance(item, dict), 'invalid bundle artifact')
+    for key in ['name', 'version']:
+        validate_metadata(item.get(key))
+    validate_artifact_path(item.get('path', ''))
+    require(re.fullmatch(r'[0-9a-f]{64}', item.get('sha256', '')) and positive_size(item.get('bytes')),
+            'invalid bundle artifact digest')
+
+
+def bundle_harnesses(value):
+    require(isinstance(value, dict) and (value.get('schema_version'), value.get('platform')) == (1, 'linux/amd64'),
+            'unsupported bundle manifest')
     harnesses = value.get('harnesses')
-    if not isinstance(harnesses, list) or not 1 <= len(harnesses) <= 32:
-        raise ValueError('invalid bundle harnesses')
-    names = set()
+    require(isinstance(harnesses, list) and 1 <= len(harnesses) <= 32, 'invalid bundle harnesses')
+    return harnesses
+
+
+def validate_bundle(value):
+    harnesses = bundle_harnesses(value)
     for item in [value.get(k) for k in ['runner', 'session_host', 'aq_git', 'node']] + harnesses:
-        if not isinstance(item, dict):
-            raise ValueError('invalid bundle artifact')
-        for key in ['name', 'version']:
-            if not isinstance(item.get(key), str) or not re.fullmatch(r'[A-Za-z0-9_.+@-]{1,128}', item[key]):
-                raise ValueError('invalid bundle artifact metadata')
-        path = item.get('path', '')
-        if not path.startswith('/opt/aq/') or safe_path(path[1:]) != path[1:]:
-            raise ValueError('invalid bundle artifact path')
-        if not re.fullmatch(r'[0-9a-f]{64}', item.get('sha256', '')) or type(item.get('bytes')) is not int or item['bytes'] <= 0:
-            raise ValueError('invalid bundle artifact digest')
-    for item in harnesses:
-        if item['name'] in names:
-            raise ValueError('duplicate harness')
-        names.add(item['name'])
+        validate_artifact(item)
+    require(len({item['name'] for item in harnesses}) == len(harnesses), 'duplicate harness')
     return value
+
+
+def write_blob(dest, stream, size):
+    digest = hashlib.sha256()
+    with dest.open('xb') as output:
+        while data := stream.read(1024 * 1024):
+            digest.update(data)
+            output.write(data)
+    require(dest.stat().st_size == size and digest.hexdigest() == dest.name, 'OCI blob digest mismatch')
+
+
+def checked_link_target(name, item, message):
+    target = item.linkname
+    if item.issym():
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(name), target))
+    if credential_link_path(name) or credential_link_path(target):
+        raise ValueError(message)
+    return target
+
+
+def check_member_path(name, item, message):
+    if credential_path(name) and not item.isdir():
+        raise ValueError(message)
+
+
+def check_layer_path(name, item):
+    check_member_path(name, item, 'credential path detected')
+    if item.issym() or item.islnk():
+        checked_link_target(name, item, 'credential link detected')
+
+
+def scan_layer_member(archive, name, item):
+    check_layer_path(name, item)
+    if item.isfile():
+        data = scan_content(archive.extractfile(item), name == 'opt/aq/manifest.json')
+        if data is not None:
+            return validate_bundle(json_bytes(data))
+    return None
+
+
+def removes_bundle_manifest(name, item):
+    # Whiteouts affect the final view, never erase scan findings.
+    if name in {'opt/aq/.wh.manifest.json', 'opt/.wh.aq', '.wh.opt',
+                '.wh..wh..opq', 'opt/.wh..wh..opq', 'opt/aq/.wh..wh..opq'}:
+        return True
+    if name not in {'opt', 'opt/aq', 'opt/aq/manifest.json'} or item.isdir():
+        return False
+    return name != 'opt/aq/manifest.json' or not item.isfile()
+
+
+def check_image_config(cfg):
+    require((cfg.get('os'), cfg.get('architecture')) == ('linux', 'amd64'), 'unsupported image platform')
+    if secret_shaped(json.dumps(cfg)):
+        raise ValueError('credential in image config or history')
+    check_environment(cfg.get('config', {}))
+
+
+def check_environment(image_config):
+    for env in image_config.get('Env', []) or []:
+        require(isinstance(env, str), 'credential environment variable')
+        name, separator, _ = env.partition('=')
+        require(separator and not credential_env(name), 'credential environment variable')
+
+
+def image_layers(manifest, cfg):
+    layers = manifest.get('layers', [])
+    diff_ids = cfg.get('rootfs', {}).get('diff_ids', [])
+    require(1 <= len(layers) <= 256 and len(layers) == len(diff_ids), 'invalid OCI layers')
+    return layers, diff_ids
+
+
+def descriptor_digest(desc):
+    require(isinstance(desc, dict) and DIGEST.fullmatch(desc.get('digest', '')), 'invalid OCI descriptor')
+    return desc['digest']
+
+
+def image_descriptor(index):
+    # Single-platform export only; build disables attestations and extra manifests.
+    require(index.get('schemaVersion') == 2 and len(index.get('manifests', [])) == 1,
+            'only one OCI image manifest is supported')
+    desc = index['manifests'][0]
+    require(desc.get('mediaType') == 'application/vnd.oci.image.manifest.v1+json', 'unsupported OCI manifest')
+    return desc
+
+
+def unique_member(item, seen, kind):
+    name = safe_path(item.name)
+    require(name not in seen, f'duplicate {kind} member')
+    seen.add(name)
+    return name
+
+
+def count_oci_file(item, total):
+    require(item.isfile(), 'invalid OCI member')
+    total += item.size
+    require(total <= MAX_ARCHIVE, 'OCI expanded size limit')
+    return total
+
+
+class OciArchive:
+    def __init__(self, directory):
+        self.directory = Path(directory)
+        self.blobs = {}
+        self.used = set()
+        self.entries = 0
+        self.expanded = 0
+
+    def members(self, archive, kind):
+        seen = set()
+        for item in archive:
+            self.entries += 1
+            require(self.entries <= MAX_ENTRIES, 'OCI entry limit')
+            name = unique_member(item, seen, kind)
+            yield name, item
+
+    def read_index(self, path):
+        metadata = {}
+        total = 0
+        with tarfile.open(path, mode='r|*') as archive:
+            for name, item in self.members(archive, 'OCI'):
+                if item.isdir():
+                    continue
+                total = count_oci_file(item, total)
+                self.read_member(name, item.size, archive.extractfile(item), metadata)
+        require(metadata.get('oci-layout') == {'imageLayoutVersion': '1.0.0'}, 'invalid OCI layout')
+        return metadata.get('index.json', {})
+
+    def read_member(self, name, size, stream, metadata):
+        if name in {'oci-layout', 'index.json'}:
+            metadata[name] = json_bytes(stream.read(MAX_JSON + 1))
+        elif re.fullmatch(r'blobs/sha256/[0-9a-f]{64}', name):
+            dest = self.directory / name.rsplit('/', 1)[1]
+            write_blob(dest, stream, size)
+            self.blobs['sha256:' + dest.name] = dest
+        else:
+            raise ValueError('unsupported OCI archive member')
+
+    def descriptor(self, desc):
+        digest = descriptor_digest(desc)
+        require(digest in self.blobs, 'OCI descriptor size or blob missing')
+        size = desc.get('size')
+        require(type(size) is int and size == self.blobs[digest].stat().st_size,
+                'OCI descriptor size or blob missing')
+        self.used.add(digest)
+        return self.blobs[digest]
+
+    def json_descriptor(self, desc):
+        with self.descriptor(desc).open('rb') as source:
+            return json_bytes(source.read(MAX_JSON + 1))
+
+    def read_manifest(self, index):
+        desc = image_descriptor(index)
+        manifest = self.json_descriptor(desc)
+        require(manifest.get('schemaVersion') == 2 and manifest.get('mediaType') == desc['mediaType'],
+                'invalid OCI image manifest')
+        cfg = self.read_config(manifest)
+        return desc, manifest, cfg
+
+    def read_config(self, manifest):
+        cfg_desc = manifest.get('config', {})
+        require(cfg_desc.get('mediaType') == 'application/vnd.oci.image.config.v1+json',
+                'unsupported OCI config')
+        return self.json_descriptor(cfg_desc)
+
+    def unpack(self, blob, layer, diff_id):
+        media = layer.get('mediaType')
+        if media not in {'application/vnd.oci.image.layer.v1.tar', 'application/vnd.oci.image.layer.v1.tar+gzip'}:
+            raise ValueError('unsupported OCI layer compression')
+        # Bound decompression and verify the uncompressed DiffID before tar parsing.
+        unpacked = self.directory / 'layer.tar'
+        digest = hashlib.sha256()
+        opener = gzip.open if media.endswith('+gzip') else open
+        with opener(blob, 'rb') as source, unpacked.open('wb') as output:
+            while data := source.read(1024 * 1024):
+                self.expanded += len(data)
+                require(self.expanded <= MAX_EXPANDED, 'OCI expanded layer size limit')
+                digest.update(data)
+                output.write(data)
+        require('sha256:' + digest.hexdigest() == diff_id, 'OCI layer DiffID mismatch')
+        return unpacked
+
+    def scan_layer(self, unpacked, installed_manifest):
+        replacement = None
+        deleted = False
+        with tarfile.open(unpacked, mode='r|') as archive:
+            for name, item in self.members(archive, 'layer'):
+                if removes_bundle_manifest(name, item):
+                    deleted = True
+                candidate = scan_layer_member(archive, name, item)
+                if candidate is not None:
+                    replacement = candidate
+        if replacement is not None:
+            return replacement
+        return None if deleted else installed_manifest
+
+    def scan(self, path):
+        index = self.read_index(path)
+        desc, manifest, cfg = self.read_manifest(index)
+        check_image_config(cfg)
+        layers, diff_ids = image_layers(manifest, cfg)
+        installed_manifest = None
+        for layer, diff_id in zip(layers, diff_ids):
+            blob = self.descriptor(layer)
+            unpacked = self.unpack(blob, layer, diff_id)
+            installed_manifest = self.scan_layer(unpacked, installed_manifest)
+        require(self.used == set(self.blobs), 'unreferenced OCI blobs refuse admission')
+        require(installed_manifest is not None, 'bundle manifest missing from final image')
+        return {'image_digest': desc['digest'], 'bundle_manifest': installed_manifest,
+                'layers_scanned': len(layers)}
 
 
 def _scan_oci(path):
     path = Path(path)
-    if path.stat().st_size > MAX_ARCHIVE:
-        raise ValueError('OCI archive size limit')
+    require(path.stat().st_size <= MAX_ARCHIVE, 'OCI archive size limit')
     with tempfile.TemporaryDirectory(prefix='aq-oci-scan-') as directory:
-        blobs = {}
-        metadata = {}
-        total = 0
-        entries = 0
-        seen = set()
-        with tarfile.open(path, mode='r|*') as archive:
-            for item in archive:
-                entries += 1
-                if entries > MAX_ENTRIES:
-                    raise ValueError('OCI entry limit')
-                name = safe_path(item.name)
-                if name in seen:
-                    raise ValueError('duplicate OCI member')
-                seen.add(name)
-                if item.isdir():
-                    continue
-                if not item.isfile():
-                    raise ValueError('invalid OCI member')
-                total += item.size
-                if total > MAX_ARCHIVE:
-                    raise ValueError('OCI expanded size limit')
-                stream = archive.extractfile(item)
-                if name in {'oci-layout', 'index.json'}:
-                    metadata[name] = json_bytes(stream.read(MAX_JSON + 1))
-                elif re.fullmatch(r'blobs/sha256/[0-9a-f]{64}', name):
-                    dest = Path(directory) / name.rsplit('/', 1)[1]
-                    digest = hashlib.sha256()
-                    with dest.open('xb') as output:
-                        while data := stream.read(1024 * 1024):
-                            digest.update(data)
-                            output.write(data)
-                    if dest.stat().st_size != item.size or digest.hexdigest() != dest.name:
-                        raise ValueError('OCI blob digest mismatch')
-                    blobs['sha256:' + dest.name] = dest
-                else:
-                    raise ValueError('unsupported OCI archive member')
-        if metadata.get('oci-layout') != {'imageLayoutVersion': '1.0.0'}:
-            raise ValueError('invalid OCI layout')
-        used = set()
-        def descriptor(desc):
-            if not isinstance(desc, dict) or not DIGEST.fullmatch(desc.get('digest', '')):
-                raise ValueError('invalid OCI descriptor')
-            digest = desc['digest']
-            if digest not in blobs or type(desc.get('size')) is not int or desc['size'] != blobs[digest].stat().st_size:
-                raise ValueError('OCI descriptor size or blob missing')
-            used.add(digest)
-            return blobs[digest]
-        def json_descriptor(desc):
-            with descriptor(desc).open('rb') as source:
-                return json_bytes(source.read(MAX_JSON + 1))
-        index = metadata.get('index.json', {})
-        # Single-platform export only; build disables attestations and extra manifests.
-        if index.get('schemaVersion') != 2 or len(index.get('manifests', [])) != 1:
-            raise ValueError('only one OCI image manifest is supported')
-        desc = index['manifests'][0]
-        if desc.get('mediaType') != 'application/vnd.oci.image.manifest.v1+json':
-            raise ValueError('unsupported OCI manifest')
-        manifest = json_descriptor(desc)
-        if manifest.get('schemaVersion') != 2 or manifest.get('mediaType') != desc['mediaType']:
-            raise ValueError('invalid OCI image manifest')
-        cfg_desc = manifest.get('config', {})
-        if cfg_desc.get('mediaType') != 'application/vnd.oci.image.config.v1+json':
-            raise ValueError('unsupported OCI config')
-        cfg = json_descriptor(cfg_desc)
-        if cfg.get('os') != 'linux' or cfg.get('architecture') != 'amd64':
-            raise ValueError('unsupported image platform')
-        if secret_shaped(json.dumps(cfg)):
-            raise ValueError('credential in image config or history')
-        image_config = cfg.get('config', {})
-        for env in image_config.get('Env', []) or []:
-            if not isinstance(env, str) or '=' not in env or credential_env(env.split('=', 1)[0]):
-                raise ValueError('credential environment variable')
-        layers = manifest.get('layers', [])
-        diff_ids = cfg.get('rootfs', {}).get('diff_ids', [])
-        if not 1 <= len(layers) <= 256 or len(layers) != len(diff_ids):
-            raise ValueError('invalid OCI layers')
-        installed_manifest = None
-        expanded = 0
-        for layer, diff_id in zip(layers, diff_ids):
-            blob = descriptor(layer)
-            media = layer.get('mediaType')
-            if media not in {'application/vnd.oci.image.layer.v1.tar', 'application/vnd.oci.image.layer.v1.tar+gzip'}:
-                raise ValueError('unsupported OCI layer compression')
-            # Bound decompression and verify the uncompressed DiffID before tar parsing.
-            unpacked = Path(directory) / 'layer.tar'
-            digest = hashlib.sha256()
-            opener = gzip.open if media.endswith('+gzip') else open
-            with opener(blob, 'rb') as source, unpacked.open('wb') as output:
-                while data := source.read(1024 * 1024):
-                    expanded += len(data)
-                    if expanded > MAX_EXPANDED:
-                        raise ValueError('OCI expanded layer size limit')
-                    digest.update(data)
-                    output.write(data)
-            if 'sha256:' + digest.hexdigest() != diff_id:
-                raise ValueError('OCI layer DiffID mismatch')
-            layer_names = set()
-            replacement = None
-            deleted = False
-            with tarfile.open(unpacked, mode='r|') as archive:
-                for item in archive:
-                    entries += 1
-                    if entries > MAX_ENTRIES:
-                        raise ValueError('OCI entry limit')
-                    name = safe_path(item.name)
-                    if name in layer_names:
-                        raise ValueError('duplicate layer member')
-                    layer_names.add(name)
-                    # Whiteouts affect the final view, never erase scan findings.
-                    if name in {'opt/aq/.wh.manifest.json', 'opt/.wh.aq', '.wh.opt',
-                                '.wh..wh..opq', 'opt/.wh..wh..opq', 'opt/aq/.wh..wh..opq'}:
-                        deleted = True
-                    if credential_path(name) and not item.isdir():
-                        raise ValueError('credential path detected')
-                    if item.issym() or item.islnk():
-                        target = posixpath.normpath(posixpath.join(posixpath.dirname(name), item.linkname)) if item.issym() else item.linkname
-                        if credential_link_path(name) or credential_link_path(target):
-                            raise ValueError('credential link detected')
-                    if name in {'opt', 'opt/aq', 'opt/aq/manifest.json'} and not item.isdir():
-                        if name != 'opt/aq/manifest.json' or not item.isfile():
-                            deleted = True
-                    if item.isfile():
-                        data = scan_content(archive.extractfile(item), name == 'opt/aq/manifest.json')
-                        if data is not None:
-                            replacement = validate_bundle(json_bytes(data))
-            if deleted:
-                installed_manifest = None
-            if replacement is not None:
-                installed_manifest = replacement
-        if used != set(blobs):
-            raise ValueError('unreferenced OCI blobs refuse admission')
-        if installed_manifest is None:
-            raise ValueError('bundle manifest missing from final image')
-        return {'image_digest': desc['digest'], 'bundle_manifest': installed_manifest,
-                'layers_scanned': len(layers)}
+        return OciArchive(directory).scan(path)
 
 
 def scan_oci(path):
@@ -533,6 +640,36 @@ def scan_oci(path):
         raise ValueError('invalid OCI image archive') from error
 
 
+def scan_snapshot_member(archive, name, item):
+    check_member_path(name, item, 'credential snapshot path')
+    if item.issym() or item.islnk():
+        target = checked_link_target(name, item, 'credential snapshot link')
+        safe_path(target.removeprefix('/'))
+    elif item.isfile():
+        scan_content(archive.extractfile(item))
+        return 1
+    elif not item.isdir():
+        raise ValueError('unsupported snapshot member')
+    return 0
+
+
+def file_digest(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return 'sha256:' + digest.hexdigest()
+
+
+def snapshot_members(archive):
+    expanded = 0
+    names = set()
+    for entries, item in enumerate(archive, 1):
+        expanded += item.size
+        require(entries <= MAX_ENTRIES and expanded <= MAX_EXPANDED, 'snapshot expanded limits')
+        yield unique_member(item, names, 'snapshot'), item
+
+
 def scan_snapshot(path):
     """Scan captured VM changes and Docker volumes without extracting any member.
 
@@ -541,42 +678,15 @@ def scan_snapshot(path):
     Docker. No credential-bearing paths or links receive a content exception.
     """
     path = Path(path)
-    if path.stat().st_size > MAX_ARCHIVE:
-        raise ValueError('snapshot size limit')
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
-    entries = files = expanded = 0
-    names = set()
+    require(path.stat().st_size <= MAX_ARCHIVE, 'snapshot size limit')
+    digest = file_digest(path)
+    files = 0
     try:
         with tarfile.open(path, mode='r|*') as archive:
-            for item in archive:
-                entries += 1
-                expanded += item.size
-                if entries > MAX_ENTRIES or expanded > MAX_EXPANDED:
-                    raise ValueError('snapshot expanded limits')
-                name = safe_path(item.name)
-                if name in names:
-                    raise ValueError('duplicate snapshot member')
-                names.add(name)
-                if credential_path(name) and not item.isdir():
-                    raise ValueError('credential snapshot path')
-                if item.issym() or item.islnk():
-                    target = posixpath.normpath(posixpath.join(posixpath.dirname(name), item.linkname)) if item.issym() else item.linkname
-                    if credential_link_path(name) or credential_link_path(target):
-                        raise ValueError('credential snapshot link')
-                    if target.startswith('/'):
-                        target = target[1:]
-                    safe_path(target)
-                elif item.isfile():
-                    scan_content(archive.extractfile(item))
-                    files += 1
-                elif not item.isdir():
-                    raise ValueError('unsupported snapshot member')
+            for name, item in snapshot_members(archive):
+                files += scan_snapshot_member(archive, name, item)
     except (OSError, EOFError, tarfile.TarError) as error:
         raise ValueError('invalid snapshot archive') from error
-    if not files:
-        raise ValueError('empty snapshot refuses admission')
-    return {'archive_digest': 'sha256:' + digest.hexdigest(), 'files_scanned': files,
+    require(files, 'empty snapshot refuses admission')
+    return {'archive_digest': digest, 'files_scanned': files,
             'credential_scan_policy': 'aq-credential-scan-v1'}

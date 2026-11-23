@@ -127,10 +127,8 @@ async fn report(
         .map_err(|e| (StatusCode::CONFLICT, Json(e)))
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn binary_executes_real_child_against_fake_http_peer_with_lost_responses() {
-    let shared = Arc::new(Mutex::new(Peer::default()));
-    let app = Router::new()
+fn worker_routes(shared: Shared) -> Router {
+    Router::new()
         .route("/v2/worker/register", post(register))
         .route("/v2/worker/poll", post(poll))
         .route("/v2/worker/accept", post(accept))
@@ -138,22 +136,39 @@ async fn binary_executes_real_child_against_fake_http_peer_with_lost_responses()
         .route("/v2/worker/result", post(report))
         .route("/v2/worker/renew", post(renew))
         .route("/v2/worker/directive-ack", post(directive_ack))
-        .with_state(shared.clone());
+        .with_state(shared)
+}
+
+async fn serve(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    let temp = tempfile::TempDir::new().unwrap();
-    let cfg = WorkerConfig {
+    (base, server)
+}
+
+fn write_config(root: &std::path::Path, base: String) -> std::path::PathBuf {
+    let path = root.join("worker.toml");
+    WorkerConfig {
         server_url: base,
         node_id: Uuid::from_u128(1),
         credential: "fixture-node-secret".into(),
         cf_client_id: None,
         cf_client_secret: None,
-    };
-    let path = temp.path().join("worker.toml");
-    cfg.save(&path).unwrap();
+    }
+    .save(&path)
+    .unwrap();
+    path
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn binary_executes_real_child_against_fake_http_peer_with_lost_responses() {
+    let shared = Arc::new(Mutex::new(Peer::default()));
+    let app = worker_routes(shared.clone());
+    let (base, server) = serve(app).await;
+    let temp = tempfile::TempDir::new().unwrap();
+    let path = write_config(temp.path(), base);
     let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
         .env("TOKIO_WORKER_THREADS", "2")
         .arg("--config")
@@ -245,31 +260,10 @@ async fn blocked_fixture(cancellation: bool) {
         expiry: !cancellation,
         ..Peer::default()
     }));
-    let app = Router::new()
-        .route("/v2/worker/register", post(register))
-        .route("/v2/worker/poll", post(poll))
-        .route("/v2/worker/accept", post(accept))
-        .route("/v2/worker/observe", post(observe))
-        .route("/v2/worker/result", post(report))
-        .route("/v2/worker/renew", post(renew))
-        .route("/v2/worker/directive-ack", post(directive_ack))
-        .with_state(shared.clone());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let app = worker_routes(shared.clone());
+    let (base, server) = serve(app).await;
     let temp = tempfile::TempDir::new().unwrap();
-    let path = temp.path().join("worker.toml");
-    WorkerConfig {
-        server_url: base,
-        node_id: Uuid::from_u128(1),
-        credential: "fixture-node-secret".into(),
-        cf_client_id: None,
-        cf_client_secret: None,
-    }
-    .save(&path)
-    .unwrap();
+    let path = write_config(temp.path(), base);
     let offset = temp.path().join("clock-offset");
     std::fs::write(&offset, "0").unwrap();
     if !cancellation {
@@ -356,15 +350,12 @@ async fn reconcile(
         next_cursor: None,
     })
 }
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stopped_report_recovers_before_new_boot_registration_without_relaunch() {
+fn finish_fixture_once(root: &std::path::Path) -> (FakeCoordinator, ResultReport) {
     use aq_worker::{
         clock::FakeClock,
         journal::{Journal, Limits},
         runtime::Runtime,
     };
-    let temp = tempfile::TempDir::new().unwrap();
-    let root = temp.path().join("state");
     let offer = sample_offer();
     let limits = Limits {
         capacity: Resources {
@@ -378,7 +369,7 @@ async fn stopped_report_recovers_before_new_boot_registration_without_relaunch()
         max_preparing: 16,
         minimum_free_disk_bytes: 0,
     };
-    let journal = Journal::open(&root, offer.identity.clone(), limits).unwrap();
+    let journal = Journal::open(root, offer.identity.clone(), limits).unwrap();
     let mut runtime = Runtime::new(journal, FakeClock::new(100));
     let mut peer = FakeCoordinator::new(offer.clone(), 100);
     let accept = runtime.reserve(offer).unwrap();
@@ -394,6 +385,14 @@ async fn stopped_report_recovers_before_new_boot_registration_without_relaunch()
         .finish_fixture(accept.attempt.attempt_id, handle)
         .unwrap();
     drop(runtime);
+    (peer, report_payload)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stopped_report_recovers_before_new_boot_registration_without_relaunch() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("state");
+    let (peer, report_payload) = finish_fixture_once(&root);
     let shared = Arc::new(Mutex::new(Peer {
         coordinator: Some(peer),
         ..Peer::default()
@@ -403,21 +402,8 @@ async fn stopped_report_recovers_before_new_boot_registration_without_relaunch()
         .route("/v2/worker/reconcile", post(reconcile))
         .route("/v2/worker/result", post(report))
         .with_state(shared.clone());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
-    let path = temp.path().join("worker.toml");
-    WorkerConfig {
-        server_url: base,
-        node_id: Uuid::from_u128(1),
-        credential: "fixture-node-secret".into(),
-        cf_client_id: None,
-        cf_client_secret: None,
-    }
-    .save(&path)
-    .unwrap();
+    let (base, server) = serve(app).await;
+    let path = write_config(temp.path(), base);
     let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
         .env("TOKIO_WORKER_THREADS", "2")
         .arg("--config")
@@ -456,29 +442,10 @@ async fn post_stop_observation_outage_preserves_and_replays_before_report() {
         post_stop_observation_failures: 1,
         ..Peer::default()
     }));
-    let app = Router::new()
-        .route("/v2/worker/register", post(register))
-        .route("/v2/worker/poll", post(poll))
-        .route("/v2/worker/accept", post(accept))
-        .route("/v2/worker/observe", post(observe))
-        .route("/v2/worker/result", post(report))
-        .route("/v2/worker/renew", post(renew))
-        .route("/v2/worker/directive-ack", post(directive_ack))
-        .with_state(shared.clone());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let app = worker_routes(shared.clone());
+    let (base, server) = serve(app).await;
     let temp = tempfile::TempDir::new().unwrap();
-    let path = temp.path().join("worker.toml");
-    WorkerConfig {
-        server_url: base,
-        node_id: Uuid::from_u128(1),
-        credential: "fixture-node-secret".into(),
-        cf_client_id: None,
-        cf_client_secret: None,
-    }
-    .save(&path)
-    .unwrap();
+    let path = write_config(temp.path(), base);
     let state = temp.path().join("state");
     let result = tokio::process::Command::new(env!("CARGO_BIN_EXE_aq-worker"))
         .env("TOKIO_WORKER_THREADS", "2")

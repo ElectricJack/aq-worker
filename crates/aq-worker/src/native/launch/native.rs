@@ -50,8 +50,7 @@ impl NativeCodexHostProfile {
             root,
             Installation::Sealed(installation),
             mapper,
-            columns,
-            rows,
+            (columns, rows),
         )
     }
     pub fn new_named(
@@ -76,8 +75,7 @@ impl NativeCodexHostProfile {
             root,
             Installation::Named(installation),
             mapper,
-            columns,
-            rows,
+            (columns, rows),
         )
     }
     /// Explicit result-enabled profile. The client and composite definition are
@@ -153,9 +151,9 @@ impl NativeCodexHostProfile {
         root: PathBuf,
         mut installation: Installation,
         mapper: CodexExecProfile,
-        columns: u16,
-        rows: u16,
+        size: (u16, u16),
     ) -> Result<Self> {
+        let (columns, rows) = size;
         let guard = RootGuard::open(&root, None)?;
         NativeExecObservationProfile::new(mapper.renderer.clone(), columns, rows)?;
         ensure!(
@@ -281,13 +279,14 @@ enum Image {
 impl Image {
     fn startup(
         self,
-        rendered: aq_session_host::RenderedStartup,
-        terminal: aq_session_protocol::TerminalIdentity,
-        renderer: ArtifactRef,
-        columns: u16,
-        rows: u16,
-        hard_ms: u64,
+        scope: &LaunchExecutionScope,
+        intent: &NativeLaunchIntent,
     ) -> Result<ObservedStartup> {
+        let rendered = scope.inputs.startup().clone();
+        let terminal = intent.terminal.clone();
+        let renderer = intent.renderer.clone();
+        let (columns, rows) = (intent.columns, intent.rows);
+        let hard_ms = scope.hard / 1_000_000;
         match self {
             Self::Sealed(image) => ObservedStartup::native_exec(
                 rendered,
@@ -365,285 +364,5 @@ impl ObservedHarnessAdapter for Adapter {
         })
     }
 }
-pub(super) fn bootstrap(
-    owner: &Arc<Mutex<Owned>>,
-    entry: &Arc<Entry>,
-    profile: &Arc<NativeCodexHostProfile>,
-) -> Result<()> {
-    let scope = entry.scope.as_ref().context("native launch scope absent")?;
-    let (offer, git_author) = {
-        let mut owner = lock(owner)?;
-        entry.current(&owner)?;
-        let state = owner.journal.state();
-        let a = &state.attempts[&entry.id];
-        let (offer, git_author) = (
-            a.reservation.offer.clone(),
-            a.reservation.git_author.clone(),
-        );
-        a.phase_scope()?; // Its refusal precedes the installation check, as it always did.
-        let m = lock(&profile.installation)?.installation().clone();
-        ensure!(
-            a.reservation.runtime.runtime == m.runtime
-                && a.reservation.runtime.qualification == m.qualification,
-            "native runtime installation differs from grant"
-        );
-        let pins = HostPins {
-            root: (profile.root_path.clone(), profile.root.identity()),
-            profile_digest: profile.digest.clone(),
-            programs: [
-                m.executable.artifact,
-                m.helper.artifact,
-                m.tmux.artifact,
-                profile.mapper.renderer.clone(),
-            ],
-            size: (profile.columns, profile.rows),
-        };
-        let intent = launch_intent(scope, state.revision, a, pins, "native PID namespace UTF8")?;
-        #[cfg(test)]
-        entry.hook(Checkpoint::Outer, &mut owner.journal)?;
-        owner.journal.begin_native_launch(entry.id, intent)?;
-        entry.snapshot(&owner.journal)?;
-        entry.current(&owner)?;
-        (offer, git_author)
-    };
-    let h = lock(&entry.history)?
-        .clone()
-        .context("native launch intent absent")?;
-    let i = &h.intent;
-    let home = profile
-        .root_path
-        .join(i.launch_id.to_string())
-        .join("codex-home");
-    let payload = scope
-        .inputs
-        .startup()
-        .verified_payload(
-            &offer.offered.offer.manifest,
-            &offer.startup.artifact()?,
-            &offer.startup.payload,
-        )?
-        .to_vec();
-    let m = &offer.offered.offer.manifest;
-    let providers: Vec<_> = scope
-        .inputs
-        .materials()
-        .iter()
-        .filter(|material| {
-            let lease = &material.metadata().delivery.lease;
-            lease.provider.as_str() == "openai"
-                && m.credentials.iter().any(|r| {
-                    r.credential_profile == lease.credential_profile
-                        && r.purpose.as_str() == lease.purpose.as_str()
-                })
-        })
-        .collect();
-    ensure!(
-        providers.len() == 1,
-        "native Codex requires one exact provider material"
-    );
-    let provider = providers[0];
-    let mut installed = lock(&profile.installation)?;
-    let handoff = installed.material(provider, &provider.receipt()?, &i.binding)?;
-    let interactive = installed.interactive();
-    if interactive {
-        drop(crate::native::adapter::codex::validated_chatgpt_auth_json(
-            &handoff, m,
-        )?);
-    } else {
-        drop(crate::native::adapter::codex::validated_api_key(
-            &handoff, m,
-        )?);
-    }
-    let lease = &provider.metadata().delivery.lease;
-    let input = CodexExecInput {
-        offer: &offer,
-        expected_manifest: &i.binding.launch_manifest_digest,
-        payload,
-        workspace: &scope.inputs.workspace().workspace().path,
-        private_home: &home,
-    };
-    let recipe = match (&profile.result, entry.result_channel.as_deref()) {
-        (None, None) => {
-            ensure!(
-                profile.mapper.harness.adapter.id.as_str() != "aq.codex-result-local-adapter",
-                "known result adapter requires the result-enabled profile and actual channel"
-            );
-            installed.prepare(&profile.mapper, input)?
-        }
-        (Some(result), Some(channel)) => {
-            let Installation::Named(named) = &mut *installed else {
-                anyhow::bail!("result mapping requires the named-readonly image profile")
-            };
-            profile.mapper.prepare_named_result_planned(
-                named,
-                input,
-                CodexResultInput {
-                    binding: &i.binding,
-                    execution_digest: &scope.digest,
-                    definition: &result.definition,
-                    client: &result.client,
-                    channel,
-                },
-            )?
-        }
-        _ => anyhow::bail!("result profile and actual execution-owned channel differ"),
-    };
-    let image = installed.image()?;
-    let installation = installed.installation().clone();
-    drop(installed);
-    let (private, recipe) = if interactive {
-        let private = PrivateLaunchInput::codex_chatgpt_auth_json(
-            provider.source_directory()?,
-            OriginalPrivateMaterial {
-                digest: lease.material_digest.clone(),
-                bytes: lease.material_bytes,
-                record_digest: provider.receipt()?.private_binding.digest,
-            },
-            i.binding.clone(),
-            i.launch_id,
-            scope.deadline.min(scope.hard) / 1_000_000,
-        )?;
-        (private, recipe)
-    } else {
-        let upstream = UpstreamEndpoint::openai();
-        #[cfg(any(test, feature = "test-support"))]
-        let upstream = if let Some(origin) = &profile.development_provider {
-            UpstreamEndpoint::development_loopback(origin)?
-        } else {
-            upstream
-        };
-        let transport = tokio::runtime::Handle::try_current()?.block_on(
-            ScopedResponsesTransport::start_retained(
-                ResponsesScope::new(i.binding.clone(), &m.model, scope.deadline.min(scope.hard))?,
-                upstream,
-                provider.retained_copy()?,
-                m,
-            ),
-        )?;
-        let origin = transport.origin().to_owned();
-        let capability = transport.local_capability();
-        {
-            let mut physical = lock(&entry.physical)?;
-            ensure!(
-                physical.transport.is_none(),
-                "native transport already owned"
-            );
-            if entry.stop.load(Ordering::SeqCst) {
-                transport.cancel();
-            }
-            physical.transport = Some(transport);
-        }
-        let private = PrivateLaunchInput::codex_scoped_capability(
-            provider.source_directory()?,
-            OriginalPrivateMaterial {
-                digest: lease.material_digest.clone(),
-                bytes: lease.material_bytes,
-                record_digest: provider.receipt()?.private_binding.digest,
-            },
-            ScopedCodexAuthBinding {
-                binding: i.binding.clone(),
-                launch_id: i.launch_id,
-                origin: origin.clone(),
-                deadline_boot_ms: scope.deadline.min(scope.hard) / 1_000_000,
-            },
-            capability,
-        )?;
-        let recipe = recipe.with_scoped_provider(&origin)?;
-        (private, recipe)
-    };
-    {
-        let owner = lock(owner)?;
-        entry.current(&owner)?;
-    }
-    let startup = image.startup(
-        scope.inputs.startup().clone(),
-        i.terminal.clone(),
-        i.renderer.clone(),
-        i.columns,
-        i.rows,
-        scope.hard / 1_000_000,
-    )?;
-    let permit = ExecutionPermit {
-        session: i.binding.session.clone(),
-        manifest_digest: i.binding.launch_manifest_digest.clone(),
-        sequence: 1,
-        issued_boot_ms: boot_ns()? / 1_000_000,
-        expires_boot_ms: scope.deadline.min(scope.hard) / 1_000_000,
-    };
-    let local = LocalEnvironment {
-        resource_policy: ResourcePolicy::CallerAdmission(m.harness.environment.clone()),
-        workspace: scope.inputs.workspace().workspace().path.clone(),
-        helper_executable: installation.helper.path,
-        tmux_executable: installation.tmux.path,
-        tmux_version: "tmux 3.4".into(),
-        credential_profiles: m
-            .credentials
-            .iter()
-            .map(|c| c.credential_profile.clone())
-            .collect(),
-        context_material: vec![],
-    };
-    let adapter = Adapter {
-        recipe: recipe.with_git_author(git_author.as_ref())?,
-        executable: i.executable.clone(),
-        renderer: i.renderer.clone(),
-        private: Mutex::new(Some(private)),
-    };
-    let mut authority = authority::Authority {
-        owner: owner.clone(),
-        entry: entry.clone(),
-    };
-    let pending = SessionHost::prepare_observed(
-        &profile.root_path,
-        i.launch_id,
-        &startup,
-        permit,
-        &local,
-        &adapter,
-        &mut authority,
-    )?;
-    let (mut observer, baseline) = pending.open_baseline_observer()?;
-    {
-        let owner = lock(owner)?;
-        entry.current(&owner)?;
-    }
-    let mut released = pending.release_after_baseline(&baseline, &mut authority)?;
-    let until = Instant::now() + Duration::from_secs(3);
-    let mut bootstrap_output = Vec::new();
-    let mut bootstrap_bytes = 0usize;
-    loop {
-        let events = observer.poll()?;
-        bootstrap_bytes += events
-            .iter()
-            .map(|e| {
-                if let aq_session_host::terminal_output::ControlEvent::Bytes(b) = e {
-                    b.len()
-                } else {
-                    0
-                }
-            })
-            .sum::<usize>();
-        ensure!(
-            bootstrap_bytes <= 65536 && bootstrap_output.len() + events.len() <= 64,
-            "native bootstrap output bound exceeded"
-        );
-        bootstrap_output.extend(events);
-        if entry.stop.load(Ordering::SeqCst) {
-            released.stop()?;
-            anyhow::bail!("native host stopped before Running");
-        }
-        if let Some(handle) = released.poll_started(&mut authority)? {
-            let mut state = lock(&entry.physical)?;
-            state.handle = Some(handle);
-            state.observer = Some(observer);
-            state.pending_output = bootstrap_output;
-            state.outcome = Outcome::Running;
-            return Ok(());
-        }
-        ensure!(
-            boot_ns()? < scope.deadline.min(scope.hard) && Instant::now() < until,
-            "native exec observation expired"
-        );
-        std::thread::sleep(Duration::from_millis(2));
-    }
-}
+mod prepare;
+pub(super) use prepare::bootstrap;

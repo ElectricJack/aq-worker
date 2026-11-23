@@ -15,7 +15,7 @@ pub fn command(args: &[OsString]) -> anyhow::Result<(tempfile::TempDir, Command)
             fs::write(dir.path().join($name), include_bytes!(concat!("../../../packaging/sandbox/", $name)))?;
         )*};
     }
-    tools! {"template_tool.py", "credential_scan.py", "environment_recipe.py", "boat_materialize.py"}
+    tools! {"template_tool.py", "template_contract.py", "credential_scan.py", "environment_recipe.py", "boat_materialize.py"}
     let mut tool = Command::new("python3");
     tool.arg("-I").arg(dir.path().join("template_tool.py"));
     tool.args(args);

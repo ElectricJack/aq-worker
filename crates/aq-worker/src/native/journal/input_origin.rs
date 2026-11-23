@@ -72,8 +72,7 @@ impl InputOrigin {
     pub(super) fn validate(
         &self,
         a: &Attempt,
-        created_revision: u64,
-        created_ns: u64,
+        created: inputs::Creation,
         revision: u64,
     ) -> Result<()> {
         // The provenance check of a Phase or Refresh input against its attempt's saved receipt.
@@ -86,10 +85,10 @@ impl InputOrigin {
                 ensure!(
                     same($p, saved)?
                         && $p.receipt_digest == $p.delivery.receipt.digest()?
-                        && created_revision >= $p.record_revision
-                        && created_revision < revision
-                        && created_ns >= $p.observed_before_write_ns
-                        && created_ns < $p.deadline_ns,
+                        && created.revision >= $p.record_revision
+                        && created.revision < revision
+                        && created.at_ns >= $p.observed_before_write_ns
+                        && created.at_ns < $p.deadline_ns,
                     "phase input provenance"
                 );
                 Ok(())
@@ -101,7 +100,7 @@ impl InputOrigin {
                     a.phase_acceptance.is_none() && a.refresh_acceptance.is_none(),
                     "legacy input on phase attempt"
                 );
-                inputs::validate_capture(a, p, created_revision, created_ns, revision)
+                inputs::validate_capture(a, p, created, revision)
             }
             // State::validate already validates this exact saved phase receipt against the
             // original proposal once per attempt. Equality below makes every input depend on that

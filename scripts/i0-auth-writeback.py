@@ -32,33 +32,42 @@ def graphic(value, maximum, *, empty=False):
             and all(33 <= ord(character) <= 126 for character in value))
 
 
+def require(condition):
+    if not condition:
+        raise ValueError
+
+
+def read_private_file(path):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid())
+        require(stat.S_IMODE(info.st_mode) == 0o600 and 0 < info.st_size <= 65536)
+        data = stream.read(65537)
+        after = os.fstat(stream.fileno())
+    named = path.lstat()
+    require(len(data) == info.st_size)
+    require(identity(after) == identity(info) == identity(named))
+    return data
+
+
+def validate_login(value):
+    require(isinstance(value, dict))
+    require(set(value) <= {'auth_mode', 'OPENAI_API_KEY', 'tokens', 'last_refresh'})
+    require(value.get('auth_mode') == 'chatgpt' and value.get('OPENAI_API_KEY') is None)
+    tokens = value.get('tokens')
+    required = {'access_token', 'refresh_token', 'id_token'}
+    require(isinstance(tokens, dict) and set(tokens) == required | {'account_id'})
+    require(all(graphic(tokens[key], 32768) for key in required))
+    require(graphic(tokens['account_id'], 512))
+    refresh = value.get('last_refresh')
+    require(refresh is None or graphic(refresh, 128, empty=True))
+
+
 def private_login(path):
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, 'rb') as stream:
-            info = os.fstat(stream.fileno())
-            if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
-                    or stat.S_IMODE(info.st_mode) != 0o600 or not 0 < info.st_size <= 65536):
-                raise ValueError
-            data = stream.read(65537)
-            after = os.fstat(stream.fileno())
-        named = path.lstat()
-        if (len(data) != info.st_size or identity(after) != identity(info)
-                or identity(named) != identity(info)):
-            raise ValueError
-        value = json.loads(data, object_pairs_hook=unique_object)
-        token_keys = {'access_token', 'refresh_token', 'id_token', 'account_id'}
-        if (not isinstance(value, dict)
-                or set(value) - {'auth_mode', 'OPENAI_API_KEY', 'tokens', 'last_refresh'}
-                or value.get('auth_mode') != 'chatgpt' or value.get('OPENAI_API_KEY') is not None
-                or not isinstance(value.get('tokens'), dict)
-                or set(value['tokens']) != token_keys
-                or any(not graphic(value['tokens'][key], 32768)
-                       for key in token_keys - {'account_id'})
-                or not graphic(value['tokens']['account_id'], 512)
-                or (value.get('last_refresh') is not None
-                    and not graphic(value['last_refresh'], 128, empty=True))):
-            raise ValueError
+        data = read_private_file(path)
+        validate_login(json.loads(data, object_pairs_hook=unique_object))
         return data
     except (OSError, ValueError, TypeError, AttributeError):
         raise ValueError('private ChatGPT login refused') from None
@@ -77,6 +86,11 @@ def writeback(owner: Path, baseline: Path, refreshed: Path) -> str:
         return 'refreshed'
     if current != original:
         raise ValueError('owner changed; preserve both login files for reconciliation')
+    replace_unchanged_login(owner, original, updated)
+    return 'refreshed'
+
+
+def replace_unchanged_login(owner, original, updated):
     temporary = None
     try:
         fd, temporary = tempfile.mkstemp(prefix='.i0-auth-', dir=owner.parent)
@@ -94,7 +108,6 @@ def writeback(owner: Path, baseline: Path, refreshed: Path) -> str:
             os.fsync(directory)
         finally:
             os.close(directory)
-        return 'refreshed'
     finally:
         if temporary is not None:
             os.unlink(temporary)

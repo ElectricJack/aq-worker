@@ -16,8 +16,7 @@ impl UploadState {
         manifest.validate()?;
         ensure!(
             self.identity.node_id == node
-                && !self.begin_operation.is_nil()
-                && !self.finalize_operation.is_nil()
+                && ![self.begin_operation, self.finalize_operation].contains(&Uuid::nil())
                 && self.begin_operation != self.finalize_operation,
             "invalid upload identities"
         );
@@ -28,25 +27,33 @@ impl UploadState {
         );
         ensure!(
             self.begun
-                || (self.manifest_offset == 0 && self.bundle_offset == 0 && self.pending.is_none()),
+                || ((self.manifest_offset, self.bundle_offset) == (0, 0) && self.pending.is_none()),
             "unbegun upload has progress"
         );
         if let Some(p) = &self.pending {
-            p.validate()?;
-            let (offset, size) = match p.file {
-                TransferFile::Manifest => (self.manifest_offset, manifest.manifest_bytes),
-                TransferFile::Bundle => (self.bundle_offset, manifest.bundle_bytes),
-            };
-            ensure!(
-                p.identity == self.identity
-                    && p.transfer_id == manifest.transfer_id
-                    && p.offset == offset
-                    && p.offset + u64::from(p.length) <= size
-                    && (p.file != TransferFile::Bundle
-                        || self.manifest_offset == manifest.manifest_bytes),
-                "invalid pending upload association"
-            );
+            self.validate_pending(p, manifest)?;
         }
+        Ok(())
+    }
+    fn validate_pending(
+        &self,
+        p: &TransferChunkRequest,
+        manifest: &TransferManifest,
+    ) -> Result<()> {
+        p.validate()?;
+        let (offset, size) = match p.file {
+            TransferFile::Manifest => (self.manifest_offset, manifest.manifest_bytes),
+            TransferFile::Bundle => (self.bundle_offset, manifest.bundle_bytes),
+        };
+        ensure!(
+            p.identity == self.identity
+                && p.transfer_id == manifest.transfer_id
+                && p.offset == offset
+                && p.offset + u64::from(p.length) <= size
+                && (p.file != TransferFile::Bundle
+                    || self.manifest_offset == manifest.manifest_bytes),
+            "invalid pending upload association"
+        );
         Ok(())
     }
 }
@@ -80,16 +87,14 @@ impl UploadAction {
 }
 
 #[cfg(feature = "synthetic-runtime")]
+mod manifest;
+
+#[cfg(feature = "synthetic-runtime")]
 impl<C: Clock> Runtime<C> {
     /// Establish exactly one transport identity for a stopped exported source.
     /// Existing manually managed transfers remain under their original owner.
     pub fn prepare_source_upload(&mut self, id: Uuid, git: &GitClient) -> Result<()> {
-        let record = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let record = self.source_attempt(id)?;
         let source = record.source.as_ref().context("source missing")?;
         ensure!(
             source.managed_root.as_deref() == Some(git.root()),
@@ -118,58 +123,7 @@ impl<C: Clock> Runtime<C> {
             source.transfer.is_none(),
             "existing externally managed source transfer requires original recovery"
         );
-        let exported = source.exported.as_ref().context("export required")?;
-        let artifact: Uuid = serde_json::from_value(exported["artifact_handle"].clone())?;
-        let mut file = artifact_file(git.root(), artifact, false, "manifest.json", false)?;
-        ensure!(
-            file.metadata()?.len() <= 1024 * 1024,
-            "artifact manifest bound"
-        );
-        let mut bytes = Vec::new();
-        Read::by_ref(&mut file)
-            .take(1024 * 1024 + 1)
-            .read_to_end(&mut bytes)?;
-        ensure!(bytes.len() <= 1024 * 1024, "artifact manifest bound");
-        let m: GitManifest = serde_json::from_slice(&bytes)?;
-        ensure!(
-            serde_json::to_value(&m)? == exported["manifest"]
-                && m.format_version == 1
-                && m.transfer_id == artifact
-                && m.repository_id == source.binding.repository_id
-                && m.repository_identity == source.binding.logical_identity
-                && m.binding_generation == source.binding.binding_generation
-                && m.base == source.binding.base
-                && m.source
-                    == source
-                        .checkpoint
-                        .as_ref()
-                        .context("checkpoint required")?
-                        .source
-                && m.object_format == "sha1"
-                && m.reference_only == (m.bundle_size == 0),
-            "retained artifact manifest changed"
-        );
-        let manifest = TransferManifest {
-            transfer_id: Uuid::new_v4(),
-            role: SourceRole::Checkpoint,
-            checkpoint: m.source,
-            attempt: record.offer.attempt.clone(),
-            resolved_spec_digest: record.offer.spec.resolved_spec_digest.clone(),
-            source: source.binding.clone(),
-            artifact_id: artifact,
-            manifest_digest: format!("{:x}", Sha256::digest(&bytes)),
-            bundle_digest: m.bundle_sha256,
-            manifest_bytes: bytes.len() as u64,
-            bundle_bytes: m.bundle_size,
-        };
-        manifest.validate()?;
-        ensure!(
-            manifest
-                .manifest_bytes
-                .checked_add(manifest.bundle_bytes)
-                .is_some_and(|n| n <= record.pending_bytes),
-            "upload exceeds reserved artifact bytes"
-        );
+        let manifest = manifest::retained_manifest(record, source, git)?;
         let upload = UploadState {
             identity: self.journal.state().identity.clone(),
             begin_operation: Uuid::new_v4(),
@@ -181,7 +135,7 @@ impl<C: Clock> Runtime<C> {
         };
         upload.validate(&manifest, self.journal.state().identity.node_id)?;
         self.journal.transaction(|s| {
-            let source = s.attempts.get_mut(&id).unwrap().source.as_mut().unwrap();
+            let source = s.attempt_source_mut(id);
             source.transfer = Some(manifest);
             source.upload = Some(upload);
             Ok(())
@@ -189,12 +143,7 @@ impl<C: Clock> Runtime<C> {
     }
 
     pub fn next_source_upload(&mut self, id: Uuid) -> Result<Option<UploadAction>> {
-        let record = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let record = self.source_attempt(id)?;
         let source = record.source.as_ref().context("source missing")?;
         if source.receipt.is_some() {
             return Ok(None);
@@ -225,13 +174,7 @@ impl<C: Clock> Runtime<C> {
         )?;
         if proposed.state.pending != upload.pending {
             self.journal.transaction(|s| {
-                s.attempts
-                    .get_mut(&id)
-                    .unwrap()
-                    .source
-                    .as_mut()
-                    .unwrap()
-                    .upload = Some(proposed.state);
+                s.attempt_source_mut(id).upload = Some(proposed.state);
                 Ok(())
             })?;
         }
@@ -259,8 +202,7 @@ impl<C: Clock> Runtime<C> {
         let next = match super::steps::acknowledge_upload(
             upload,
             manifest,
-            action,
-            status,
+            (action, status),
             self.journal.state().identity.node_id,
         )? {
             super::steps::UploadAcknowledgment::Progress(next) => next,
@@ -269,13 +211,7 @@ impl<C: Clock> Runtime<C> {
             }
         };
         self.journal.transaction(|s| {
-            s.attempts
-                .get_mut(&id)
-                .unwrap()
-                .source
-                .as_mut()
-                .unwrap()
-                .upload = Some(next);
+            s.attempt_source_mut(id).upload = Some(next);
             Ok(())
         })
     }

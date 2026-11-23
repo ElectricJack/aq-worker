@@ -4,8 +4,72 @@ use parser::Mode;
 use std::collections::VecDeque;
 const MAGIC: &[u8] = b"AQRI\x01";
 const WIDTH: &[u8] = b"unicode-width=0.2.2;ambiguous=1;compound=refuse";
+fn require_image(condition: bool) -> Result<()> {
+    condition.then_some(()).ok_or(Error::Image)
+}
+
+fn validate_modes(modes: &Modes) -> Result<()> {
+    require_image(modes.cursor_style <= 6 && modes.mouse_modes <= 7 && modes.mouse_encodings <= 3)
+}
 struct Writer(Vec<u8>);
 impl Writer {
+    fn parser(&mut self, parser: &Parser) -> Result<()> {
+        match &parser.mode {
+            Mode::Ground => self.byte(0)?,
+            Mode::Escape => self.byte(1)?,
+            Mode::Charset(slot) => {
+                if *slot > 1 {
+                    return Err(Error::Image);
+                }
+                self.put(&[2, *slot])?;
+            }
+            Mode::Csi(bytes) => {
+                if bytes.iter().any(|b| !(0x20..=0x3f).contains(b)) {
+                    return Err(Error::Image);
+                }
+                self.byte(3)?;
+                self.blob(bytes, MAX_CSI_BYTES)?;
+            }
+            Mode::Osc { bytes, escaped } => {
+                if bytes.iter().any(|b| *b < 0x20 || *b == 0x7f) {
+                    return Err(Error::Image);
+                }
+                self.byte(4)?;
+                self.flag(*escaped)?;
+                self.blob(bytes, MAX_CONTROL_BYTES)?;
+            }
+        }
+        validate_utf8_pending(parser)?;
+        self.blob(&parser.utf8, 3)?;
+        Ok(())
+    }
+    fn modes(&mut self, modes: &Modes) -> Result<()> {
+        for bit in [
+            modes.auto_wrap,
+            modes.origin,
+            modes.insert,
+            modes.new_line,
+            modes.application_cursor,
+            modes.application_keypad,
+            modes.bracketed_paste,
+            modes.cursor_visible,
+        ] {
+            self.flag(bit)?;
+        }
+        validate_modes(modes)?;
+        self.put(&[modes.cursor_style, modes.mouse_modes, modes.mouse_encodings])?;
+        Ok(())
+    }
+    fn last_print(&mut self, last_print: Option<char>) -> Result<()> {
+        self.flag(last_print.is_some())?;
+        if let Some(c) = last_print {
+            if !matches!(scalar_width(c), Ok(1 | 2)) {
+                return Err(Error::Image);
+            }
+            self.put(&(c as u32).to_le_bytes())?;
+        }
+        Ok(())
+    }
     fn put(&mut self, bytes: &[u8]) -> Result<()> {
         if self
             .0
@@ -51,7 +115,7 @@ impl Writer {
         }
     }
     fn attrs(&mut self, attrs: Attributes) -> Result<()> {
-        if attrs.flags > 511 || attrs.flags & (8 | 256) == (8 | 256) {
+        if !valid_flags(attrs.flags as usize) {
             return Err(Error::Image);
         }
         self.color(attrs.foreground)?;
@@ -106,17 +170,14 @@ impl Writer {
     fn screen(
         &mut self,
         screen: &Screen,
-        columns: usize,
-        rows: usize,
-        allow_history: bool,
+        size: (usize, usize),
+        history_limit: usize,
     ) -> Result<()> {
-        if screen.rows.len() != rows
-            || screen.rows.iter().any(|r| r.cells.len() != columns)
-            || screen.top > screen.bottom
-            || screen.bottom >= rows
-        {
-            return Err(Error::Image);
-        }
+        let (columns, rows) = size;
+        require_image(
+            screen.rows.len() == rows && screen.rows.iter().all(|r| r.cells.len() == columns),
+        )?;
+        require_image((screen.top..rows).contains(&screen.bottom))?;
         self.cursor(screen.cursor, columns, rows)?;
         self.saved(&screen.dec_saved, columns, rows)?;
         self.cursor(screen.ansi_saved, columns, rows)?;
@@ -127,10 +188,7 @@ impl Writer {
             self.row(row)?;
         }
         let actual = screen.history.iter().map(|r| r.cells.len()).sum::<usize>();
-        if actual != screen.history_cells
-            || actual > MAX_HISTORY_CELLS
-            || (!allow_history && actual != 0)
-        {
+        if actual != screen.history_cells || actual > history_limit {
             return Err(Error::Image);
         }
         self.short(screen.history.len())?;
@@ -145,6 +203,151 @@ struct Reader<'a> {
     at: usize,
 }
 impl<'a> Reader<'a> {
+    fn parser(&mut self) -> Result<Parser> {
+        let mode = match self.byte()? {
+            0 => Mode::Ground,
+            1 => Mode::Escape,
+            2 => {
+                let slot = self.byte()?;
+                if slot > 1 {
+                    return Err(Error::Image);
+                }
+                Mode::Charset(slot)
+            }
+            3 => {
+                let b = self.blob(MAX_CSI_BYTES)?;
+                if b.iter().any(|v| !(0x20..=0x3f).contains(v)) {
+                    return Err(Error::Image);
+                }
+                Mode::Csi(b.to_vec())
+            }
+            4 => {
+                let escaped = self.flag()?;
+                let b = self.blob(MAX_CONTROL_BYTES)?;
+                if b.iter().any(|v| *v < 0x20 || *v == 0x7f) {
+                    return Err(Error::Image);
+                }
+                Mode::Osc {
+                    bytes: b.to_vec(),
+                    escaped,
+                }
+            }
+            _ => return Err(Error::Image),
+        };
+        let parser = Parser {
+            mode,
+            utf8: self.blob(3)?.to_vec(),
+        };
+        validate_utf8_pending(&parser)?;
+        Ok(parser)
+    }
+    fn modes(&mut self) -> Result<Modes> {
+        let modes = Modes {
+            auto_wrap: self.flag()?,
+            origin: self.flag()?,
+            insert: self.flag()?,
+            new_line: self.flag()?,
+            application_cursor: self.flag()?,
+            application_keypad: self.flag()?,
+            bracketed_paste: self.flag()?,
+            cursor_visible: self.flag()?,
+            cursor_style: self.byte()?,
+            mouse_modes: self.byte()?,
+            mouse_encodings: self.byte()?,
+        };
+        validate_modes(&modes)?;
+        Ok(modes)
+    }
+    fn last_print(&mut self) -> Result<Option<char>> {
+        let last_print = if self.flag()? {
+            let c = char::from_u32(u32::from_le_bytes(
+                self.take(4)?.try_into().map_err(|_| Error::Image)?,
+            ))
+            .ok_or(Error::Image)?;
+            if !matches!(scalar_width(c), Ok(1 | 2)) {
+                return Err(Error::Image);
+            }
+            Some(c)
+        } else {
+            None
+        };
+        Ok(last_print)
+    }
+    fn title(&mut self) -> Result<String> {
+        let title = self.text(512)?;
+        if title.chars().any(char::is_control) {
+            return Err(Error::Image);
+        }
+        Ok(title)
+    }
+    fn state(&mut self) -> Result<State> {
+        let columns = self.short()?;
+        let rows = self.short()?;
+        dimensions(columns, rows).map_err(|_| Error::Image)?;
+        let alternate_active = self.flag()?;
+        let attributes = self.attrs()?;
+        let modes = self.modes()?;
+        let mut tabs = Vec::with_capacity(columns);
+        for _ in 0..columns {
+            tabs.push(self.flag()?);
+        }
+        let title = self.title()?;
+        let icon_name = self.title()?;
+        let (charsets, charset) = self.charsets()?;
+        let last_print = self.last_print()?;
+        let bells = self.long()?;
+        let main = self.screen(columns, rows, true)?;
+        let alternate = self.screen(columns, rows, false)?;
+        Ok(State {
+            columns,
+            rows,
+            main,
+            alternate,
+            alternate_active,
+            attributes,
+            modes,
+            tabs,
+            title,
+            icon_name,
+            charsets,
+            charset,
+            last_print,
+            bells,
+        })
+    }
+    fn header(&mut self, terminal: &TerminalIdentity) -> Result<()> {
+        require_image(self.take(MAGIC.len())? == MAGIC)?;
+        require_image(self.blob(64)? == PROFILE.as_bytes())?;
+        require_image(self.blob(128)? == WIDTH)?;
+        let digest = self.take(64)?;
+        if digest
+            != canonical_digest(terminal)
+                .map_err(|_| Error::Image)?
+                .as_str()
+                .as_bytes()
+        {
+            return Err(Error::Image);
+        }
+        Ok(())
+    }
+    fn expand_cells(&mut self, count: usize, columns: usize) -> Result<Vec<Cell>> {
+        let mut cells: Vec<Cell> = Vec::with_capacity(columns);
+        for _ in 0..count {
+            let run = self.short()?;
+            if run == 0 || run > columns - cells.len() {
+                return Err(Error::Image);
+            }
+            let cell = self.cell()?;
+            if cells.last().is_some_and(|old| *old == cell) {
+                return Err(Error::Image);
+            }
+            cells.extend(std::iter::repeat_n(cell, run));
+        }
+        if cells.len() != columns {
+            return Err(Error::Image);
+        }
+        Ok(cells)
+    }
     fn take(&mut self, n: usize) -> Result<&'a [u8]> {
         let end = self.at.checked_add(n).ok_or(Error::Image)?;
         let bytes = self.bytes.get(self.at..end).ok_or(Error::Image)?;
@@ -193,7 +396,7 @@ impl<'a> Reader<'a> {
         let foreground = self.color()?;
         let background = self.color()?;
         let flags = self.short()?;
-        if flags > 511 || flags & (8 | 256) == (8 | 256) {
+        if !valid_flags(flags) {
             return Err(Error::Image);
         }
         Ok(Attributes {
@@ -215,7 +418,7 @@ impl<'a> Reader<'a> {
         let a = self.byte()?;
         let b = self.byte()?;
         let c = self.byte()?;
-        if a > 1 || b > 1 || c > 1 {
+        if [a, b, c].into_iter().any(|value| value > 1) {
             return Err(Error::Image);
         }
         Ok(([a, b], c))
@@ -251,37 +454,34 @@ impl<'a> Reader<'a> {
         remaining_history: Option<usize>,
     ) -> Result<Row> {
         let columns = self.short()?;
-        if columns == 0
-            || columns > MAX_COLUMNS
-            || expected_columns.is_some_and(|c| c != columns)
-            || remaining_history.is_some_and(|n| columns > n)
-        {
-            return Err(Error::Image);
-        }
+        require_image((1..=MAX_COLUMNS).contains(&columns))?;
+        require_image(expected_columns.is_none_or(|c| c == columns))?;
+        require_image(remaining_history.is_none_or(|remaining| columns <= remaining))?;
         let wrapped = self.flag()?;
         let count = self.short()?;
         if count == 0 || count > columns {
             return Err(Error::Image);
         }
-        let mut cells: Vec<Cell> = Vec::with_capacity(columns);
-        for _ in 0..count {
-            let run = self.short()?;
-            if run == 0 || run > columns - cells.len() {
-                return Err(Error::Image);
-            }
-            let cell = self.cell()?;
-            if cells.last().is_some_and(|old| *old == cell) {
-                return Err(Error::Image);
-            }
-            cells.extend(std::iter::repeat_n(cell, run));
-        }
-        if cells.len() != columns {
-            return Err(Error::Image);
-        }
+        let cells = self.expand_cells(count, columns)?;
         let row = Row { cells, wrapped };
         validate_row(&row)?;
         Ok(row)
     }
+    fn history(&mut self, limit: usize) -> Result<(VecDeque<Row>, usize)> {
+        let count = self.short()?;
+        if count > limit {
+            return Err(Error::Image);
+        }
+        let mut old = VecDeque::new();
+        let mut history_cells = 0;
+        for _ in 0..count {
+            let row = self.row(None, Some(limit - history_cells))?;
+            history_cells += row.cells.len();
+            old.push_back(row);
+        }
+        Ok((old, history_cells))
+    }
+
     fn screen(&mut self, columns: usize, rows: usize, history: bool) -> Result<Screen> {
         let cursor = self.cursor(columns, rows)?;
         let dec_saved = self.saved(columns, rows)?;
@@ -289,24 +489,15 @@ impl<'a> Reader<'a> {
         let top = self.short()?;
         let bottom = self.short()?;
         let count = self.short()?;
-        if top > bottom || bottom >= rows || count != rows {
+        if !(top..rows).contains(&bottom) || count != rows {
             return Err(Error::Image);
         }
         let mut grid = Vec::with_capacity(rows);
         for _ in 0..rows {
             grid.push(self.row(Some(columns), None)?);
         }
-        let count = self.short()?;
-        if count > MAX_HISTORY_CELLS || (!history && count != 0) {
-            return Err(Error::Image);
-        }
-        let mut old = VecDeque::new();
-        let mut history_cells = 0;
-        for _ in 0..count {
-            let row = self.row(None, Some(MAX_HISTORY_CELLS - history_cells))?;
-            history_cells += row.cells.len();
-            old.push_back(row);
-        }
+        let limit = if history { MAX_HISTORY_CELLS } else { 0 };
+        let (old, history_cells) = self.history(limit)?;
         Ok(Screen {
             rows: grid,
             cursor,
@@ -339,26 +530,7 @@ pub(crate) fn encode(renderer: &Renderer) -> Result<StateImage> {
     w.short(s.rows)?;
     w.flag(s.alternate_active)?;
     w.attrs(s.attributes)?;
-    for bit in [
-        s.modes.auto_wrap,
-        s.modes.origin,
-        s.modes.insert,
-        s.modes.new_line,
-        s.modes.application_cursor,
-        s.modes.application_keypad,
-        s.modes.bracketed_paste,
-        s.modes.cursor_visible,
-    ] {
-        w.flag(bit)?;
-    }
-    if s.modes.cursor_style > 6 || s.modes.mouse_modes > 7 || s.modes.mouse_encodings > 3 {
-        return Err(Error::Image);
-    }
-    w.put(&[
-        s.modes.cursor_style,
-        s.modes.mouse_modes,
-        s.modes.mouse_encodings,
-    ])?;
+    w.modes(&s.modes)?;
     if s.tabs.len() != s.columns {
         return Err(Error::Image);
     }
@@ -368,43 +540,11 @@ pub(crate) fn encode(renderer: &Renderer) -> Result<StateImage> {
     w.blob(s.title.as_bytes(), 512)?;
     w.blob(s.icon_name.as_bytes(), 512)?;
     w.charsets(s.charsets, s.charset)?;
-    w.flag(s.last_print.is_some())?;
-    if let Some(c) = s.last_print {
-        if !matches!(scalar_width(c), Ok(1 | 2)) {
-            return Err(Error::Image);
-        }
-        w.put(&(c as u32).to_le_bytes())?;
-    }
+    w.last_print(s.last_print)?;
     w.long(s.bells)?;
-    w.screen(&s.main, s.columns, s.rows, true)?;
-    w.screen(&s.alternate, s.columns, s.rows, false)?;
-    match &renderer.parser.mode {
-        Mode::Ground => w.byte(0)?,
-        Mode::Escape => w.byte(1)?,
-        Mode::Charset(slot) => {
-            if *slot > 1 {
-                return Err(Error::Image);
-            }
-            w.put(&[2, *slot])?;
-        }
-        Mode::Csi(bytes) => {
-            if bytes.iter().any(|b| !(0x20..=0x3f).contains(b)) {
-                return Err(Error::Image);
-            }
-            w.byte(3)?;
-            w.blob(bytes, MAX_CSI_BYTES)?;
-        }
-        Mode::Osc { bytes, escaped } => {
-            if bytes.iter().any(|b| *b < 0x20 || *b == 0x7f) {
-                return Err(Error::Image);
-            }
-            w.byte(4)?;
-            w.flag(*escaped)?;
-            w.blob(bytes, MAX_CONTROL_BYTES)?;
-        }
-    }
-    validate_utf8_pending(&renderer.parser)?;
-    w.blob(&renderer.parser.utf8, 3)?;
+    w.screen(&s.main, (s.columns, s.rows), MAX_HISTORY_CELLS)?;
+    w.screen(&s.alternate, (s.columns, s.rows), 0)?;
+    w.parser(&renderer.parser)?;
     let digest = Digest::of(&w.0);
     Ok(StateImage { bytes: w.0, digest })
 }
@@ -414,128 +554,21 @@ pub(crate) fn decode(terminal: &TerminalIdentity, bytes: &[u8]) -> Result<Render
         return Err(Error::Image);
     }
     let mut r = Reader { bytes, at: 0 };
-    if r.take(MAGIC.len())? != MAGIC
-        || r.blob(64)? != PROFILE.as_bytes()
-        || r.blob(128)? != WIDTH
-        || r.take(64)?
-            != canonical_digest(terminal)
-                .map_err(|_| Error::Image)?
-                .as_str()
-                .as_bytes()
-    {
-        return Err(Error::Image);
-    }
+    r.header(terminal)?;
     let next_ordinal = r.long()?;
     let next_output = r.long()?;
     let resize_generation = r.long()?;
     if next_output == 0 || next_ordinal.checked_sub(next_output) != Some(resize_generation) {
         return Err(Error::Image);
     }
-    let columns = r.short()?;
-    let rows = r.short()?;
-    dimensions(columns, rows).map_err(|_| Error::Image)?;
-    let alternate_active = r.flag()?;
-    let attributes = r.attrs()?;
-    let modes = Modes {
-        auto_wrap: r.flag()?,
-        origin: r.flag()?,
-        insert: r.flag()?,
-        new_line: r.flag()?,
-        application_cursor: r.flag()?,
-        application_keypad: r.flag()?,
-        bracketed_paste: r.flag()?,
-        cursor_visible: r.flag()?,
-        cursor_style: r.byte()?,
-        mouse_modes: r.byte()?,
-        mouse_encodings: r.byte()?,
-    };
-    if modes.cursor_style > 6 || modes.mouse_modes > 7 || modes.mouse_encodings > 3 {
-        return Err(Error::Image);
-    }
-    let mut tabs = Vec::with_capacity(columns);
-    for _ in 0..columns {
-        tabs.push(r.flag()?);
-    }
-    let title = r.text(512)?;
-    if title.chars().any(char::is_control) {
-        return Err(Error::Image);
-    }
-    let icon_name = r.text(512)?;
-    if icon_name.chars().any(char::is_control) {
-        return Err(Error::Image);
-    }
-    let (charsets, charset) = r.charsets()?;
-    let last_print = if r.flag()? {
-        let c = char::from_u32(u32::from_le_bytes(
-            r.take(4)?.try_into().map_err(|_| Error::Image)?,
-        ))
-        .ok_or(Error::Image)?;
-        if !matches!(scalar_width(c), Ok(1 | 2)) {
-            return Err(Error::Image);
-        }
-        Some(c)
-    } else {
-        None
-    };
-    let bells = r.long()?;
-    let main = r.screen(columns, rows, true)?;
-    let alternate = r.screen(columns, rows, false)?;
-    let mode = match r.byte()? {
-        0 => Mode::Ground,
-        1 => Mode::Escape,
-        2 => {
-            let slot = r.byte()?;
-            if slot > 1 {
-                return Err(Error::Image);
-            }
-            Mode::Charset(slot)
-        }
-        3 => {
-            let b = r.blob(MAX_CSI_BYTES)?;
-            if b.iter().any(|v| !(0x20..=0x3f).contains(v)) {
-                return Err(Error::Image);
-            }
-            Mode::Csi(b.to_vec())
-        }
-        4 => {
-            let escaped = r.flag()?;
-            let b = r.blob(MAX_CONTROL_BYTES)?;
-            if b.iter().any(|v| *v < 0x20 || *v == 0x7f) {
-                return Err(Error::Image);
-            }
-            Mode::Osc {
-                bytes: b.to_vec(),
-                escaped,
-            }
-        }
-        _ => return Err(Error::Image),
-    };
-    let parser = Parser {
-        mode,
-        utf8: r.blob(3)?.to_vec(),
-    };
-    validate_utf8_pending(&parser)?;
+    let state = r.state()?;
+    let parser = r.parser()?;
     if r.at != bytes.len() {
         return Err(Error::Image);
     }
     let renderer = Renderer {
         terminal: terminal.clone(),
-        state: State {
-            columns,
-            rows,
-            main,
-            alternate,
-            alternate_active,
-            attributes,
-            modes,
-            tabs,
-            title,
-            icon_name,
-            charsets,
-            charset,
-            last_print,
-            bells,
-        },
+        state,
         parser,
         next_ordinal,
         next_output,
@@ -548,56 +581,57 @@ pub(crate) fn decode(terminal: &TerminalIdentity, bytes: &[u8]) -> Result<Render
     Ok(renderer)
 }
 fn validate_cursor(cursor: Cursor, columns: usize, rows: usize) -> Result<()> {
-    if cursor.row as usize >= rows
-        || cursor.column as usize >= columns
-        || (cursor.pending_wrap && cursor.column as usize + 1 != columns)
-    {
-        return Err(Error::Image);
-    }
-    Ok(())
+    require_image((cursor.row as usize) < rows && (cursor.column as usize) < columns)?;
+    require_image(!cursor.pending_wrap || cursor.column as usize + 1 == columns)
 }
 fn validate_row(row: &Row) -> Result<()> {
-    if row.cells.is_empty() || row.cells.len() > MAX_COLUMNS {
+    if !(1..=MAX_COLUMNS).contains(&row.cells.len()) {
         return Err(Error::Image);
     }
     for (at, cell) in row.cells.iter().enumerate() {
-        if cell.glyph.len() > MAX_GLYPH_BYTES
-            || cell.attributes.flags > 511
-            || cell.attributes.flags & (8 | 256) == (8 | 256)
-        {
-            return Err(Error::Image);
-        }
-        if cell.width == 0 {
-            if !cell.glyph.is_empty()
-                || at == 0
-                || row.cells[at - 1].width != 2
-                || row.cells[at - 1].attributes != cell.attributes
-            {
-                return Err(Error::Image);
-            }
-        } else {
-            if !matches!(cell.width, 1 | 2)
-                || (cell.width == 2 && (at + 1 == row.cells.len() || row.cells[at + 1].width != 0))
-            {
-                return Err(Error::Image);
-            }
-            if cell.glyph.is_empty() {
-                if cell.width != 1 {
-                    return Err(Error::Image);
-                }
-            } else {
-                let mut chars = cell.glyph.chars();
-                if scalar_width(chars.next().ok_or(Error::Image)?).map_err(|_| Error::Image)?
-                    != cell.width as usize
-                    || chars.any(|c| scalar_width(c) != Ok(0))
-                {
-                    return Err(Error::Image);
-                }
-            }
-        }
+        validate_cell(row, at, cell)?;
     }
     Ok(())
 }
+
+fn validate_cell(row: &Row, at: usize, cell: &Cell) -> Result<()> {
+    if cell.glyph.len() > MAX_GLYPH_BYTES || !valid_flags(cell.attributes.flags as usize) {
+        return Err(Error::Image);
+    }
+    match cell.width {
+        0 => validate_continuation(cell, at.checked_sub(1).map(|i| &row.cells[i]))?,
+        2 if row.cells.get(at + 1).is_none_or(|next| next.width != 0) => {
+            return Err(Error::Image);
+        }
+        1 | 2 => validate_glyph(cell)?,
+        _ => return Err(Error::Image),
+    }
+
+    Ok(())
+}
+
+fn validate_continuation(cell: &Cell, previous: Option<&Cell>) -> Result<()> {
+    let lead = previous.ok_or(Error::Image)?;
+    require_image(cell.glyph.is_empty() && lead.width == 2 && lead.attributes == cell.attributes)
+}
+
+fn validate_glyph(cell: &Cell) -> Result<()> {
+    let mut chars = cell.glyph.chars();
+    let width = match chars.next() {
+        Some(c) => scalar_width(c).map_err(|_| Error::Image)?,
+        None => 1,
+    };
+    if width == cell.width as usize && chars.all(|c| scalar_width(c) == Ok(0)) {
+        Ok(())
+    } else {
+        Err(Error::Image)
+    }
+}
+
+fn valid_flags(flags: usize) -> bool {
+    flags <= 511 && flags & (8 | 256) != (8 | 256)
+}
+
 fn validate_utf8_pending(parser: &Parser) -> Result<()> {
     if parser.utf8.is_empty() {
         return Ok(());

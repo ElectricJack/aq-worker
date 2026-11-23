@@ -45,11 +45,7 @@ fn assert_refusal(worker: &Path, native: &Path, cause: &str) {
     }
 }
 
-#[test]
-fn native_commands_report_preflight_failure_before_disposition() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let worker = dir.path().join("worker.toml");
+fn write_worker_config(path: &Path) {
     WorkerConfig {
         server_url: "https://example.invalid".into(),
         node_id: Uuid::from_u128(1),
@@ -57,8 +53,11 @@ fn native_commands_report_preflight_failure_before_disposition() {
         cf_client_id: None,
         cf_client_secret: None,
     }
-    .save(&worker)
+    .save(path)
     .unwrap();
+}
+
+fn legacy_executor_config(root: &Path) -> serde_json::Value {
     let artifact = |id: &str| ArtifactRef {
         id: Text::new(id).unwrap(),
         version: Text::new("1").unwrap(),
@@ -71,23 +70,23 @@ fn native_commands_report_preflight_failure_before_disposition() {
     let manifest = &fixture["native_offer"]["offered"]["offer"]["manifest"];
     // The legacy executor deterministically refuses in preflight, before any
     // installation files, journal or network admission are accessed.
-    let config = json!({
+    json!({
         "schema_version": 1,
-        "state_dir": dir.path(),
-        "git_root": dir.path().join("git"),
-        "git_socket": dir.path().join("git.sock"),
+        "state_dir": root,
+        "git_root": root.join("git"),
+        "git_socket": root.join("git.sock"),
         "capacity": {"slots": 1, "memory_bytes": 4096, "cpu_millis": 1000, "disk_bytes": 4096},
         "runtime": {"runtime": artifact("runtime"), "qualification": artifact("qualification")},
         "adapter": artifact("adapter"),
         "renderer": artifact("renderer"),
-        "adapter_manifest": dir.path().join("not-created-manifest"),
+        "adapter_manifest": root.join("not-created-manifest"),
         "adapter_manifest_digest": Digest::of(b"manifest"),
         "capabilities": [],
         "features": [],
         "negotiation": {"contract": contract_artifact().unwrap(), "features": required_features()},
         "source_profile": artifact("source"),
         "maximum_preparation_ms": 1000,
-        "inventory_definition": dir.path().join("not-created-inventory"),
+        "inventory_definition": root.join("not-created-inventory"),
         "inventory_reference": artifact("inventory"),
         "inventory_adapter": artifact("inventory-adapter"),
         "inventory_evidence": artifact("inventory-evidence"),
@@ -96,14 +95,23 @@ fn native_commands_report_preflight_failure_before_disposition() {
         "executor": {
             "kind": "codex-0.166-exec-stdin-v1",
             "settings": {
-                "host_root": dir.path().join("not-created-host"),
+                "host_root": root.join("not-created-host"),
                 "harness": manifest["harness"],
                 "permissions_digest": Digest::of(b"permissions"),
                 "columns": 80,
                 "rows": 24
             }
         }
-    });
+    })
+}
+
+#[test]
+fn native_commands_report_preflight_failure_before_disposition() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let worker = dir.path().join("worker.toml");
+    write_worker_config(&worker);
+    let config = legacy_executor_config(dir.path());
     let native = dir.path().join("native.json");
     write_private(&native, &serde_json::to_vec(&config).unwrap());
     assert_refusal(
@@ -145,15 +153,7 @@ fn native_commands_report_worker_config_context_without_private_toml() {
 fn native_commands_name_file_and_property_when_private_file_check_refuses() {
     let dir = tempfile::tempdir().unwrap();
     let worker = dir.path().join("worker.toml");
-    WorkerConfig {
-        server_url: "https://example.invalid".into(),
-        node_id: Uuid::from_u128(1),
-        credential: "private-node-token".into(),
-        cf_client_id: None,
-        cf_client_secret: None,
-    }
-    .save(&worker)
-    .unwrap();
+    write_worker_config(&worker);
     let native = dir.path().join("native.json");
     // File contents must never reach the diagnostics.
     let body = br#"{"private-cf-secret": "private-cf-id"}"#;

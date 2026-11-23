@@ -37,31 +37,54 @@ impl FakeCoordinator {
             operation_id: None,
         }
     }
+    fn replay<T: Clone>(old: &str, digest: &str, response: &T) -> Result<T, ProtocolError> {
+        if old == digest {
+            Ok(response.clone())
+        } else {
+            Err(Self::error(ErrorCode::IdConflict))
+        }
+    }
+    fn replay_accept(
+        &self,
+        old: &str,
+        grant: &Grant,
+        digest: &str,
+    ) -> Result<AcceptResponse, ProtocolError> {
+        if old != digest {
+            return Err(Self::error(ErrorCode::IdConflict));
+        }
+        if self.cancelled {
+            return Err(Self::error(ErrorCode::Cancelled));
+        }
+        let expiry = self.grant.as_ref().unwrap().1;
+        if self.now_ms >= expiry {
+            return Err(Self::error(ErrorCode::GrantExpired));
+        }
+        let mut grant = grant.clone();
+        grant.valid_for_ms = expiry - self.now_ms;
+        Ok(AcceptResponse { grant })
+    }
+    fn validate_attempt(
+        &self,
+        identity: &NodeIdentity,
+        attempt: &AttemptRef,
+    ) -> Result<(), ProtocolError> {
+        if identity != &self.offer.identity {
+            return Err(Self::error(ErrorCode::StaleBoot));
+        }
+        if attempt != &self.offer.attempt {
+            return Err(Self::error(ErrorCode::StaleGeneration));
+        }
+        Ok(())
+    }
     pub fn accept(&mut self, r: &AcceptRequest) -> Result<AcceptResponse, ProtocolError> {
         r.validate()
             .map_err(|_| Self::error(ErrorCode::InvalidRequest))?;
         let digest = payload_digest(r);
         if let Some((old, grant)) = self.acceptances.get(&r.operation_id) {
-            if *old != digest {
-                return Err(Self::error(ErrorCode::IdConflict));
-            }
-            if self.cancelled {
-                return Err(Self::error(ErrorCode::Cancelled));
-            }
-            let expiry = self.grant.as_ref().unwrap().1;
-            if self.now_ms >= expiry {
-                return Err(Self::error(ErrorCode::GrantExpired));
-            }
-            let mut grant = grant.clone();
-            grant.valid_for_ms = expiry - self.now_ms;
-            return Ok(AcceptResponse { grant });
+            return self.replay_accept(old, grant, &digest);
         }
-        if r.identity != self.offer.identity {
-            return Err(Self::error(ErrorCode::StaleBoot));
-        }
-        if r.attempt != self.offer.attempt {
-            return Err(Self::error(ErrorCode::StaleGeneration));
-        }
+        self.validate_attempt(&r.identity, &r.attempt)?;
         if self.cancelled {
             return Err(Self::error(ErrorCode::Cancelled));
         }
@@ -94,19 +117,10 @@ impl FakeCoordinator {
     pub fn observe(&mut self, r: &Observation) -> Result<Ack, ProtocolError> {
         r.validate()
             .map_err(|_| Self::error(ErrorCode::InvalidRequest))?;
-        if r.identity != self.offer.identity {
-            return Err(Self::error(ErrorCode::StaleBoot));
-        }
-        if r.attempt != self.offer.attempt {
-            return Err(Self::error(ErrorCode::StaleGeneration));
-        }
+        self.validate_attempt(&r.identity, &r.attempt)?;
         let digest = payload_digest(r);
         if let Some((old, ack)) = self.observations.get(&r.sequence) {
-            return if *old == digest {
-                Ok(ack.clone())
-            } else {
-                Err(Self::error(ErrorCode::IdConflict))
-            };
+            return Self::replay(old, &digest, ack);
         }
         if self
             .observations
@@ -122,17 +136,24 @@ impl FakeCoordinator {
         self.observations.insert(r.sequence, (digest, ack.clone()));
         Ok(ack)
     }
-    pub fn report(&mut self, r: &ResultReport) -> Result<ResultResponse, ProtocolError> {
-        r.validate()
-            .map_err(|_| Self::error(ErrorCode::InvalidRequest))?;
-        let digest = payload_digest(r);
-        if let Some((old, response)) = self.reports.get(&r.report_id) {
-            return if *old == digest {
-                Ok(response.clone())
-            } else {
-                Err(Self::error(ErrorCode::IdConflict))
-            };
+    fn current_report(&self, report: &ResultReport, expiry: u64) -> bool {
+        self.active_identity == report.identity
+            && self.now_ms < expiry
+            && self.latest_report_id.is_none()
+    }
+
+    fn disposition(&self, stopped: bool, report: &ResultReport, expiry: u64) -> ResultDisposition {
+        if !stopped {
+            ResultDisposition::Rejected
+        } else if self.cancelled {
+            ResultDisposition::RetainedCancelled
+        } else if !self.current_report(report, expiry) {
+            ResultDisposition::RetainedStale
+        } else {
+            ResultDisposition::Accepted
         }
+    }
+    fn report_expiry(&self, r: &ResultReport) -> Result<u64, ProtocolError> {
         if r.identity.node_id != self.offer.identity.node_id
             || r.attempt.attempt_id != self.offer.attempt.attempt_id
         {
@@ -145,31 +166,29 @@ impl FakeCoordinator {
             .grant
             .as_ref()
             .ok_or_else(|| Self::error(ErrorCode::InvalidRequest))?;
-        if r.identity != grant.identity
-            || r.attempt != grant.attempt
-            || r.resolved_spec_digest != grant.resolved_spec_digest
-        {
+        let grant_binding = (&grant.identity, &grant.attempt, &grant.resolved_spec_digest);
+        let report_binding = (&r.identity, &r.attempt, &r.resolved_spec_digest);
+        if report_binding != grant_binding {
             return Err(Self::error(ErrorCode::StaleGeneration));
         }
         if r.supersedes_report_id != self.latest_report_id {
             return Err(Self::error(ErrorCode::IdConflict));
         }
+        Ok(*expiry)
+    }
+    pub fn report(&mut self, r: &ResultReport) -> Result<ResultResponse, ProtocolError> {
+        r.validate()
+            .map_err(|_| Self::error(ErrorCode::InvalidRequest))?;
+        let digest = payload_digest(r);
+        if let Some((old, response)) = self.reports.get(&r.report_id) {
+            return Self::replay(old, &digest, response);
+        }
+        let expiry = self.report_expiry(r)?;
         let stopped = matches!(
             r.stop_certainty,
             StopCertainty::ConfirmedStopped | StopCertainty::NotStarted
         );
-        let disposition = if !stopped {
-            ResultDisposition::Rejected
-        } else if self.cancelled {
-            ResultDisposition::RetainedCancelled
-        } else if self.active_identity != r.identity
-            || self.now_ms >= *expiry
-            || self.latest_report_id.is_some()
-        {
-            ResultDisposition::RetainedStale
-        } else {
-            ResultDisposition::Accepted
-        };
+        let disposition = self.disposition(stopped, r, expiry);
         let response = ResultResponse {
             report_id: r.report_id,
             disposition,

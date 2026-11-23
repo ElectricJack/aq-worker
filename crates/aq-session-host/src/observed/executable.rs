@@ -33,6 +33,35 @@ pub(crate) struct ElfIdentity {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile: Option<ImageProfile>,
 }
+impl ElfIdentity {
+    fn verify_sealed_metadata(&self, file: &File) -> Result<()> {
+        let m = file.metadata()?;
+        ensure!(
+            m.is_file()
+                && m.nlink() == 0
+                && self.matches_file(&m)
+                && (64..=if self.profile.is_some() {
+                    MAX_NATIVE_EXEC_BYTES
+                } else {
+                    MAX_ELF_BYTES
+                })
+                    .contains(&m.len()),
+            "sealed ELF identity changed"
+        );
+        let seals = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GET_SEALS) };
+        ensure!(
+            seals >= 0 && seals & SEALS == SEALS,
+            "ELF must have immutable kernel seals"
+        );
+        Ok(())
+    }
+
+    pub(super) fn matches_file(&self, metadata: &std::fs::Metadata) -> bool {
+        metadata.dev() == self.device
+            && metadata.ino() == self.inode
+            && metadata.len() == self.bytes
+    }
+}
 struct Image {
     identity: ElfIdentity,
     source: PathBuf,
@@ -78,18 +107,22 @@ impl SealedElfPool {
                 && entries <= MAX_ELF_POOL_ENTRIES,
             "sealed ELF pool bounds"
         );
-        Ok(Self {
+        Ok(Self::with_profile(bytes, entries, None))
+    }
+
+    fn with_profile(bytes: u64, entries: usize, profile: Option<ImageProfile>) -> Self {
+        Self {
             inner: Arc::new(Pool {
                 pid: std::process::id(),
                 bytes,
                 entries,
-                profile: None,
+                profile,
                 state: Mutex::new(PoolState {
                     bytes: 0,
                     entries: BTreeMap::new(),
                 }),
             }),
-        })
+        }
     }
     fn image_limit(&self) -> u64 {
         if self.inner.profile.is_some() {
@@ -131,6 +164,21 @@ impl SealedElfPool {
             state.entries.len() < self.inner.entries,
             "sealed ELF entry quota"
         );
+        let (image, reserved) = self.seal_source(source, expected, state.bytes)?;
+        let image = Arc::new(image);
+        state.bytes = reserved;
+        state.entries.insert(key, image.clone());
+        Ok(QualifiedElf {
+            image,
+            _pool: self.inner.clone(),
+        })
+    }
+    fn seal_source(
+        &self,
+        source: &Path,
+        expected: &ArtifactRef,
+        charged: u64,
+    ) -> Result<(Image, u64)> {
         let mut source_file = OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC)
@@ -140,69 +188,17 @@ impl SealedElfPool {
             metadata.is_file() && metadata.len() >= 64 && metadata.len() <= self.image_limit(),
             "small ELF byte bound"
         );
-        let reserved = state
-            .bytes
+        let reserved = charged
             .checked_add(metadata.len())
             .context("ELF quota overflow")?;
         ensure!(reserved <= self.inner.bytes, "sealed ELF byte quota");
-        let fd = unsafe {
-            libc::memfd_create(
-                c"aq-observed-elf".as_ptr(),
-                libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING | libc::MFD_EXEC,
-            )
-        };
-        ensure!(fd >= 0, "executable memfd unavailable");
-        let mut file = unsafe { File::from_raw_fd(fd) };
-        file.set_permissions(std::fs::Permissions::from_mode(0o500))?;
-        let mut hash = Sha256::new();
-        let mut written = 0u64;
-        let mut scratch = [0u8; SCRATCH];
-        let mut header = Vec::new();
-        loop {
-            let count = source_file.read(&mut scratch)?;
-            if count == 0 {
-                break;
-            }
-            written = written
-                .checked_add(count as u64)
-                .context("ELF length overflow")?;
-            ensure!(
-                written <= metadata.len() && written <= self.image_limit(),
-                "ELF source changed size"
-            );
-            if header.len() < 64 {
-                let take = (64 - header.len()).min(count);
-                header.extend_from_slice(&scratch[..take]);
-            }
-            hash.update(&scratch[..count]);
-            file.write_all(&scratch[..count])?;
+        let mut file = executable_memfd()?;
+        let written = ElfSource {
+            file: &mut source_file,
+            length: metadata.len(),
+            limit: self.image_limit(),
         }
-        ensure!(
-            written == metadata.len()
-                && format!("{:x}", hash.finalize()) == expected.digest.as_str(),
-            "ELF exact bytes mismatch"
-        );
-        ensure!(
-            header.get(..4) == Some(b"\x7fELF")
-                && header[4] == 2
-                && header[5] == 1
-                && header[6] == 1,
-            "unsupported ELF header"
-        );
-        #[cfg(target_arch = "x86_64")]
-        ensure!(
-            u16::from_le_bytes([header[18], header[19]]) == 62,
-            "ELF architecture mismatch"
-        );
-        #[cfg(target_arch = "aarch64")]
-        ensure!(
-            u16::from_le_bytes([header[18], header[19]]) == 183,
-            "ELF architecture mismatch"
-        );
-        ensure!(
-            matches!(u16::from_le_bytes([header[16], header[17]]), 2 | 3),
-            "ELF executable type"
-        );
+        .copy_verified(&mut file, expected)?;
         ensure!(
             unsafe { libc::fcntl(file.as_raw_fd(), libc::F_ADD_SEALS, SEALS) } == 0,
             "ELF immutable seals unavailable"
@@ -216,18 +212,14 @@ impl SealedElfPool {
             profile: self.inner.profile.clone(),
         };
         verify_file(&file, &identity)?;
-        let image = Arc::new(Image {
+        let image = Image {
             identity,
             source: source.into(),
             file,
-        });
-        state.bytes = reserved;
-        state.entries.insert(key, image.clone());
-        Ok(QualifiedElf {
-            image,
-            _pool: self.inner.clone(),
-        })
+        };
+        Ok((image, reserved))
     }
+
     pub fn charged_bytes(&self) -> Result<u64> {
         ensure!(
             std::process::id() == self.inner.pid,
@@ -240,6 +232,83 @@ impl SealedElfPool {
             .map_err(|_| anyhow::anyhow!("sealed ELF pool busy or poisoned"))?
             .bytes)
     }
+}
+fn executable_memfd() -> Result<File> {
+    let fd = unsafe {
+        libc::memfd_create(
+            c"aq-observed-elf".as_ptr(),
+            libc::MFD_CLOEXEC | libc::MFD_ALLOW_SEALING | libc::MFD_EXEC,
+        )
+    };
+    ensure!(fd >= 0, "executable memfd unavailable");
+    let file = unsafe { File::from_raw_fd(fd) };
+    file.set_permissions(std::fs::Permissions::from_mode(0o500))?;
+    Ok(file)
+}
+
+struct ElfSource<'a> {
+    file: &'a mut File,
+    length: u64,
+    limit: u64,
+}
+impl ElfSource<'_> {
+    fn copy_verified(&mut self, file: &mut File, expected: &ArtifactRef) -> Result<u64> {
+        let mut hash = Sha256::new();
+        let mut written = 0u64;
+        let mut scratch = [0u8; SCRATCH];
+        let mut header = Vec::new();
+        loop {
+            let count = self.file.read(&mut scratch)?;
+            if count == 0 {
+                break;
+            }
+            written = written
+                .checked_add(count as u64)
+                .context("ELF length overflow")?;
+            ensure!(
+                written <= self.length && written <= self.limit,
+                "ELF source changed size"
+            );
+            if header.len() < 64 {
+                let take = (64 - header.len()).min(count);
+                header.extend_from_slice(&scratch[..take]);
+            }
+            hash.update(&scratch[..count]);
+            file.write_all(&scratch[..count])?;
+        }
+        ensure!(
+            written == self.length && format!("{:x}", hash.finalize()) == expected.digest.as_str(),
+            "ELF exact bytes mismatch"
+        );
+        verify_header(&header)?;
+        Ok(written)
+    }
+}
+
+fn verify_header(header: &[u8]) -> Result<()> {
+    ensure!(
+        header.len() >= 64
+            && header.starts_with(b"\x7fELF")
+            && header[4] == 2
+            && header[5] == 1
+            && header[6] == 1,
+        "unsupported ELF header"
+    );
+    #[cfg(target_arch = "x86_64")]
+    ensure!(
+        u16::from_le_bytes([header[18], header[19]]) == 62,
+        "ELF architecture mismatch"
+    );
+    #[cfg(target_arch = "aarch64")]
+    ensure!(
+        u16::from_le_bytes([header[18], header[19]]) == 183,
+        "ELF architecture mismatch"
+    );
+    ensure!(
+        matches!(u16::from_le_bytes([header[16], header[17]]), 2 | 3),
+        "ELF executable type"
+    );
+    Ok(())
 }
 /// Independently budgeted immutable installation pool for the new native profile.
 /// Callers must reserve these charged bytes in addition to process/attempt needs.
@@ -258,18 +327,11 @@ impl NativeExecPool {
             "native exec pool admission bounds"
         );
         Ok(Self {
-            pool: SealedElfPool {
-                inner: Arc::new(Pool {
-                    pid: std::process::id(),
-                    bytes,
-                    entries,
-                    profile: Some(ImageProfile::NativeExecStdinV1),
-                    state: Mutex::new(PoolState {
-                        bytes: 0,
-                        entries: BTreeMap::new(),
-                    }),
-                }),
-            },
+            pool: SealedElfPool::with_profile(
+                bytes,
+                entries,
+                Some(ImageProfile::NativeExecStdinV1),
+            ),
         })
     }
     pub fn load_verified(&self, source: &Path, expected: &ArtifactRef) -> Result<NativeExecImage> {
@@ -311,26 +373,7 @@ pub(crate) fn verify_file(file: &File, expected: &ElfIdentity) -> Result<()> {
     ) {
         return super::named_image::verify_received(file, expected);
     }
-    let m = file.metadata()?;
-    ensure!(
-        m.is_file()
-            && m.nlink() == 0
-            && m.dev() == expected.device
-            && m.ino() == expected.inode
-            && m.len() == expected.bytes
-            && (64..=if expected.profile.is_some() {
-                MAX_NATIVE_EXEC_BYTES
-            } else {
-                MAX_ELF_BYTES
-            })
-                .contains(&m.len()),
-        "sealed ELF identity changed"
-    );
-    let seals = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GET_SEALS) };
-    ensure!(
-        seals >= 0 && seals & SEALS == SEALS,
-        "ELF must have immutable kernel seals"
-    );
+    expected.verify_sealed_metadata(file)?;
     // Native images were fully hashed before these exact immutable kernel
     // objects were admitted. A live fd keeps inode identity from reuse, and
     // mandatory write/grow/shrink/seal seals prevent post-admission mutation.

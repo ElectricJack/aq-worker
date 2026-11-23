@@ -186,13 +186,7 @@ impl ResultClient {
         let candidate = Submission::new(self.binding.clone(), input)?;
         let _writer = self.submissions.lock_named(wire::WRITER_LOCK_FILE)?;
         if let Some(existing) = self.existing_submission()? {
-            if existing != candidate {
-                return Ok(Outcome {
-                    value: json!({"contract":wire::CONTRACT,"operation_id":self.binding.operation_id,"report_id":self.binding.report_id,"code":"result_claim_conflict","effect":"original_preserved","retryable":false}),
-                    exit_code: 11,
-                });
-            }
-            return self.status();
+            return self.replay_submission(Some(&existing), &candidate);
         }
         if self
             .root
@@ -216,13 +210,7 @@ impl ResultClient {
                 .downcast_ref::<std::io::Error>()
                 .is_some_and(|e| e.kind() == std::io::ErrorKind::AlreadyExists)
             {
-                if self.existing_submission()?.as_ref() == Some(&candidate) {
-                    return self.status();
-                }
-                return Ok(Outcome {
-                    value: json!({"contract":wire::CONTRACT,"operation_id":self.binding.operation_id,"report_id":self.binding.report_id,"code":"result_claim_conflict","effect":"original_preserved","retryable":false}),
-                    exit_code: 11,
-                });
+                return self.replay_submission(self.existing_submission()?.as_ref(), &candidate);
             }
             return self.unknown(&candidate);
         }
@@ -233,6 +221,19 @@ impl ResultClient {
         // accept it; do not manufacture an Accepted acknowledgment here.
         self.wait_for_acknowledgment()
             .or_else(|_| self.unknown(&candidate))
+    }
+    fn replay_submission(
+        &self,
+        existing: Option<&Submission>,
+        candidate: &Submission,
+    ) -> Result<Outcome> {
+        if existing == Some(candidate) {
+            return self.status();
+        }
+        Ok(Outcome {
+            value: json!({"contract":wire::CONTRACT,"operation_id":self.binding.operation_id,"report_id":self.binding.report_id,"code":"result_claim_conflict","effect":"original_preserved","retryable":false}),
+            exit_code: 11,
+        })
     }
     /// One bounded local wait after NEW publication only. It never retries,
     /// replaces an intent or renews its original execution ceiling. Pending on

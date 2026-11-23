@@ -115,10 +115,11 @@ fn spawn_boundary_crashes_never_duplicate_and_recover_owned_writers() {
         let temp = TempDir::new().unwrap();
         let mut child = start(temp.path(), checkpoint, true);
         marker(temp.path(), checkpoint);
-        if matches!(
+        let has_started = matches!(
             checkpoint,
             "start-sent-before-receipt" | "start-receipt-durable"
-        ) {
+        );
+        if has_started {
             let dir = directory(temp.path());
             wait(|| count(&dir.join("descendant-counter")).filter(|n| *n >= 2));
         }
@@ -137,21 +138,22 @@ fn spawn_boundary_crashes_never_duplicate_and_recover_owned_writers() {
             record.stop_certainty,
             StopCertainty::NotStarted | StopCertainty::ConfirmedStopped
         ));
-        if record.start_intent {
-            let proof = record.stopped_proof.as_ref().unwrap();
-            assert!(proof.kernel_wait_echild);
-            if matches!(
-                checkpoint,
-                "start-sent-before-receipt" | "start-receipt-durable"
-            ) {
-                assert!(proof.reaped_count >= 2);
-            }
-        }
+        assert_stopped_writers(record, has_started);
         let output: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
         assert_eq!(output["protected_usage"]["slots"], 0);
         assert_eq!(output["available"]["slots"], 1);
     }
 }
+fn assert_stopped_writers(record: &aq_worker::journal::AttemptRecord, has_started: bool) {
+    if record.start_intent {
+        let proof = record.stopped_proof.as_ref().unwrap();
+        assert!(proof.kernel_wait_echild);
+        if has_started {
+            assert!(proof.reaped_count >= 2);
+        }
+    }
+}
+
 #[test]
 fn surviving_double_fork_setsid_writer_stops_by_live_guardian_and_not_pid_scan() {
     let temp = TempDir::new().unwrap();
@@ -369,6 +371,30 @@ fn unavailable_profile_refuses_before_runtime_state() {
     assert!(!temp.path().join("journal.json").exists());
 }
 
+fn start_control_clock(
+    root: &Path,
+    checkpoint: &str,
+    read_ms: &str,
+    env: &[(&str, &str)],
+) -> (Child, std::path::PathBuf, std::path::PathBuf) {
+    let offset = root.join("offset");
+    let read_marker = root.join("control-read");
+    fs::write(&offset, "0").unwrap();
+    let mut c = command(root);
+    c.args(["--fault-checkpoint", checkpoint, "--fault-action", "pause"])
+        .envs(env.iter().copied())
+        .env("AQ_GUARDIAN_CLOCK_OFFSET_FILE", &offset)
+        .env("AQ_GUARDIAN_TEST_READ_MS", read_ms)
+        .env("AQ_GUARDIAN_TEST_READ_MARKER", &read_marker);
+    let child = c
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    marker(root, checkpoint);
+    (child, offset, read_marker)
+}
+
 #[test]
 fn stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused() {
     use std::{
@@ -379,25 +405,8 @@ fn stalled_control_cannot_start_after_expiry_and_stale_identity_is_refused() {
         },
     };
     let temp = TempDir::new().unwrap();
-    let offset = temp.path().join("offset");
-    let read_marker = temp.path().join("control-read");
-    fs::write(&offset, "0").unwrap();
-    let mut c = command(temp.path());
-    c.args([
-        "--fault-checkpoint",
-        "start-intent-durable",
-        "--fault-action",
-        "pause",
-    ])
-    .env("AQ_GUARDIAN_CLOCK_OFFSET_FILE", &offset)
-    .env("AQ_GUARDIAN_TEST_READ_MS", "500")
-    .env("AQ_GUARDIAN_TEST_READ_MARKER", &read_marker);
-    let mut child = c
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    marker(temp.path(), "start-intent-durable");
+    let (mut child, offset, read_marker) =
+        start_control_clock(temp.path(), "start-intent-durable", "500", &[]);
     let dir = directory(temp.path());
     let record = state(temp.path()).attempts.into_values().next().unwrap();
     let identity = record.guardian.unwrap();
@@ -535,27 +544,12 @@ fn slow_drip_control_has_total_deadline_and_cannot_starve_expiry() {
         },
     };
     let temp = TempDir::new().unwrap();
-    let offset = temp.path().join("offset");
-    let read_marker = temp.path().join("control-read");
-    fs::write(&offset, "0").unwrap();
-    let mut c = command(temp.path());
-    c.args([
-        "--fault-checkpoint",
+    let (mut child, offset, read_marker) = start_control_clock(
+        temp.path(),
         "start-receipt-durable",
-        "--fault-action",
-        "pause",
-    ])
-    .env("AQ_FIXTURE_HOLD", "1")
-    .env("AQ_FIXTURE_IGNORE_TERM", "1")
-    .env("AQ_GUARDIAN_CLOCK_OFFSET_FILE", &offset)
-    .env("AQ_GUARDIAN_TEST_READ_MS", "200")
-    .env("AQ_GUARDIAN_TEST_READ_MARKER", &read_marker);
-    let mut child = c
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
-    marker(temp.path(), "start-receipt-durable");
+        "200",
+        &[("AQ_FIXTURE_HOLD", "1"), ("AQ_FIXTURE_IGNORE_TERM", "1")],
+    );
     let dir = directory(temp.path());
     let identity = state(temp.path())
         .attempts
