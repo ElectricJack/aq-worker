@@ -1,16 +1,16 @@
 //! Node-local configuration. Offers never reach this type: everything here is
 //! operator-owned, and the launch policy built from it is fixed.
 use crate::backend::{BackendError, TemplateDigest, valid_alias_name};
-use BackendError::InvalidRequest;
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    os::unix::fs::{FileTypeExt, MetadataExt},
     path::{Path, PathBuf},
 };
 
-/// The host's main Docker daemon sockets (SBX10). Never used, even via symlink.
-pub const MAIN_DAEMON_SOCKETS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock"];
+pub use aq_sandbox_archive::docker_engine::MAIN_DAEMON_SOCKETS;
+use aq_sandbox_archive::docker_engine::{
+    container_path_ok, exposes_daemon_socket, parent, under, validate_socket,
+};
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
 /// The attempt's agent-channel directory is always mounted here (0006 §5.1).
@@ -114,8 +114,6 @@ fn default_disk_watch_interval_ms() -> u64 {
     10_000
 }
 
-const REFUSE_MAIN: BackendError = InvalidRequest("refusing the host's main Docker daemon");
-
 impl DockerLocalConfig {
     pub fn new(socket: PathBuf) -> Self {
         Self {
@@ -150,131 +148,94 @@ impl DockerLocalConfig {
     }
 
     pub fn validate(&self) -> Result<(), BackendError> {
-        self.validate_socket()?;
+        validate_socket(&self.socket).map_err(BackendError::InvalidRequest)?;
         check_templates(&self.templates)?;
         if let Some(root) = &self.channel_root {
             self.check_channel_root(root)?;
         }
         if let Some((host, target)) = &self.transcript {
-            self.validate_transcript(host, target)?;
+            use aq_handoff_note::harness::DriverHarness::{Claude, Codex};
+            let clear = |path: &str| !under(path, target) && !under(target, path);
+            if self.check_channel_root(host).is_err()
+                || ![Claude, Codex].iter().any(|h| h.transcript_dir() == target)
+                || !self.mount_aliases.values().all(|a| clear(&a.target))
+                || !clear(&self.material_path)
+            {
+                return Err(BackendError::InvalidRequest(
+                    "transcript mount must be a harness transcript directory clear of every alias",
+                ));
+            }
         }
-        require(
-            available_container_path(&self.material_path),
-            "material path must be under /aq/ and outside the work volume",
-        )?;
-        self.validate_aliases()?;
-        require(
-            !self.runner_command.as_ref().is_some_and(Vec::is_empty),
-            "runner command is empty",
-        )?;
-        let limits = [
-            self.api_timeout_ms,
-            self.max_read_bytes,
-            self.disk_limit_bytes,
-        ];
-        require(
-            !limits.contains(&0)
-                && self.stop_grace_secs <= 3600
-                && (1..=600_000).contains(&self.disk_watch_interval_ms),
-            "invalid docker-local timeouts or limits",
-        )
-    }
-
-    fn validate_transcript(&self, host: &Path, target: &str) -> Result<(), BackendError> {
-        use aq_handoff_note::harness::DriverHarness::{Claude, Codex};
-        let clear = |path: &str| !under(path, target) && !under(target, path);
-        let valid_target = [Claude, Codex].iter().any(|h| h.transcript_dir() == target);
-        let clear_mounts =
-            || self.mount_aliases.values().all(|a| clear(&a.target)) && clear(&self.material_path);
-        require(
-            self.check_channel_root(host).is_ok() && valid_target && clear_mounts(),
-            "transcript mount must be a harness transcript directory clear of every alias",
-        )
-    }
-
-    fn validate_aliases(&self) -> Result<(), BackendError> {
+        if !container_path_ok(&self.material_path)
+            || under(&self.material_path, WORK_TARGET)
+            || under(&self.material_path, CHANNEL_TARGET)
+        {
+            return Err(BackendError::InvalidRequest(
+                "material path must be under /aq/ and outside the work volume",
+            ));
+        }
         let mut targets = BTreeSet::new();
         for (name, alias) in &self.mount_aliases {
-            require(valid_alias_name(name), "invalid mount alias name")?;
-            require(
-                alias.host_path.is_absolute(),
-                "mount alias host path must be absolute",
-            )?;
-            require(
-                !self.exposes_daemon_socket(&alias.host_path),
-                "mount alias exposes a daemon socket",
-            )?;
-            let target = alias.target.as_str();
-            require(
-                self.alias_target_ok(target) && targets.insert(target),
-                "mount alias target must be a distinct path under /aq/",
-            )?;
+            if !valid_alias_name(name) {
+                return Err(BackendError::InvalidRequest("invalid mount alias name"));
+            }
+            if !alias.host_path.is_absolute() {
+                return Err(BackendError::InvalidRequest(
+                    "mount alias host path must be absolute",
+                ));
+            }
+            if exposes_daemon_socket(&self.socket, &alias.host_path) {
+                return Err(BackendError::InvalidRequest(
+                    "mount alias exposes a daemon socket",
+                ));
+            }
+            if !container_path_ok(&alias.target)
+                || under(&alias.target, WORK_TARGET)
+                || under(&alias.target, CHANNEL_TARGET)
+                || under(CHANNEL_TARGET, &alias.target)
+                || under(&self.material_path, &alias.target)
+                || under(&alias.target, parent(&self.material_path))
+                || !targets.insert(alias.target.as_str())
+            {
+                return Err(BackendError::InvalidRequest(
+                    "mount alias target must be a distinct path under /aq/",
+                ));
+            }
+        }
+        if self
+            .runner_command
+            .as_ref()
+            .is_some_and(|command| command.is_empty())
+        {
+            return Err(BackendError::InvalidRequest("runner command is empty"));
+        }
+        if self.api_timeout_ms == 0
+            || self.max_read_bytes == 0
+            || self.stop_grace_secs > 3600
+            || self.disk_limit_bytes == 0
+            || !(1..=600_000).contains(&self.disk_watch_interval_ms)
+        {
+            return Err(BackendError::InvalidRequest(
+                "invalid docker-local timeouts or limits",
+            ));
         }
         Ok(())
-    }
-
-    fn alias_target_ok(&self, target: &str) -> bool {
-        available_container_path(target)
-            && ![CHANNEL_TARGET, &self.material_path]
-                .iter()
-                .any(|path| under(path, target))
-            && !under(target, parent(&self.material_path))
     }
 
     /// The channel root is absolute, exposes no daemon socket, and no mount
     /// alias's host path equals, contains or sits under it.
     pub fn check_channel_root(&self, root: &Path) -> Result<(), BackendError> {
         let alias = |a: &MountAlias| aq_agent_channel::paths_overlap(&a.host_path, root);
-        require(
-            root.is_absolute()
-                && !self.exposes_daemon_socket(root)
-                && !self.mount_aliases.values().any(alias),
-            "channel root must be absolute, expose no daemon socket and overlap no mount alias",
-        )
-    }
-
-    fn validate_socket(&self) -> Result<(), BackendError> {
-        require(
-            self.socket.is_absolute(),
-            "sandbox daemon socket must be an absolute path",
-        )?;
-        if is_main_daemon_path(&self.socket) {
-            return Err(REFUSE_MAIN);
+        if !root.is_absolute()
+            || exposes_daemon_socket(&self.socket, root)
+            || self.mount_aliases.values().any(alias)
+        {
+            return Err(BackendError::InvalidRequest(
+                "channel root must be absolute, expose no daemon socket and overlap no mount alias",
+            ));
         }
-        let unavailable = |_| InvalidRequest("sandbox daemon socket unavailable");
-        let canonical = std::fs::canonicalize(&self.socket).map_err(unavailable)?;
-        let metadata = std::fs::metadata(&canonical).map_err(unavailable)?;
-        if is_main_daemon_path(&canonical) || same_file_as_main_daemon(&metadata) {
-            return Err(REFUSE_MAIN);
-        }
-        require(
-            metadata.file_type().is_socket(),
-            "sandbox daemon socket is not a Unix socket",
-        )?;
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        require(
-            metadata.uid() == unsafe { libc::geteuid() },
-            "sandbox daemon socket is not owned by the worker user",
-        )
+        Ok(())
     }
-
-    fn exposes_daemon_socket(&self, host_path: &Path) -> bool {
-        let canonical = std::fs::canonicalize(host_path).unwrap_or_else(|_| host_path.into());
-        let socket = std::fs::canonicalize(&self.socket).unwrap_or_else(|_| self.socket.clone());
-        is_main_daemon_path(host_path)
-            || is_main_daemon_path(&canonical)
-            || socket.starts_with(&canonical)
-            || std::fs::metadata(&canonical)
-                .is_ok_and(|m| m.file_type().is_socket() || same_file_as_main_daemon(&m))
-    }
-}
-
-fn require(valid: bool, message: &'static str) -> Result<(), BackendError> {
-    valid.then_some(()).ok_or(InvalidRequest(message))
-}
-
-fn available_container_path(path: &str) -> bool {
-    container_path_ok(path) && !under(path, WORK_TARGET) && !under(path, CHANNEL_TARGET)
 }
 
 /// An OCI reference `[host[:port]/]path[:tag]@<digest>` and nothing else, so it
@@ -377,35 +338,4 @@ impl DockerLocalConfig {
             .map_or(boot, |t| &t.digest)
             .clone())
     }
-}
-
-fn is_main_daemon_path(path: &Path) -> bool {
-    MAIN_DAEMON_SOCKETS
-        .iter()
-        .any(|main| path == Path::new(main))
-}
-
-fn same_file_as_main_daemon(metadata: &std::fs::Metadata) -> bool {
-    MAIN_DAEMON_SOCKETS.iter().any(|main| {
-        std::fs::metadata(main)
-            .is_ok_and(|m| m.dev() == metadata.dev() && m.ino() == metadata.ino())
-    })
-}
-
-/// Absolute, normalized and under `/aq/`.
-fn container_path_ok(path: &str) -> bool {
-    path.strip_prefix("/aq/")
-        .is_some_and(|rest| rest.split('/').all(|part| !matches!(part, "" | "." | "..")))
-}
-
-/// True when `path` is `base` or below it.
-fn under(path: &str, base: &str) -> bool {
-    path == base
-        || path
-            .strip_prefix(base)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
-fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("/", |(parent, _)| parent)
 }

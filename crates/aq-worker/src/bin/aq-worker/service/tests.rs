@@ -482,7 +482,7 @@ fn release_sandbox_refuses_an_attempt_held_for_salvage() {
     assert!(held_for_salvage(current, attempt, || anyhow::bail!(
         "owned"
     )));
-    std::fs::write(lost_record(current, attempt), b"{}").unwrap();
+    std::fs::write(preserved_sandbox_record(current, attempt), b"{}").unwrap();
     assert!(
         !held_for_salvage(current, attempt, || Ok(vec![attempt])),
         "lost path"

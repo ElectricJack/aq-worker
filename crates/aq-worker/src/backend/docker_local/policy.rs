@@ -104,7 +104,14 @@ pub fn node_filter(node: Uuid) -> String {
     encode(&filter.to_string())
 }
 
-fn mounts(config: &DockerLocalConfig, request: &CreateRequest) -> Vec<Value> {
+/// The complete create body. Callers have already validated `request` against
+/// the config: resources present, digest allowlisted, aliases declared.
+pub fn create_body(
+    config: &DockerLocalConfig,
+    request: &CreateRequest,
+    image: &str,
+    resources: ResourceLimits,
+) -> Value {
     let mut mounts = vec![json!({
         "Type": "volume",
         "Source": volume_name(&request.name),
@@ -131,17 +138,6 @@ fn mounts(config: &DockerLocalConfig, request: &CreateRequest) -> Vec<Value> {
     if let Some((host, target)) = &config.transcript {
         mounts.push(json!({ "Type": "bind", "Source": host, "Target": target, "ReadOnly": false }));
     }
-    mounts
-}
-
-/// The complete create body. Callers have already validated `request` against
-/// the config: resources present, digest allowlisted, aliases declared.
-pub fn create_body(
-    config: &DockerLocalConfig,
-    request: &CreateRequest,
-    image: &str,
-    resources: ResourceLimits,
-) -> Value {
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),
@@ -166,7 +162,7 @@ pub fn create_body(
             "PortBindings": {},
             "PublishAllPorts": false,
             "Binds": config.cache_binds,
-            "Mounts": mounts(config, request),
+            "Mounts": mounts,
             "IpcMode": "private",
             "RestartPolicy": { "Name": "no" },
             "AutoRemove": false,
@@ -220,8 +216,10 @@ pub fn entry_from_labels(
         attempt_id: uuid(LABEL_ATTEMPT)?,
     };
     let hash = label(LABEL_REQUEST)?;
-    let valid_hash = hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
-    if name != owner.deterministic_name() || !valid_hash {
+    if name != owner.deterministic_name()
+        || hash.len() != 64
+        || !hash.bytes().all(|b| b.is_ascii_hexdigit())
+    {
         return Err(unknown);
     }
     let template_digest =
@@ -251,15 +249,4 @@ pub fn labels_match(labels: &Value, expected: &BTreeMap<String, String>) -> bool
         .all(|(key, value)| labels.get(key).and_then(Value::as_str) == Some(value))
 }
 
-/// Percent-encodes everything except RFC 3986 unreserved characters.
-pub fn encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                (byte as char).to_string()
-            }
-            _ => format!("%{byte:02X}"),
-        })
-        .collect()
-}
+pub use super::transport::encode;

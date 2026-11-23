@@ -1,9 +1,9 @@
 //! Retained descriptor-relative local channel storage. A path or JSON file is
 //! never execution authority. The worker publishes control files after fsync.
-use super::history::{DirectoryPin, StoragePins};
 use anyhow::{Context, Result, ensure};
 use aq_agent_result_local as wire;
 use fs2::FileExt;
+use serde::{Deserialize, Serialize};
 use std::{
     ffi::CStr,
     fs::{File, OpenOptions},
@@ -22,7 +22,19 @@ use std::{
     },
 };
 
-pub(super) struct ChannelStorage {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectoryPin {
+    pub device: u64,
+    pub inode: u64,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StoragePins {
+    pub root: DirectoryPin,
+    pub submissions: DirectoryPin,
+}
+pub struct ChannelStorage {
     root: File,
     submissions: File,
     root_path: PathBuf,
@@ -31,17 +43,6 @@ pub(super) struct ChannelStorage {
     owner_lock: Mutex<Option<File>>,
     accepting: AtomicBool,
     pid: u32,
-}
-fn file_revision(metadata: &std::fs::Metadata) -> (u64, u64, u64, i64, i64, i64, i64) {
-    (
-        metadata.len(),
-        metadata.dev(),
-        metadata.ino(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
-        metadata.ctime(),
-        metadata.ctime_nsec(),
-    )
 }
 fn directory(path: &Path) -> Result<File> {
     ensure!(
@@ -95,7 +96,7 @@ fn member(root: &File, name: &CStr, create: bool, mode: u32) -> Result<File> {
     Ok(file)
 }
 impl ChannelStorage {
-    pub(super) fn create(root_path: &Path, workspace: &Path) -> Result<Self> {
+    pub fn create(root_path: &Path, workspace: &Path) -> Result<Self> {
         ensure!(
             root_path.is_absolute()
                 && root_path.as_os_str().len() <= 2048
@@ -137,16 +138,16 @@ impl ChannelStorage {
             pid: std::process::id(),
         })
     }
-    pub(super) fn pins(&self) -> &StoragePins {
+    pub fn pins(&self) -> &StoragePins {
         &self.pins
     }
-    pub(super) fn root(&self) -> &Path {
+    pub fn root(&self) -> &Path {
         &self.root_path
     }
-    pub(super) fn submissions(&self) -> &Path {
+    pub fn submissions(&self) -> &Path {
         &self.submissions_path
     }
-    pub(super) fn verify(&self) -> Result<()> {
+    pub fn verify(&self) -> Result<()> {
         ensure!(
             self.pid == std::process::id(),
             "forked process cannot use result storage"
@@ -171,7 +172,7 @@ impl ChannelStorage {
         self.root.sync_all()?;
         Ok(())
     }
-    pub(super) fn publish(&self, binding: &wire::Binding, presence: &wire::Presence) -> Result<()> {
+    pub fn publish(&self, binding: &wire::Binding, presence: &wire::Presence) -> Result<()> {
         self.write_control_new(c"binding.json", &wire::encode(binding)?)?;
         self.write_control_new(c"presence.json", &wire::encode(presence)?)?;
         let file = member(&self.root, c"owner.lock", false, 0o400)?;
@@ -186,7 +187,7 @@ impl ChannelStorage {
         self.accepting.store(true, Ordering::SeqCst);
         Ok(())
     }
-    pub(super) fn intake_open(&self) -> Result<bool> {
+    pub fn intake_open(&self) -> Result<bool> {
         self.verify()?;
         Ok(self.accepting.load(Ordering::SeqCst)
             && self
@@ -195,10 +196,10 @@ impl ChannelStorage {
                 .map_err(|_| anyhow::anyhow!("result lock poisoned"))?
                 .is_some())
     }
-    pub(super) fn close_intake(&self) {
+    pub fn close_intake(&self) {
         self.accepting.store(false, Ordering::SeqCst);
     }
-    pub(super) fn release_presence(&self) {
+    pub fn release_presence(&self) {
         self.close_intake();
         if self.pid == std::process::id()
             && let Ok(mut held) = self.owner_lock.lock()
@@ -206,11 +207,7 @@ impl ChannelStorage {
             held.take();
         }
     }
-    pub(super) fn verify_control(
-        &self,
-        binding: &wire::Binding,
-        presence: &wire::Presence,
-    ) -> Result<()> {
+    pub fn verify_control(&self, binding: &wire::Binding, presence: &wire::Presence) -> Result<()> {
         self.verify()?;
         for (name, expected) in [
             (c"binding.json", wire::encode(binding)?),
@@ -228,44 +225,11 @@ impl ChannelStorage {
         }
         Ok(())
     }
-    pub(super) fn read_submission(&self) -> Result<Option<Vec<u8>>> {
+    pub fn read_submission(&self) -> Result<Option<Vec<u8>>> {
         self.verify()?;
-        let fd = unsafe {
-            libc::openat(
-                self.submissions.as_raw_fd(),
-                c"submission.json".as_ptr(),
-                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            let e = std::io::Error::last_os_error();
-            if e.raw_os_error() == Some(libc::ENOENT) {
-                return Ok(None);
-            }
-            return Err(e.into());
-        }
-        let mut file = unsafe { File::from_raw_fd(fd) };
-        let before = file.metadata()?;
-        ensure!(
-            before.is_file()
-                && before.nlink() == 1
-                && before.uid() == unsafe { libc::geteuid() }
-                && before.mode() & 0o7777 == 0o600
-                && before.len() <= wire::MAX_BYTES as u64,
-            "result submission owner/type/mode/bound"
-        );
-        let mut bytes = Vec::new();
-        Read::by_ref(&mut file)
-            .take(wire::MAX_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)?;
-        let after = file.metadata()?;
-        ensure!(
-            bytes.len() == before.len() as usize && file_revision(&before) == file_revision(&after),
-            "result submission changed during read"
-        );
-        Ok(Some(bytes))
+        super::read_submission_bytes(&self.submissions)
     }
-    pub(super) fn write_ack(&self, ack: &wire::Acknowledgment) -> Result<()> {
+    pub fn write_ack(&self, ack: &wire::Acknowledgment) -> Result<()> {
         self.verify()?;
         let bytes = wire::encode(ack)?;
         // A previous ambiguous projection never changes the retained journal.
@@ -289,6 +253,34 @@ impl ChannelStorage {
         Ok(())
     }
 }
+/// Read the original outbox after stopped recovery has taken the state lock.
+pub fn retained_submission(
+    path: &Path,
+    pins: &StoragePins,
+    binding: &wire::Binding,
+) -> Result<Option<wire::Submission>> {
+    let root = directory(path)?;
+    let submissions = directory(&path.join(wire::SUBMISSIONS_DIRECTORY))?;
+    ensure!(
+        pin(&root)? == pins.root && pin(&submissions)? == pins.submissions,
+        "retained result storage differs from the launch"
+    );
+    let writer = member(&submissions, c"writer.lock", false, 0o600)?;
+    writer
+        .try_lock_exclusive()
+        .context("retained submission is still being written")?;
+    let bytes = super::read_submission_bytes(&submissions)?;
+    bytes
+        .map(|bytes| {
+            let s: wire::Submission = wire::decode(&bytes)?;
+            ensure!(
+                &s.binding == binding && wire::encode(&s)? == bytes,
+                "retained result submission differs from the launch"
+            );
+            Ok(s)
+        })
+        .transpose()
+}
 impl Drop for ChannelStorage {
     fn drop(&mut self) {
         self.release_presence();
@@ -296,14 +288,14 @@ impl Drop for ChannelStorage {
 }
 /// A process-retained private namespace. Existing names are never adopted on a
 /// fresh owner; only this actual owner can allocate another attempt child.
-pub(super) struct Namespace {
+pub struct Namespace {
     owner: File,
     path: PathBuf,
     pin: DirectoryPin,
     pid: u32,
 }
 impl Namespace {
-    pub(super) fn create(path: &Path) -> Result<Self> {
+    pub fn create(path: &Path) -> Result<Self> {
         let parent = path.parent().context("result namespace parent absent")?;
         let parent_owner = directory(parent)?;
         pin(&parent_owner)?;
@@ -319,7 +311,7 @@ impl Namespace {
             pid: std::process::id(),
         })
     }
-    pub(super) fn attempt(&self, path: &Path, id: uuid::Uuid) -> Result<PathBuf> {
+    pub fn attempt(&self, path: &Path, id: uuid::Uuid) -> Result<PathBuf> {
         ensure!(
             !id.is_nil()
                 && path == self.path

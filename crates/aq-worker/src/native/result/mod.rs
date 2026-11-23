@@ -19,7 +19,7 @@ mod roots;
 mod salvage;
 mod source;
 mod stopped;
-mod storage;
+use aq_agent_client::completion::storage;
 use creation::{ChannelIntent, RecordedChannel};
 use history::*;
 pub use pins::ResultInstallationPins;
@@ -29,6 +29,14 @@ use source::snapshot;
 pub(crate) use source::transfer_bound;
 pub use stopped::{DurableStoppedResult, ResultStopCause};
 use storage::ChannelStorage;
+pub(in crate::native) fn retained_submission(
+    scope: &ScopeRecord,
+) -> Result<Option<wire::Submission>> {
+    let StorageStage::Ready { pins, .. } = &scope.storage else {
+        return Ok(None);
+    };
+    storage::retained_submission(&scope.root, pins, &scope.binding)
+}
 #[derive(Default)]
 pub(super) struct Registry {
     entries: Mutex<BTreeMap<Uuid, Arc<Custody>>>,

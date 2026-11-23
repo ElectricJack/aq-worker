@@ -2,7 +2,7 @@
 //! are built in one pre-sized zeroizing buffer, so no reallocation leaves a copy.
 use zeroize::Zeroizing;
 mod reader;
-pub use reader::{read_tree, single_file};
+pub use reader::{read_tree, read_workspace_tree, single_file};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("{0}")]
@@ -262,6 +262,30 @@ mod tests {
         assert!(single_file(&file, 100).is_err());
         assert!(single_file(&archive, 100).is_err(), "directory first");
     }
+    #[test]
+    fn volume_archive_preserves_root_and_nested_files_and_rejects_partial_data() {
+        let files = [
+            TreeEntry::File {
+                path: "one".into(),
+                mode: 0o644,
+                data: b"first".to_vec(),
+            },
+            TreeEntry::File {
+                path: "dir/two".into(),
+                mode: 0o644,
+                data: b"second".to_vec(),
+            },
+        ];
+        let archive = tree_archive(".", &files).unwrap();
+        let entries = read_workspace_tree(&archive, 1024, false).unwrap();
+        assert_eq!(
+            entries.iter().map(TreeEntry::path).collect::<Vec<_>>(),
+            ["one", "dir/two"]
+        );
+        assert!(read_workspace_tree(&archive[..archive.len() - BLOCK], 1024, false).is_err());
+        assert!(read_workspace_tree(&archive, 5, false).is_err());
+    }
+
     fn sample_tree(long: &str) -> Vec<TreeEntry> {
         vec![
             TreeEntry::Dir {

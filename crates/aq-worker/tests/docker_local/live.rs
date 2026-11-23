@@ -168,6 +168,48 @@ async fn live_conformance() {
 }
 
 #[tokio::test]
+#[ignore = "needs a dedicated rootless Podman daemon: AQ_DOCKER_LOCAL_SOCKET"]
+async fn live_recovers_work_from_a_stopped_volume_without_its_container() {
+    let mut fixture = live(LIVE_RUNNER, |_| {}).await;
+    let request = fixture.request(42);
+    let sandbox = fixture.backend.create(&request).await.unwrap();
+    fixture
+        .backend
+        .deliver_private_material(&sandbox, PrivateMaterial::new(b"fixture".to_vec()))
+        .await
+        .unwrap();
+    fixture.backend.start_runner(&sandbox).await.unwrap();
+    fixture
+        .wait_for_file(&sandbox, "/aq/work/fixture-output")
+        .await;
+    fixture.backend.stop(&sandbox).await;
+
+    let removed = fixture
+        .faults
+        .send(DockerRequest {
+            method: DockerMethod::Delete,
+            path: format!(
+                "{API_VERSION}/containers/{}?v=false&force=false",
+                sandbox.backend_id
+            ),
+            content_type: None,
+            body: Default::default(),
+            max_response_bytes: 4096,
+        })
+        .await
+        .unwrap();
+    let recovered = fixture.backend.stopped_work_tree(&sandbox, 1 << 20).await;
+    fixture.cleanup().await;
+
+    assert_eq!(removed.status, 204);
+    let entries = recovered.unwrap();
+    assert!(entries.iter().any(
+        |entry| matches!(entry, tar::TreeEntry::File { path, data, .. }
+        if path == "fixture-output" && data == b"fixture-complete\n")
+    ));
+}
+
+#[tokio::test]
 #[ignore = "needs a dedicated sandbox daemon: AQ_DOCKER_LOCAL_SOCKET"]
 async fn live_launch_policy_applied() {
     let probe = "grep -E '^(CapEff|NoNewPrivs):' /proc/self/status > /aq/work/policy; \

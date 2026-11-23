@@ -77,22 +77,35 @@ impl<T: DockerTransport> Drive<'_, T> {
                 self.sandbox,
                 tree_archive("aq/in", &input_entries(self.config, prompt)?)?,
             )
-            .await?;
+            .await
+            .context("sandbox launch input upload")?;
         let image = self
             .config
             .docker_local
             .template_image(&self.config.template);
         let daemon = (self.config.docker_local.socket.as_path(), image);
-        let archive =
-            aq_sandbox_archive::build_cache::work_archive(self.cache, workspace, daemon).await?;
-        self.backend.put_archive(self.sandbox, archive).await?;
+        let archive = aq_sandbox_archive::build_cache::work_archive(self.cache, workspace, daemon)
+            .await
+            .context("prepare sandbox workspace archive")?;
+        self.backend
+            .put_archive(self.sandbox, archive)
+            .await
+            .context("sandbox workspace upload")?;
         self.backend
             .deliver_private_material(
                 self.sandbox,
                 PrivateMaterial::new(self.login.token.to_vec()),
             )
-            .await?;
-        self.backend.start_runner(self.sandbox).await?;
+            .await
+            .context("sandbox private material upload")?;
+        ensure!(
+            now_ms() < self.config.hard_deadline_ms,
+            "sandbox preparation reached the attempt deadline"
+        );
+        self.backend
+            .start_runner(self.sandbox)
+            .await
+            .context("sandbox runner start")?;
         println!("aq-sandbox-harness: runner started");
         Ok(())
     }

@@ -83,7 +83,7 @@ fn answer(r: &aq_protocol::LostAttemptRelease, released: bool) -> aq_protocol::L
     }
 }
 fn record(dir: &Path, attempt: Uuid) -> serde_json::Value {
-    serde_json::from_slice(&std::fs::read(lost_record(dir, attempt)).unwrap()).unwrap()
+    serde_json::from_slice(&std::fs::read(preserved_sandbox_record(dir, attempt)).unwrap()).unwrap()
 }
 
 /// D2 ruling C: with an outside proof, the lost attempt's sandbox is stopped (kept), the
@@ -352,7 +352,7 @@ async fn an_unwritten_lost_record_holds_the_slot() {
     let dir = tempfile::tempdir().unwrap();
     let attempt = Uuid::from_u128(86);
     // A directory where the record goes: the write fails.
-    std::fs::create_dir(lost_record(dir.path(), attempt)).unwrap();
+    std::fs::create_dir(preserved_sandbox_record(dir.path(), attempt)).unwrap();
     let outcome = release_lost(
         async || Ok(()),
         async |r| Ok(answer(&r, true)),

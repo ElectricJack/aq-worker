@@ -110,6 +110,8 @@ struct TreeReader {
     entries: Vec<TreeEntry>,
     long_name: Option<String>,
     remaining: u64,
+    /// Container archives carry a directory prefix; volume exports are root-relative.
+    container_root: bool,
 }
 
 impl TreeReader {
@@ -126,8 +128,16 @@ impl TreeReader {
         }
         let name = self.long_name.take().unwrap_or_else(|| header.name());
         let name = name.trim_start_matches("./").trim_end_matches('/');
-        let Some((_, rel)) = name.split_once('/') else {
-            return Ok(()); // the archived directory itself
+        let rel = if self.container_root {
+            let Some((_, rel)) = name.split_once('/') else {
+                return Ok(()); // the archived directory itself
+            };
+            rel
+        } else {
+            if (name == "." || name.is_empty()) && header.kind() == b'5' {
+                return Ok(());
+            }
+            name
         };
         if !valid_relative(rel) {
             return Err(MALFORMED);
@@ -179,7 +189,11 @@ impl TreeReader {
     fn hard_link(&mut self, name: &str, link: &str) -> Result<Vec<u8>, InvalidArchive> {
         let link = link.trim_start_matches("./").trim_start_matches('/');
         let target = match link.split_once('/') {
-            Some((first, rest)) if name.starts_with(&format!("{first}/")) => rest,
+            Some((first, rest))
+                if self.container_root && name.starts_with(&format!("{first}/")) =>
+            {
+                rest
+            }
             _ => link,
         };
         let data = self
@@ -202,14 +216,29 @@ impl TreeReader {
 /// directory's own name) is stripped. Unsafe or unsupported members are refused,
 /// never skipped silently; hard links, devices and FIFOs are refused.
 pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, InvalidArchive> {
+    read_workspace_tree(archive, max_total, true)
+}
+
+/// Container archives carry a directory prefix. Volume exports have root-relative
+/// paths and must end with the two zero blocks, so a partial export is refused.
+pub fn read_workspace_tree(
+    archive: &[u8],
+    max_total: u64,
+    container_root: bool,
+) -> Result<Vec<TreeEntry>, InvalidArchive> {
     let mut reader = TreeReader {
         entries: Vec::new(),
         long_name: None,
         remaining: max_total,
+        container_root,
     };
     let mut offset = 0;
+    let mut complete = false;
     while let Some(header) = archive.get(offset..offset + BLOCK) {
         if header.iter().all(|b| *b == 0) {
+            complete = archive
+                .get(offset + BLOCK..offset + 2 * BLOCK)
+                .is_some_and(|next| next.iter().all(|b| *b == 0));
             break;
         }
         let header = ReadHeader(header);
@@ -218,6 +247,9 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Inval
         let data = archive.get(start..start + size).ok_or(MALFORMED)?;
         reader.read_entry(&header, data)?;
         offset = start + padded(size);
+    }
+    if !container_root && !complete {
+        return Err(MALFORMED);
     }
     Ok(reader.entries)
 }

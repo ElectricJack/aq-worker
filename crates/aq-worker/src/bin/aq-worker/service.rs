@@ -6,7 +6,7 @@ mod recover_checkout;
 mod recovery;
 mod release_sandbox;
 mod slot_attempt;
-use lost_attempt::{LostAttempt, destroyable, lost_record, release_lost};
+use lost_attempt::{LostAttempt, destroyable, preserved_sandbox_record, release_lost};
 mod supervision;
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::session::NodeSession;
@@ -68,7 +68,7 @@ pub enum ServiceCmd {
         #[arg(long)]
         profile: String,
     },
-    /// Record a failed handoff from a specific retained Git commit when the sandbox is absent.
+    /// Record a failed handoff from a retained checkout for an absent or quarantined sandbox.
     RecoverCheckout(recover_checkout::Checkout),
     /// Destroy the stopped sandbox an attempt of this slot preserved (its work was never
     /// copied back, so the service never destroys it). The reason is recorded as the destroy
@@ -346,8 +346,6 @@ async fn stop_attempt_sandboxes(
     }
     Ok(())
 }
-/// The marker of an attempt that went through the lost path (`lost-<attempt>.json` in its
-/// state dir): its sandbox is kept, never destroyed by the service.
 /// What a restarted node tells the server about an interrupted attempt: the reason the service
 /// recorded before the cut (a deliberate stop stays exempt from budgets), else a plain restart.
 fn restart_reason(ctx: &SlotContext, attempt: Uuid) -> HandoffReason {
@@ -708,7 +706,7 @@ fn held_for_salvage(
     retained: impl FnOnce() -> Result<Vec<Uuid>>,
 ) -> bool {
     current.join("journal").exists()
-        && !lost_record(current, attempt).exists()
+        && !preserved_sandbox_record(current, attempt).exists()
         && retained().map_or(true, |r| r.contains(&attempt))
 }
 

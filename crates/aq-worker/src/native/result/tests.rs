@@ -16,6 +16,47 @@ fn directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let channel = temp.path().join("result");
     (temp, workspace, channel)
 }
+pub(crate) fn pending_submission(h: &mut ResultHistory) -> (tempfile::TempDir, wire::Submission) {
+    let (temp, workspace, root) = directories();
+    let storage = ChannelStorage::create(&root, &workspace).unwrap();
+    let submission = wire::Submission::new(
+        h.scope.binding.clone(),
+        wire::SubmissionInput {
+            schema_version: 1,
+            conclusion: wire::Conclusion::new(
+                "Outcome: blocked; Result: disposable PostgreSQL unavailable",
+            )
+            .unwrap(),
+        },
+    )
+    .unwrap();
+    let file = storage.submissions().join(wire::SUBMISSION_FILE);
+    std::fs::write(&file, wire::encode(&submission).unwrap()).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    h.scope.root = root;
+    h.scope.storage = StorageStage::Ready {
+        pins: storage.pins().clone(),
+        recorded_revision: h.scope.recorded_revision + 1,
+    };
+    (temp, submission)
+}
+
+#[test]
+fn retained_submission_requires_the_original_directories_and_binding() {
+    let mut h = history();
+    let (temp, expected) = pending_submission(&mut h);
+    assert_eq!(retained_submission(&h.scope).unwrap(), Some(expected));
+    let original = h.scope.binding.clone();
+    h.scope.binding.nonce = Uuid::new_v4();
+    assert!(retained_submission(&h.scope).is_err());
+    h.scope.binding = original;
+    let moved = temp.path().join("moved-result");
+    std::fs::rename(&h.scope.root, &moved).unwrap();
+    h.scope.root = temp.path().join("fresh-result");
+    let fresh = ChannelStorage::create(&h.scope.root, &temp.path().join("workspace")).unwrap();
+    assert!(retained_submission(&h.scope).is_err());
+    drop(fresh);
+}
 fn publish(storage: &ChannelStorage) -> wire::Binding {
     let b = binding();
     let presence = wire::Presence {

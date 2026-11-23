@@ -1,6 +1,8 @@
 use super::*;
 
-pub(super) fn lost_record(state_dir: &Path, attempt: Uuid) -> PathBuf {
+/// A record that the service must keep the sandbox. Retain the `lost-<attempt>.json`
+/// path so a running older service also preserves a quarantined sandbox.
+pub(super) fn preserved_sandbox_record(state_dir: &Path, attempt: Uuid) -> PathBuf {
     state_dir.join(format!("lost-{attempt}.json"))
 }
 /// The proof first sent for a lost attempt (`lost-proof-<attempt>.json`), written before the
@@ -68,7 +70,7 @@ pub(super) async fn release_lost(
     let outcome = server_outcome(post(request).await, &mut record, why);
     // Written on every outcome: the record also marks the sandbox as kept, so without it the
     // slot is held (settle would otherwise release, and destroy, a claimed attempt's sandbox).
-    let path = lost_record(state_dir, attempt);
+    let path = preserved_sandbox_record(state_dir, attempt);
     if let Err(e) = write_private(&path, record.to_string().as_bytes()) {
         return held(format!(
             "the lost-attempt record was not written: {e:#}; {why}"
@@ -132,6 +134,6 @@ fn json_of<T: serde::Serialize>(v: &T) -> serde_json::Value {
 pub(super) fn destroyable(state_dir: &Path, claimed: Vec<Uuid>) -> Vec<Uuid> {
     claimed
         .into_iter()
-        .filter(|a| !lost_record(state_dir, *a).exists())
+        .filter(|a| !preserved_sandbox_record(state_dir, *a).exists())
         .collect()
 }
