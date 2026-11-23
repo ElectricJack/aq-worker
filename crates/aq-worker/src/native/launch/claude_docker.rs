@@ -111,18 +111,24 @@ pub fn own_driver() -> Result<(PinnedFile, u64)> {
     let artifact = serde_json::from_value(pin)?;
     Ok((PinnedFile { path, artifact }, bytes))
 }
-impl ClaudeDockerHostProfile {
-    pub fn new(config: ClaudeDockerHostConfig) -> Result<Self> {
+impl ClaudeDockerHostConfig {
+    fn validate_dimensions(&self) -> Result<()> {
         ensure!(
-            config.columns >= 80
-                && config.columns <= 240
-                && config.rows > 0
-                && config.rows <= 120
-                && u32::from(config.columns) * u32::from(config.rows) <= 12000
-                && config.claude_executable.is_absolute()
-                && config.max_workspace_bytes > 0,
+            self.columns >= 80
+                && self.columns <= 240
+                && self.rows > 0
+                && self.rows <= 120
+                && u32::from(self.columns) * u32::from(self.rows) <= 12000
+                && self.claude_executable.is_absolute()
+                && self.max_workspace_bytes > 0,
             "closed Claude docker-local host profile"
         );
+        Ok(())
+    }
+}
+impl ClaudeDockerHostProfile {
+    pub fn new(config: ClaudeDockerHostConfig) -> Result<Self> {
+        config.validate_dimensions()?;
         for pin in [&config.helper, &config.tmux] {
             pin.artifact.id.validate()?;
             pin.artifact.version.validate()?;
@@ -467,244 +473,5 @@ pub fn observe(
     }
     registered.ok().flatten()
 }
-pub(super) fn bootstrap(
-    owner: &Arc<Mutex<Owned>>,
-    entry: &Arc<Entry>,
-    profile: &Arc<ClaudeDockerHostProfile>,
-) -> Result<()> {
-    let scope = entry.scope.as_ref().context("native launch scope absent")?;
-    let (offer, git_author, runtime) = {
-        let mut owner = lock(owner)?;
-        entry.current(&owner)?;
-        let state = owner.journal.state();
-        let a = &state.attempts[&entry.id];
-        let (offer, git_author) = (
-            a.reservation.offer.clone(),
-            a.reservation.git_author.clone(),
-        );
-        let c = &profile.config;
-        let [executable, helper, tmux] =
-            [&profile.driver, &c.helper, &c.tmux].map(|p| p.artifact.clone());
-        let pins = HostPins {
-            root: (c.root.clone(), profile.root.identity()),
-            profile_digest: profile.digest.clone(),
-            programs: [executable, helper, tmux, c.renderer.clone()],
-            size: (c.columns, c.rows),
-        };
-        let intent = launch_intent(scope, state.revision, a, pins, "PID namespace text")?;
-        let runtime = a.reservation.runtime.clone();
-        owner.journal.begin_native_launch(entry.id, intent)?;
-        entry.snapshot(&owner.journal)?;
-        entry.current(&owner)?;
-        (offer, git_author, runtime)
-    };
-    drop(runtime);
-    profile.verify_installation()?;
-    let h = lock(&entry.history)?
-        .clone()
-        .context("native launch intent absent")?;
-    let i = &h.intent;
-    let m = &offer.offered.offer.manifest;
-    let launch = match select_harness(m.harness.harness.as_str(), profile.codex.is_some())? {
-        DockerHarness::Claude => claude_launch(scope, m, profile)?,
-        DockerHarness::Codex => codex_launch(scope, m, profile)?,
-    };
-    let (node_id, boot_id) = match &i.binding.session {
-        aq_session_protocol::SessionIdentity::Remote {
-            node_id, boot_id, ..
-        } => (*node_id, *boot_id),
-        _ => anyhow::bail!("Claude docker-local requires a remote node session"),
-    };
-    let now = boot_ns()?;
-    let hard = scope.deadline.min(scope.hard);
-    let deadline_ms = aq_handoff_note::now_ms()
-        .checked_add(hard.saturating_sub(now) / 1_000_000)
-        .context("sandbox deadline overflow")?;
-    let mut docker_local = profile.config.docker_local.clone();
-    let agent_channel = profile.config.agent_channel.is_required();
-    if agent_channel {
-        let channel = profile.open_channel(&i.binding.session, deadline_ms)?;
-        let mut physical = lock(&entry.physical)?;
-        if entry.stop.load(Ordering::SeqCst) {
-            channel.close();
-        }
-        physical.channel = Some(channel);
-        docker_local.channel_root = Some(profile.channel_root());
-    }
-    let private = profile.config.root.join(format!("driver-{}", i.launch_id));
-    std::fs::DirBuilder::new().mode(0o700).create(&private)?;
-    // Of the harness's private home, the node sees its transcript directory only.
-    let transcript = private.join("transcript");
-    std::fs::DirBuilder::new().mode(0o700).create(&transcript)?;
-    let target = launch.harness.transcript_dir().to_owned();
-    docker_local.transcript = Some((transcript.clone(), target));
-    let token_file = private.join("token");
-    let mut guard = TokenGuard(Some(token_file.clone()));
-    private_write(&token_file, &launch.token)?;
-    drop(launch.token);
-    if let Some(lease) = &launch.login_lease {
-        let file = private.join(aq_agent_channel::login::LEASE_FILE);
-        private_write(&file, &serde_json::to_vec(lease)?)?;
-    }
-    let result_dir = entry
-        .result_channel
-        .as_ref()
-        .map(|channel| channel.root().to_owned());
-    let mut driver = crate::sandbox_driver::DriverConfig {
-        docker_local,
-        template: profile.config.template.clone(),
-        owner: Ownership {
-            node_id,
-            boot_id,
-            attempt_id: i.binding.attempt_id,
-        },
-        hard_deadline_ms: deadline_ms,
-        resources: ResourceLimits {
-            cpu_millis: u32::try_from(m.resources.cpu_millis)?,
-            memory_bytes: m.resources.memory_bytes,
-            pids: m.resources.process_limit,
-            disk_bytes: None,
-        },
-        workspace: scope.inputs.workspace().workspace().path.clone(),
-        token_file,
-        executable: launch.executable,
-        arguments: launch.arguments,
-        environment: launch.environment,
-        settings_json: launch.settings_json,
-        result_dir,
-        max_workspace_bytes: profile.config.max_workspace_bytes,
-        agent_channel,
-        conversation_outbox: profile.conversation_outbox.clone(),
-        transcript_bound: profile.transcript_bound,
-        harness: launch.harness,
-        codex_runtime_bundle: launch.codex_runtime_bundle,
-        build_cache: (profile.config.build_cache.as_ref()).and_then(|c| {
-            c.slot(
-                m.bindings.project_id,
-                m.bindings.task_id,
-                profile.config.template.as_str(),
-            )
-        }),
-    };
-    if let Some(author) = git_author {
-        driver.apply_git_author(&author)?;
-    }
-    let driver_file = private.join("driver.json");
-    private_write(&driver_file, &serde_json::to_vec(&driver)?)?;
-    let image = profile
-        .pool
-        .load_verified(&profile.driver.path, &profile.driver.artifact)?;
-    let startup = aq_session_host::observed::ObservedStartup::native_exec(
-        scope.inputs.startup().clone(),
-        i.terminal.clone(),
-        image,
-        NativeExecObservationProfile::new(i.renderer.clone(), i.columns, i.rows)?,
-        scope.hard / 1_000_000,
-    )?;
-    let permit = ExecutionPermit {
-        session: i.binding.session.clone(),
-        manifest_digest: i.binding.launch_manifest_digest.clone(),
-        sequence: 1,
-        issued_boot_ms: boot_ns()? / 1_000_000,
-        // Non-interactive local permits are capped; the executor renews them.
-        expires_boot_ms: (hard / 1_000_000)
-            .min(boot_ns()? / 1_000_000 + aq_session_host::MAX_PERMIT_MS - 5_000),
-    };
-    let local = aq_session_host::LocalEnvironment {
-        resource_policy: aq_session_host::ResourcePolicy::CallerAdmission(
-            m.harness.environment.clone(),
-        ),
-        workspace: scope.inputs.workspace().workspace().path.clone(),
-        helper_executable: profile.config.helper.path.clone(),
-        tmux_executable: profile.config.tmux.path.clone(),
-        tmux_version: "tmux 3.4".into(),
-        credential_profiles: m
-            .credentials
-            .iter()
-            .map(|c| c.credential_profile.clone())
-            .collect(),
-        context_material: vec![],
-    };
-    let mut environment = std::collections::BTreeMap::new();
-    if let Some(dir) = &driver.result_dir {
-        environment.insert(
-            "AQ_AGENT_RESULT_DIR".to_string(),
-            dir.to_str().context("result dir UTF-8")?.to_string(),
-        );
-    }
-    environment.insert("RUST_LOG".to_string(), "warn".to_string());
-    let adapter = Adapter {
-        command: LocalCommand {
-            executable: profile.driver.path.clone(),
-            arguments: vec![
-                "sandbox-harness".into(),
-                "--driver-config".into(),
-                driver_file.to_str().context("driver path UTF-8")?.into(),
-            ],
-            environment,
-        },
-        executable: profile.driver.artifact.clone(),
-        renderer: i.renderer.clone(),
-        manifest_digest: crate::native::journal::canonical_digest(m)?,
-    };
-    let mut authority = authority::Authority {
-        owner: owner.clone(),
-        entry: entry.clone(),
-    };
-    let pending = SessionHost::prepare_observed(
-        &profile.config.root,
-        i.launch_id,
-        &startup,
-        permit,
-        &local,
-        &adapter,
-        &mut authority,
-    )?;
-    let (mut observer, baseline) = pending.open_baseline_observer()?;
-    let mut released = pending.release_after_baseline(&baseline, &mut authority)?;
-    let until = Instant::now() + Duration::from_secs(5);
-    let mut bootstrap_output = Vec::new();
-    let mut bootstrap_bytes = 0usize;
-    loop {
-        let events = observer.poll()?;
-        bootstrap_bytes += events
-            .iter()
-            .map(|e| match e {
-                aq_session_host::terminal_output::ControlEvent::Bytes(b) => b.len(),
-                _ => 0,
-            })
-            .sum::<usize>();
-        ensure!(
-            bootstrap_bytes <= 65536 && bootstrap_output.len() + events.len() <= 64,
-            "Claude driver bootstrap output bound"
-        );
-        bootstrap_output.extend(events);
-        if entry.stop.load(Ordering::SeqCst) {
-            released.stop()?;
-            anyhow::bail!("Claude driver host stopped before Running");
-        }
-        if let Some(handle) = released.poll_started(&mut authority)? {
-            let mut state = lock(&entry.physical)?;
-            state.handle = Some(handle);
-            state.observer = Some(observer);
-            state.pending_output = bootstrap_output;
-            state.outcome = Outcome::Running;
-            let account = |provider: &str| {
-                let lease = &provider_material(scope, m, provider)
-                    .first()?
-                    .metadata()
-                    .delivery;
-                Some(lease.lease.account_reference.as_str().to_owned())
-            };
-            let store = profile.observations.as_ref();
-            state.observation = observe(store, &offer.offered.offer, account, transcript);
-            guard.disarm();
-            return Ok(());
-        }
-        ensure!(
-            boot_ns()? < hard && Instant::now() < until,
-            "Claude driver exec observation expired"
-        );
-        std::thread::sleep(Duration::from_millis(2));
-    }
-}
+mod prepare;
+pub(super) use prepare::bootstrap;
