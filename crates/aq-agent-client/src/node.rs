@@ -1,8 +1,7 @@
 //! Node-only credential issuance/recovery. These operations are absent from aq-agent.
-use crate::client::{AgentEgressCredential, Http, SessionCredential};
+use crate::client::{AgentEgressCredential, Http, HttpCredentials, HttpRequest, SessionCredential};
 use anyhow::{Result, ensure};
 use aq_agent_api::{Binding, Context, canonical, valid};
-use reqwest::Method;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
@@ -61,11 +60,11 @@ impl NodeClient {
         let (status, value) = self
             .http
             .exchange(
-                Method::POST,
-                "/v2/worker/agent-session",
-                &self.credential,
-                self.edge.as_ref(),
-                Some(canonical(&request)?),
+                HttpRequest::Post("/v2/worker/agent-session", canonical(&request)?),
+                HttpCredentials {
+                    token: &self.credential,
+                    edge: self.edge.as_ref(),
+                },
                 1_048_576,
             )
             .await?;
@@ -114,11 +113,11 @@ impl NodeClient {
         let (status, response) = self
             .http
             .exchange(
-                Method::POST,
-                path,
-                &self.credential,
-                self.edge.as_ref(),
-                Some(canonical(&request)?),
+                HttpRequest::Post(path, canonical(&request)?),
+                HttpCredentials {
+                    token: &self.credential,
+                    edge: self.edge.as_ref(),
+                },
                 1_048_576,
             )
             .await?;
