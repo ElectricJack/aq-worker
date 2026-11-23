@@ -143,6 +143,22 @@ class Builder:
         return self.raw(identifier, canonical(value), version)
 
 
+def measurement_row(stack, c, model):
+    rollout = c["rollout"]
+    stack.require(c["exit_code"] == 0 and not c["errors"] and rollout["models"] == [model["model"]]
+                  and rollout["efforts"] == [model["native_reasoning"]], f"measurement {c['call']} incomplete")
+    bound = c["prompt_utf8_bytes"] * TOKENS_PER_BYTE + FIXED_OVERHEAD_TOKENS
+    stack.require(c["usage"]["input_tokens"] <= bound, f"measured {c['call']} exceeds the counting bound")
+    return {"call": c["call"], "prompt_utf8_bytes": c["prompt_utf8_bytes"], "prompt_sha256": c["prompt_sha256"],
+            "payload_utf8_bytes": c["payload_utf8_bytes"], "input_tokens": c["usage"]["input_tokens"],
+            "cached_input_tokens": c["usage"]["cached_input_tokens"],
+            "output_tokens": c["usage"]["output_tokens"],
+            "reasoning_output_tokens": c["usage"]["reasoning_output_tokens"],
+            "rollout_last_input_tokens": rollout["last_input_tokens"],
+            "rollout_model_context_windows": rollout["model_context_windows"],
+            "bound_tokens": bound, "started_at_ms": c["started_at_ms"], "finished_at_ms": c["finished_at_ms"]}
+
+
 def measured(stack):
     """Counting and capacity facts from the three bounded owner-approved calls."""
     evidence = stack.layout()["evidence"]
@@ -156,24 +172,32 @@ def measured(stack):
     rows = []
     windows = set()
     for c in calls:
-        rollout = c["rollout"]
-        stack.require(c["exit_code"] == 0 and not c["errors"] and rollout["models"] == [model["model"]]
-                      and rollout["efforts"] == [model["native_reasoning"]], f"measurement {c['call']} incomplete")
-        windows.update(rollout["model_context_windows"])
-        bound = c["prompt_utf8_bytes"] * TOKENS_PER_BYTE + FIXED_OVERHEAD_TOKENS
-        stack.require(c["usage"]["input_tokens"] <= bound, f"measured {c['call']} exceeds the counting bound")
-        rows.append({"call": c["call"], "prompt_utf8_bytes": c["prompt_utf8_bytes"], "prompt_sha256": c["prompt_sha256"],
-                     "payload_utf8_bytes": c["payload_utf8_bytes"], "input_tokens": c["usage"]["input_tokens"],
-                     "cached_input_tokens": c["usage"]["cached_input_tokens"],
-                     "output_tokens": c["usage"]["output_tokens"],
-                     "reasoning_output_tokens": c["usage"]["reasoning_output_tokens"],
-                     "rollout_last_input_tokens": rollout["last_input_tokens"],
-                     "rollout_model_context_windows": rollout["model_context_windows"],
-                     "bound_tokens": bound, "started_at_ms": c["started_at_ms"], "finished_at_ms": c["finished_at_ms"]})
+        rows.append(measurement_row(stack, c, model))
+        windows.update(c["rollout"]["model_context_windows"])
     stack.require(len(windows) == 1, "measured context window is not a single value")
     capacity = windows.pop()
     stack.require(FIXED_OVERHEAD_TOKENS < capacity <= 16777216, "measured capacity out of range")
     return rows, capacity, max(c["finished_at_ms"] for c in calls)
+
+
+def pinned_program(stack, name):
+    p = stack.PINS["worker_i0"]["programs"][name]
+    stack.require(p["path"] == ("/usr/bin/bwrap" if name == "bwrap" else f"{RUNTIME_DIR}/{name}"),
+                  f"unexpected {name} path")
+    return {"path": p["path"], "artifact": {"id": f"aq.e0-qual-image/{name}", "version": "1",
+                                            "digest": p["sha256"]}, "bytes": p["bytes"]}
+
+
+def pinned_public_bodies(stack, builder):
+    raw = {}
+    revision = stack.PINS["worker_i0"]["source_revision"]
+    for identifier, path, digest in RAW_BODIES:
+        body = subprocess.run(["git", "-C", str(stack.HERE.parent), "show", f"{revision}:{path}"],
+                              check=True, capture_output=True).stdout
+        stack.require(sha(body) == digest, f"{path} differs from the pinned I0 source")
+        raw[identifier] = builder.raw(identifier, body.decode())
+    stack.require(len(builder.definitions[-2]["body"].encode()) == 1929, "startup byte count")
+    return raw
 
 
 def build(stack):
@@ -192,13 +216,8 @@ def build(stack):
              f"owner ChatGPT login profile {CREDENTIAL}@1; ElectricJack/aq-scratch main; not a general production, "
              "hostile-UID secrecy or multi-node qualification")
 
-    def pin(name):
-        p = programs[name]
-        stack.require(p["path"] == ("/usr/bin/bwrap" if name == "bwrap" else f"{RUNTIME_DIR}/{name}"),
-                      f"unexpected {name} path")
-        return {"path": p["path"], "artifact": {"id": f"aq.e0-qual-image/{name}", "version": "1",
-                                                "digest": p["sha256"]}, "bytes": p["bytes"]}
-    worker, codex, host, tmux, client = (pin(n) for n in ("aq-worker", "codex", "aq-session-host", "tmux", "aq-agent"))
+    worker, codex, host, tmux, client = (
+        pinned_program(stack, n) for n in ("aq-worker", "codex", "aq-session-host", "tmux", "aq-agent"))
     stack.require(codex["bytes"] == 319346888 and programs["codex"]["version"] == "0.166.0", "Codex 0.166.0 pin")
 
     permissions = [{"operation": "task.read", "scope_reference": f"project:{project}"},
@@ -231,13 +250,7 @@ def build(stack):
         "primary_image_reservation_bytes": 536870912, "additional_client_image_reservation_bytes": CLIENT_RESERVATION,
         "bwrap": {"sha256": bwrap["sha256"], "bytes": bwrap["bytes"], "path": bwrap["path"],
                   "provisioning": "readonly OS environment; not a NamedExecManifest image pin"}}, image_version)
-    raw = {}
-    for identifier, path, digest in RAW_BODIES:
-        body = subprocess.run(["git", "-C", str(stack.HERE.parent), "show", f"{i0['source_revision']}:{path}"],
-                              check=True, capture_output=True).stdout
-        stack.require(sha(body) == digest, f"{path} differs from the pinned I0 source")
-        raw[identifier] = b.raw(identifier, body.decode())
-    stack.require(len(b.definitions[-2]["body"].encode()) == 1929, "startup byte count")
+    raw = pinned_public_bodies(stack, b)
     contract, recipe = raw["aq.agent-result-local"], raw["aq.codex-interactive-result-local-recipe"]
     client_manifest = {"schema_version": 1, "profile": "aq-agent-result-client-named-readonly-v1", "contract": contract,
                        "environment": environment,
