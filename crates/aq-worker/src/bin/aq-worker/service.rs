@@ -1,5 +1,6 @@
 //! `aq-worker run --service-config` and `aq-worker service ...` (spec 0007 phase 1):
 //! the glue between `aq-node-service` and the native pipeline.
+mod enrollment;
 mod recover_checkout;
 use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::session::NodeSession;
@@ -27,6 +28,9 @@ use aq_worker::{
     },
 };
 use clap::{Args, Subcommand};
+use enrollment::enroll;
+#[cfg(test)]
+use enrollment::{Enrollment, Host, enroll_in, pending_enrollment, staged};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -787,231 +791,6 @@ async fn node_heartbeat(
         }
     }
 }
-fn is_wsl() -> bool {
-    std::fs::read_to_string("/proc/sys/kernel/osrelease")
-        .is_ok_and(|r| r.to_lowercase().contains("microsoft"))
-}
-
-pub async fn enroll(args: ServiceEnrollArgs) -> Result<()> {
-    let layout = Layout::for_profile(&args.profile)?;
-    let cf = args.cf_service_token;
-    let secrets = move |code: bool| match code {
-        true => crate::read_secrets(cf, false).map(|s| Enrollment {
-            code: s.code,
-            cf: s.cf,
-        }),
-        false => crate::read_access().map(|access| Enrollment {
-            code: String::new(),
-            cf: Some(access),
-        }),
-    };
-    enroll_in(&args, &layout, crate::hostname(), is_wsl(), secrets).await
-}
-/// What the operator types (or pipes) at enrollment: the code, or (resuming with
-/// `--reconfigure --cf-service-token`) only the Access client id and secret.
-struct Enrollment {
-    code: String,
-    cf: Option<(String, String)>,
-}
-/// Slot 1's credential after the code is redeemed and before the machine key claim succeeds.
-/// A rerun resumes the claim from it instead of redeeming a new code.
-fn pending_enrollment(layout: &Layout) -> PathBuf {
-    layout.config_dir.join("enroll-pending.toml")
-}
-
-fn staged(path: &Path) -> PathBuf {
-    path.with_extension("toml.new")
-}
-/// The slot file an earlier run of this enrollment saved (staged or installed), when it is the
-/// server's node for that slot.
-fn saved_slot(layout: &Layout, slot: u32, node_id: Uuid, server: &str) -> Option<EnrollmentFile> {
-    let path = layout.slot_enrollment(slot);
-    [staged(&path), path]
-        .iter()
-        .filter_map(|p| EnrollmentFile::load(p).ok())
-        .find(|f| f.node_id == node_id && f.server_url == server)
-}
-
-/// Enrollment, in this order: every input is checked before a secret is read or the server
-/// is called; an enrolled profile is refused without `--reconfigure`; an unfinished one resumes
-/// at the claim; slot 1's file is written only once the machine key claim succeeds.
-async fn enroll_in(
-    args: &ServiceEnrollArgs,
-    layout: &Layout,
-    hostname: Option<String>,
-    wsl: bool,
-    secrets: impl FnOnce(bool) -> Result<Enrollment>,
-) -> Result<()> {
-    let machine_key = match &args.machine_key {
-        Some(key) => {
-            ensure!(
-                valid_machine_key(key),
-                "machine key {key:?} is not valid: 1-63 characters of a-z, 0-9 and '-', not starting with '-'"
-            );
-            key.clone()
-        }
-        None => hostname
-            .as_deref()
-            .and_then(default_machine_key)
-            .context("pass --machine-key: the host name does not make a valid machine key")?,
-    };
-    ensure!(
-        (1..=aq_protocol::MAX_MACHINE_SLOTS).contains(&args.nodes),
-        "nodes must be 1..={}",
-        aq_protocol::MAX_MACHINE_SLOTS
-    );
-    aq_node_service::checked_origin(&args.server)?;
-    let name = args
-        .name
-        .clone()
-        .or(hostname)
-        .context("cannot determine hostname; pass --name")?;
-    let repositories: Vec<RepositoryBinding> = match &args.repositories {
-        None => vec![],
-        Some(path) => serde_json::from_slice(
-            &std::fs::read(path).with_context(|| format!("read {}", path.display()))?,
-        )
-        .context("repositories must be a JSON array of repository bindings")?,
-    };
-    let template = std::fs::read(&args.native_template)
-        .with_context(|| format!("read {}", args.native_template.display()))?;
-    let native = layout.config_dir.join("native.json");
-    let mut config = ServiceConfig {
-        schema_version: 1,
-        profile: args.profile.clone(),
-        machine_key: machine_key.clone(),
-        nodes: args.nodes,
-        native_template: native.clone(),
-        state_root: layout.state_root.clone(),
-        runtime_root: None,
-        aq_git: AqGitConfig {
-            binary: std::fs::canonicalize(&args.aq_git)
-                .with_context(|| format!("aq-git {}", args.aq_git.display()))?,
-            git_executable: args.git_executable.clone(),
-        },
-        repositories,
-        manual: None,
-        shutdown_grace_ms: 120_000,
-        retry: Default::default(),
-        observations: Default::default(),
-    };
-    // Repository count and format, absolute paths, bounds, and the
-    // socket paths under the runtime root.
-    config.validate()?;
-
-    let pending = pending_enrollment(layout);
-    let first = if pending.exists() {
-        let mut first = EnrollmentFile::load(&pending)?;
-        ensure!(
-            first.server_url == args.server,
-            "an unfinished enrollment for {} is in {}; pass that --server, or delete the file to start over with a new code",
-            first.server_url,
-            pending.display()
-        );
-        println!("resuming the unfinished enrollment at the machine key claim; no code is needed");
-        if args.reconfigure && args.cf_service_token {
-            let (id, secret) = secrets(false)?.cf.context("Access credentials")?;
-            (first.cf_client_id, first.cf_client_secret) = (Some(id), Some(secret));
-            first.save(&pending)?;
-        }
-        first
-    } else {
-        if layout.service_toml().exists() && !args.reconfigure {
-            bail!(
-                "profile {} is already enrolled; nothing was changed and no code was used. To enroll it again (for example after a revoke), pass --reconfigure",
-                args.profile
-            );
-        }
-        let typed = secrets(true)?;
-        let (cf_id, cf_secret) = typed.cf.map_or((None, None), |(i, s)| (Some(i), Some(s)));
-        let client = Client::new(&args.server, None, cf_id.clone(), cf_secret.clone())?;
-        let enrolled = client
-            .enroll(&EnrollRequest {
-                code: typed.code,
-                name: name.clone(),
-                worker_version: env!("AQ_WORKER_VERSION").to_string(),
-                protocol_version: PROTOCOL_VERSION,
-            })
-            .await?;
-        let first = EnrollmentFile {
-            server_url: args.server.clone(),
-            node_id: enrolled.node_id,
-            credential: enrolled.credential,
-            cf_client_id: cf_id,
-            cf_client_secret: cf_secret,
-        };
-        first.save(&pending)?;
-        first
-    };
-    // Claim the machine key and mint the siblings, always, even with one slot.
-    let minted = ServerLink::from_enrollment(&first)?
-        .slots(&SlotsRequest { schema_version: 1, machine_key: machine_key.clone(), slots: args.nodes })
-        .await
-        .map_err(|e| match e.downcast_ref::<LinkError>() {
-            Some(l) if l.status == 409 => anyhow::anyhow!("machine key {machine_key} is in use by another machine; revoke it from the Swarm page or pass --machine-key (rerun this command: the code is not needed again)"),
-            Some(l) if l.revoked() => anyhow::anyhow!("the server refused the unfinished enrollment's credential; delete {} and enroll with a new code", pending.display()),
-            Some(l) if l.edge_refused() => anyhow::anyhow!("Cloudflare Access refused the stored token at the machine key claim; run enroll with --reconfigure --cf-service-token and new Access credentials (the code is not needed again)"),
-            _ => e.context("the machine key claim failed; rerun this command to resume it (the code is not needed again)"),
-        })?;
-    let mut files = vec![first.clone()];
-    for slot in 2..=args.nodes {
-        let entry = minted
-            .slots
-            .iter()
-            .find(|s| s.slot == slot)
-            .with_context(|| format!("the server did not return slot {slot}"))?;
-        let file = match &entry.credential {
-            Some(credential) => EnrollmentFile {
-                node_id: entry.node_id,
-                credential: credential.clone(),
-                ..first.clone()
-            },
-            // Minted by an earlier run of this enrollment: the server returns a credential
-            // only once, so it must be the one that run saved here.
-            None => saved_slot(layout, slot, entry.node_id, &first.server_url).with_context(|| {
-                format!(
-                    "slot {slot} was minted by an earlier run of this enrollment, which stopped before it saved the slot's credential; it cannot be recovered. Revoke the machine from the Swarm page, delete {}, then run enroll with --reconfigure and a new code",
-                    pending.display()
-                )
-            })?,
-        };
-        files.push(file);
-    }
-    // Every slot file is staged beside its final path first, then all are renamed. A cut
-    // during the renames leaves some staged and some installed files; the rerun (pending is
-    // still there) finds each one, staged or installed, and finishes the renames.
-    for (slot, file) in (1..).zip(&files) {
-        file.save(&staged(&layout.slot_enrollment(slot)))?;
-    }
-    for slot in 1..=args.nodes {
-        let path = layout.slot_enrollment(slot);
-        std::fs::rename(staged(&path), &path)
-            .with_context(|| format!("install {}", path.display()))?;
-    }
-    // The machine's label on the Swarm page is its key unless --name gives one.
-    let label = args.name.as_deref().unwrap_or(&machine_key);
-    write_machine_json(&layout.machine_json(), &machine_key, label, wsl)?;
-    write_private(&native, &template)?;
-    config.native_template = std::fs::canonicalize(&native)?;
-    config.save(&layout.service_toml())?;
-    std::fs::remove_file(&pending).context("remove the pending enrollment")?;
-    println!(
-        "machine {machine_key}: nodes {}",
-        files
-            .iter()
-            .map(|f| f.node_id.to_string())
-            .collect::<Vec<_>>()
-            .join(" ")
-    );
-    if args.reconfigure {
-        println!(
-            "run `aq-worker service install --profile {}` to restart the service with this enrollment",
-            args.profile
-        );
-    }
-    Ok(())
-}
-
 /// The enrolled profile's configuration and the layout it describes (its own state and runtime
 /// roots, not the defaults).
 fn loaded(profile: &str) -> Result<(Layout, ServiceConfig)> {
@@ -1574,7 +1353,16 @@ mod tests {
                 let code = code.expect("no secret may be read here");
                 Ok(Enrollment { code, cf: None })
             };
-            enroll_in(args, &self.layout, Some("desk".into()), false, secrets).await
+            enroll_in(
+                args,
+                &self.layout,
+                Host {
+                    name: Some("desk".into()),
+                    wsl: false,
+                },
+                secrets,
+            )
+            .await
         }
         /// A resumed enrollment that types only new Access credentials.
         async fn enroll_access(&self, args: &ServiceEnrollArgs, id: &str) -> Result<()> {
@@ -1586,7 +1374,16 @@ mod tests {
                     cf: Some((id, "new-secret".into())),
                 })
             };
-            enroll_in(args, &self.layout, Some("desk".into()), false, secrets).await
+            enroll_in(
+                args,
+                &self.layout,
+                Host {
+                    name: Some("desk".into()),
+                    wsl: false,
+                },
+                secrets,
+            )
+            .await
         }
         /// Slot 1's redeemed credential, saved before the claim (as a cut run leaves it).
         fn pending(&self, server: &str) -> EnrollmentFile {
