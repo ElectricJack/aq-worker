@@ -37,6 +37,36 @@ pub struct ServiceConfig {
     /// `[observations]`: every limit of the node's observation store. Optional, as is each key.
     #[serde(default, skip_serializing_if = "ObservationConfig::is_default")]
     pub observations: ObservationConfig,
+    /// `[environments]` (spec 0017): the node's poll of the admitted environments.
+    #[cfg(feature = "project_environments")]
+    #[serde(default, skip_serializing_if = "EnvironmentConfig::is_default")]
+    pub environments: EnvironmentConfig,
+}
+/// Spec 0017: how the node reads the server's admitted environments.
+#[cfg(feature = "project_environments")]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields, default)]
+pub struct EnvironmentConfig {
+    /// The largest admitted list (`GET /v1/worker/environments`) the node reads. It grows
+    /// with projects times kept versions; a larger one is refused and logged as an error.
+    pub max_list_bytes: u64,
+    /// The largest reply to the node's ready report.
+    pub max_reply_bytes: u64,
+}
+#[cfg(feature = "project_environments")]
+impl Default for EnvironmentConfig {
+    fn default() -> Self {
+        Self {
+            max_list_bytes: 4 * 1024 * 1024,
+            max_reply_bytes: 1024 * 1024,
+        }
+    }
+}
+#[cfg(feature = "project_environments")]
+impl EnvironmentConfig {
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 /// Limits of the node observation service: one store per node under
 /// `<state_root>/observations/<node id>`, which collects the transcripts of the node's
@@ -321,6 +351,16 @@ impl ServiceConfig {
         ensure!(
             storage && timing && (1..=4096).contains(&o.discovery_entries),
             "invalid [observations]: transcript_max_bytes >= 1 MiB, transcript_max_files 16..=1000000, store_file_bytes 1 MiB..=128 MiB > store_data_bytes 2 MiB..=16 MiB, store_cache_bytes 64 KiB..=8 MiB, tracked_identities >= 16, max_sources >= 1, resume_grace_ms <= 3600000, discovery_entries 1..=4096, poll_ms 10..=60000, retry_start_ms 100..=600000 <= retry_max_ms <= 3600000, request_timeout_ms 1000..=60000, finish_drain_ms <= 600000"
+        );
+        #[cfg(feature = "project_environments")]
+        ensure!(
+            [
+                self.environments.max_list_bytes,
+                self.environments.max_reply_bytes
+            ]
+            .iter()
+            .all(|n| (64 * 1024..=256 * 1024 * 1024).contains(n)),
+            "invalid [environments]: max_list_bytes and max_reply_bytes 64 KiB..=256 MiB"
         );
         Ok(())
     }

@@ -648,3 +648,6 @@ async fn a_concurrent_sweep_never_breaks_an_opening_channel() {
     stop.store(true, Ordering::SeqCst);
     sweeper.join().unwrap();
 }
+
+#[cfg(feature = "environment-try")]
+mod checkpoint;

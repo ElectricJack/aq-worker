@@ -128,6 +128,7 @@ name = "aq-agent-channel"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aq-node-git",
  "axum",
  "base64 0.22.1",
  "chrono",
@@ -183,6 +184,25 @@ dependencies = [
  "aq-session-protocol",
  "serde_json",
  "toml",
+]
+
+[[package]]
+name = "aq-environment-builder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aq-node-git",
+ "aq-session-protocol",
+ "axum",
+ "futures-util",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -386,6 +406,7 @@ name = "aq-sandbox-archive"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "aq-agent-channel",
  "aq-handoff-note",
  "libc",
  "serde",
@@ -511,6 +532,7 @@ dependencies = [
  "aq-agent-client",
  "aq-agent-result-local",
  "aq-codex-mapper",
+ "aq-environment-builder",
  "aq-finite-responses",
  "aq-handoff-note",
  "aq-lifecycle-protocol",

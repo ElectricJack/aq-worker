@@ -249,7 +249,7 @@ async fn salvage_claim(
         }));
     };
     let entries = read_tree(sandbox).await?;
-    if entries.iter().any(contains_credential) {
+    if aq_sandbox_archive::workspace::credential_shaped(&entries) {
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
@@ -259,15 +259,6 @@ async fn salvage_claim(
         conclusion,
     };
     Ok(Ok(local::Submission::new(h.scope.binding.clone(), input)?))
-}
-
-fn contains_credential(e: &TreeEntry) -> bool {
-    let secret = |b: &[u8]| {
-        aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
-    };
-    secret(e.path().as_bytes())
-        || matches!(e, TreeEntry::File { data, .. } if secret(data))
-        || matches!(e, TreeEntry::Symlink { target, .. } if secret(target.as_bytes()))
 }
 
 /// Stops any still-running docker-local sandbox of a Claude docker attempt

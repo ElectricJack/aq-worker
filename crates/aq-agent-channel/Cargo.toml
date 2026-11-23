@@ -19,5 +19,10 @@ uuid = { workspace = true, features = ["v5"] }
 zeroize = "1"
 
 [dev-dependencies]
+aq-node-git = { path = "../aq-node-git", features = ["test-support", "environment-try"] }
 axum.workspace = true
 tempfile.workspace = true
+
+[features]
+# The `aq environment try` checkpoint (aq-server spec 0017 §6.2; aq-worker `project_environments`).
+environment-try = []

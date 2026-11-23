@@ -76,6 +76,14 @@ enum Cmd {
         #[arg(long)]
         checks_config: PathBuf,
     },
+    /// Claim and run environment build and try jobs on this template-build
+    /// node (spec 0017), outside attempt capacity.
+    #[cfg(feature = "project_environments")]
+    RunEnvironments {
+        /// Operator JSON: build_config (builder.json), work_dir, node_git.
+        #[arg(long)]
+        environments_config: PathBuf,
+    },
     /// Import evidence-backed historical Boat VM lifecycle facts, then replay.
     /// Stop the controller first: this uses its exclusive Boat journal lock.
     BoatVmTimeBackfill {
@@ -511,6 +519,10 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
             facts,
         } => service_commands::backfill(path, controller_config, facts).await,
         Cmd::RunChecks { checks_config } => service_commands::checks(path, checks_config).await,
+        #[cfg(feature = "project_environments")]
+        Cmd::RunEnvironments {
+            environments_config,
+        } => service_commands::environments(path, environments_config).await,
         Cmd::Service { command } => command_exit(service::dispatch(command).await, |error| {
             format!("{error:#}")
         }),

@@ -36,7 +36,7 @@
 //!   the web tools, whose egress would bypass the proxy.
 //! - Confinement: OpenCode has no OS sandbox of its own, so only `container`
 //!   mode is qualified; `native` is refused.
-use super::recipe::{self, RecipeSettings};
+use super::recipe;
 use crate::native::runner::sandbox::confinement::ConfinementMode;
 use anyhow::{Context, Result, ensure};
 use aq_session_protocol::{
@@ -125,15 +125,16 @@ fn reasoning_effort(model: &ModelSettings) -> Result<Option<&str>> {
     }
 }
 
-/// Crate-private: callers reach it only through `OpenCodeAgentHome::install`,
+/// Public only for tests/native_cli/opencode_adapter.rs. It maps metadata and
+/// launches nothing; launches reach it only through `OpenCodeAgentHome::install`,
 /// which requires an `AuthorizedConfinement`.
-pub(crate) fn map(
-    settings: RecipeSettings<'_>,
+pub fn map(
+    harness: &HarnessSettings,
+    model: &ModelSettings,
     paths: OpenCodePaths<'_>,
     mode: ConfinementMode,
     route: OpenCodeRoute,
 ) -> Result<OpenCodeRecipe> {
-    let RecipeSettings { harness, model } = settings;
     ensure!(
         model.max_output_tokens > 0,
         "OpenCode recipe requires an output cap"
@@ -352,6 +353,3 @@ pub fn validate_chatgpt_auth_json(bytes: &[u8]) -> Result<i64> {
     );
     Ok(o.expires)
 }
-
-#[cfg(test)]
-mod tests;

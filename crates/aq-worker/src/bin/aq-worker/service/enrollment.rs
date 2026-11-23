@@ -126,6 +126,8 @@ impl Plan {
             shutdown_grace_ms: 120_000,
             retry: Default::default(),
             observations: Default::default(),
+            #[cfg(feature = "project_environments")]
+            environments: Default::default(),
         };
         config.validate()?;
         Ok(Self {

@@ -26,6 +26,8 @@ fn valid() -> ServiceConfig {
         shutdown_grace_ms: 120_000,
         retry: Default::default(),
         observations: Default::default(),
+        #[cfg(feature = "project_environments")]
+        environments: Default::default(),
     }
 }
 fn manual(token: &str) -> ManualConfig {
@@ -121,6 +123,32 @@ fn loads_valid_and_refuses_bounds() {
         let mut c = valid();
         edit(&mut c);
         assert!(c.validate().is_err());
+    }
+}
+/// Spec 0017: the admitted-list cap is an operator setting with a default and bounds.
+#[cfg(feature = "project_environments")]
+#[test]
+fn the_admitted_list_cap_is_a_bounded_setting() {
+    let c = valid();
+    assert_eq!(c.environments.max_list_bytes, 4 * 1024 * 1024);
+    assert!(!toml::to_string(&c).unwrap().contains("environments"));
+    let text = format!(
+        "{}[environments]\nmax_list_bytes = 16777216\n",
+        toml::to_string(&c).unwrap()
+    );
+    let tuned = ServiceConfig::parse(&text).unwrap();
+    tuned.validate().unwrap();
+    assert_eq!(tuned.environments.max_list_bytes, 16 * 1024 * 1024);
+    assert_eq!(tuned.environments.max_reply_bytes, 1024 * 1024);
+    for bad in [0, 1024, 512 * 1024 * 1024] {
+        let mut list = c.clone();
+        list.environments.max_list_bytes = bad;
+        let mut reply = c.clone();
+        reply.environments.max_reply_bytes = bad;
+        for refused in [list.validate(), reply.validate()] {
+            let refused = refused.unwrap_err().to_string();
+            assert!(refused.contains("max_reply_bytes"), "{refused}");
+        }
     }
 }
 #[test]

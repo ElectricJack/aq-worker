@@ -195,3 +195,4 @@ include!("docker_local/driver.rs");
 include!("docker_local/driver_cases.rs");
 include!("docker_local/observation.rs");
 include!("docker_local/login.rs");
+include!("docker_local/environments.rs");

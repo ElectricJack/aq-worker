@@ -59,6 +59,28 @@ pub(super) async fn checks(path: PathBuf, checks_config: PathBuf) -> ExitCode {
     service_exit(result)
 }
 
+/// Claims and runs environment build and try jobs on a template-build node (spec 0017).
+#[cfg(feature = "project_environments")]
+pub(super) async fn environments(path: PathBuf, environments_config: PathBuf) -> ExitCode {
+    let result: anyhow::Result<()> = async {
+        let worker = WorkerConfig::load(&path)?;
+        let config = aq_environment_builder::EnvironmentsConfig::load(&environments_config)?;
+        let server = aq_environment_builder::Server {
+            url: worker.server_url.clone(),
+            credential: worker.credential.clone(),
+            cf_access: (worker.cf_client_id.clone()).zip(worker.cf_client_secret.clone()),
+            max_reply_bytes: config.max_reply_bytes,
+        };
+        let (watcher, rx) = shutdown_watch();
+        let tool = aq_worker::template::command;
+        let result = aq_environment_builder::run(&server, config, rx, tool).await;
+        watcher.abort();
+        result
+    }
+    .await;
+    service_exit(result)
+}
+
 pub(super) async fn controller(path: PathBuf, controller_config: PathBuf) -> ExitCode {
     service_exit(run_controller(path, controller_config).await)
 }

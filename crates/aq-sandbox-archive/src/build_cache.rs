@@ -329,6 +329,14 @@ struct SlotUsage {
 }
 
 impl SlotCache {
+    /// The attempt's environment's warm commands (its recipe's `## Warm`),
+    /// used when the node config sets none: a set node `warm` still wins.
+    pub fn warm_from_environment(&mut self, warm: Vec<String>) {
+        if self.cache.warm.is_empty() {
+            self.cache.warm = warm;
+        }
+    }
+
     /// `NAME=target` for every cache path that names a variable.
     pub fn environment(&self) -> impl Iterator<Item = (&str, &str)> {
         let paths = self.cache.paths.iter();
@@ -876,6 +884,46 @@ mod tests {
         assert_eq!((stamped.mtime("a.rs"), stamped.mtime("b.rs")), (9, 5));
         // The slot is held: a second attempt of the task cannot share it.
         assert!(second.open_at(work.path(), 9_600).is_err());
+    }
+
+    /// The `warm.sh` a fresh slot of `config` writes for one tree, if any.
+    fn warm_script(
+        config: &BuildCacheConfig,
+        project: Uuid,
+        environment: &[&str],
+    ) -> Option<String> {
+        let work = tempfile::tempdir().unwrap();
+        let mut slot = config.slot(project, Uuid::new_v4(), "aa").unwrap();
+        slot.warm_from_environment(environment.iter().map(|w| w.to_string()).collect());
+        let opened = slot.open_at(work.path(), 1_000).unwrap();
+        opened.stamp_at(&[file("a.rs", "a")], 1_000).unwrap().warm?;
+        let generation = subdirs(&opened.variant.join("gen")).unwrap().pop().unwrap();
+        Some(fs::read_to_string(generation.join("done/warm.sh")).unwrap())
+    }
+
+    #[test]
+    fn warm_commands_come_from_the_admitted_environment() {
+        let (root, project) = (tempfile::tempdir().unwrap(), Uuid::new_v4());
+        let mut config = config(root.path(), project, u64::MAX);
+        config.0.projects.get_mut(&project).unwrap().warm.clear();
+        let environment = ["pnpm install --frozen-lockfile", "pnpm build"];
+        assert_eq!(
+            warm_script(&config, project, &environment).as_deref(),
+            Some("pnpm install --frozen-lockfile\npnpm build")
+        );
+        assert_eq!(
+            warm_script(&config, project, &[]),
+            None,
+            "neither warms: slots only"
+        );
+    }
+
+    #[test]
+    fn node_config_warm_still_wins_while_set() {
+        let (root, project) = (tempfile::tempdir().unwrap(), Uuid::new_v4());
+        let config = config(root.path(), project, u64::MAX);
+        let script = warm_script(&config, project, &["pnpm install --frozen-lockfile"]);
+        assert_eq!(script.as_deref(), Some("cargo check"));
     }
 
     #[test]

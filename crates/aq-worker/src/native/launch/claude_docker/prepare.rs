@@ -23,6 +23,7 @@ struct DriverAdmission {
     boot_id: Uuid,
     deadline_ms: u64,
     docker_local: DockerLocalConfig,
+    template: TemplateDigest,
     agent_channel: bool,
 }
 struct ReleasedDriver {
@@ -108,7 +109,8 @@ impl Launch<'_> {
         let deadline_ms = aq_handoff_note::now_ms()
             .checked_add(hard.saturating_sub(now) / 1_000_000)
             .context("sandbox deadline overflow")?;
-        let (docker_local, agent_channel) = self.open_channel(deadline_ms)?;
+        let (docker_local, template, agent_channel) =
+            self.open_channel(deadline_ms, node_id, &git_author)?;
         self.write_driver(
             launch,
             git_author,
@@ -117,6 +119,7 @@ impl Launch<'_> {
                 boot_id,
                 deadline_ms,
                 docker_local,
+                template,
                 agent_channel,
             },
         )
@@ -143,9 +146,11 @@ impl Launch<'_> {
             .result_channel
             .as_ref()
             .map(|channel| channel.root().to_owned());
-        let driver = crate::sandbox_driver::DriverConfig {
+        let template = admission.template;
+        #[cfg_attr(not(feature = "project_environments"), allow(unused_mut))]
+        let mut driver = crate::sandbox_driver::DriverConfig {
             docker_local,
-            template: self.profile.config.template.clone(),
+            template: template.clone(),
             owner: Ownership {
                 node_id: admission.node_id,
                 boot_id: admission.boot_id,
@@ -171,14 +176,16 @@ impl Launch<'_> {
             transcript_bound: self.profile.transcript_bound,
             harness: launch.harness,
             codex_runtime_bundle: launch.codex_runtime_bundle,
-            build_cache: (self.profile.config.build_cache.as_ref()).and_then(|c| {
-                c.slot(
-                    m.bindings.project_id,
-                    m.bindings.task_id,
-                    self.profile.config.template.as_str(),
-                )
-            }),
+            build_cache: (self.profile.config.build_cache.as_ref())
+                .and_then(|c| c.slot(m.bindings.project_id, m.bindings.task_id, template.as_str())),
         };
+        #[cfg(feature = "project_environments")]
+        if let (Some(cache), Some(held)) = (
+            &mut driver.build_cache,
+            driver.docker_local.environments.get(&m.harness.environment),
+        ) {
+            cache.warm_from_environment(held.warm);
+        }
         let (driver, driver_file) = save_driver(driver, git_author, &private)?;
         Ok(DriverFiles {
             guard,
@@ -205,17 +212,36 @@ impl Launch<'_> {
         docker_local.transcript = Some((transcript.clone(), target));
         Ok((private, transcript))
     }
-    fn open_channel(&self, deadline_ms: u64) -> Result<(DockerLocalConfig, bool)> {
+    /// Opens the agent channel when required, and picks the offer's template.
+    #[cfg_attr(not(feature = "project_environments"), allow(unused_variables))]
+    fn open_channel(
+        &self,
+        deadline_ms: u64,
+        node_id: Uuid,
+        git_author: &Option<GitAuthor>,
+    ) -> Result<(DockerLocalConfig, TemplateDigest, bool)> {
         let Self {
             entry,
             profile,
             intent: i,
-            ..
+            scope,
+            offer,
         } = *self;
         let mut docker_local = profile.config.docker_local.clone();
+        let template = profile.config.template.clone();
+        #[cfg(feature = "project_environments")]
+        let template = docker_local
+            .offered_template(&offer.offered.offer.manifest.harness.environment, &template)?;
         let agent_channel = profile.config.agent_channel.is_required();
         if agent_channel {
             let channel = profile.open_channel(&i.binding.session, deadline_ms)?;
+            #[cfg(feature = "project_environments")]
+            if let Some(node) = scope.inputs.workspace().git().node.clone() {
+                let owner = (node_id, i.binding.attempt_id);
+                let workspace = scope.inputs.workspace().workspace().path.clone();
+                let author = git_author.clone();
+                channel.set_checkpoint(try_checkpoint(profile, node, owner, workspace, author));
+            }
             let mut physical = lock(&entry.physical)?;
             if entry.stop.load(Ordering::SeqCst) {
                 channel.close();
@@ -223,7 +249,7 @@ impl Launch<'_> {
             physical.channel = Some(channel);
             docker_local.channel_root = Some(profile.channel_root());
         }
-        Ok((docker_local, agent_channel))
+        Ok((docker_local, template, agent_channel))
     }
     fn startup(
         &self,

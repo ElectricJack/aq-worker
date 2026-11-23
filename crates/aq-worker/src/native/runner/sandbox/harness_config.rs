@@ -154,12 +154,7 @@ impl OpenCodeAgentHome {
             (OpenCodeRoute::Subscription | OpenCodeRoute::Ollama { .. }, None) => {}
             _ => anyhow::bail!("OpenCode route and credential disagree"),
         }
-        let recipe = opencode::map(
-            RecipeSettings::new(harness, model),
-            paths,
-            confinement.mode(),
-            route,
-        )?;
+        let recipe = opencode::map(harness, model, paths, confinement.mode(), route)?;
         let home = create_private_home(paths.private_home)?;
         write_private(&home, opencode::CONFIG_FILE, &recipe.config_json)?;
         let data = create_private_home(&home.join("data"))?;

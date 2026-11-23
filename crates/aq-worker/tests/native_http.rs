@@ -694,6 +694,7 @@ fn native_transport_ignores_ambient_proxy_configuration() {
 }
 /// R5: a fetch failing transiently gives up only after both `FETCH_TRIES` tries and
 /// `FETCH_SPAN` have passed, every wait at least half its equal-jitter ceiling (paused clock).
+#[cfg(feature = "test-support")]
 #[tokio::test(start_paused = true)]
 async fn fetch_retries_span_five_tries_and_ten_seconds() {
     use aq_worker::native::http::{

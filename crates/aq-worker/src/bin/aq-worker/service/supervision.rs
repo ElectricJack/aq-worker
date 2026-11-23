@@ -168,6 +168,11 @@ impl Nodes {
         }
         let (observation_nodes, observations) = start_node_observations(config, enrolled);
         native_backend.observations = observations;
+        #[cfg(feature = "project_environments")]
+        {
+            let held = self.sessions.keys().map(|node| (*node, Default::default()));
+            native_backend.environments = held.collect();
+        }
         native_backend.sessions = std::mem::take(&mut self.sessions);
 
         Ok((Arc::new(native_backend), observation_nodes))
@@ -213,6 +218,13 @@ impl Supervisors<'_> {
             node_link,
             node_rx.clone(),
         ));
+        #[cfg(feature = "project_environments")]
+        let environments = tokio::spawn(hold_environments(
+            worker.clone(),
+            self.config.clone(),
+            self.backend.environments[&worker.node_id].clone(),
+            node_rx.clone(),
+        ));
         let heartbeat = tokio::spawn(node_heartbeat(worker, node_stop, node_rx));
         let sup = Supervisor::new(
             self.config.clone(),
@@ -229,6 +241,8 @@ impl Supervisors<'_> {
             forwarding.abort();
             heartbeat.abort();
             conversations.abort();
+            #[cfg(feature = "project_environments")]
+            environments.abort();
             result
         });
         Ok(())

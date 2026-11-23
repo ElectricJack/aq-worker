@@ -230,6 +230,20 @@ pub fn token_leak(entries: &[TreeEntry], stream: &[u8], by: &Secrets) -> Option<
     }
 }
 
+/// The credential scanner's shape-only pattern scan (no login token): a path,
+/// file or link target that holds an AQ agent credential or a Claude token
+/// shape. Salvage and the `aq environment try` checkpoint refuse on it.
+pub fn credential_shaped(entries: &[TreeEntry]) -> bool {
+    let secret = |b: &[u8]| {
+        aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
+    };
+    entries.iter().any(|e| {
+        secret(e.path().as_bytes())
+            || matches!(e, TreeEntry::File { data, .. } if secret(data))
+            || matches!(e, TreeEntry::Symlink { target, .. } if secret(target.as_bytes()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -35,16 +35,8 @@ impl ChannelIntent {
             retained,
         )?;
         definition.validate_manifest(m)?;
-        let expected = ResultInstallationPins {
-            adapter: m.harness.adapter.clone(),
-            contract: definition.contract.clone(),
-            client_manifest: definition.client_manifest.clone(),
-            client_executable: definition.client_executable.clone(),
-            environment: definition.environment.clone(),
-            recipe: definition.recipe.clone(),
-            permission_digest: journal::canonical_digest(&m.permissions)?,
-            reserved_client_bytes: definition.reserved_client_bytes,
-        };
+        let permissions = journal::canonical_digest(&m.permissions)?;
+        let expected = ResultInstallationPins::of(&m.harness.adapter, &definition, permissions);
         ensure!(
             expected == self.pins && definition.runtime == a.reservation.runtime.runtime,
             "result client pins not selected by original grant"

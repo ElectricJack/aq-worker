@@ -336,6 +336,8 @@ fn rig(slots: u32) -> Rig {
         shutdown_grace_ms: 10_000,
         retry: Default::default(),
         observations: Default::default(),
+        #[cfg(feature = "project_environments")]
+        environments: Default::default(),
     };
     Rig {
         _dir: dir,

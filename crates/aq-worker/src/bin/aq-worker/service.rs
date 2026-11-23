@@ -132,6 +132,9 @@ pub struct NativeSlotBackend {
     observations: std::collections::BTreeMap<Uuid, Observations>,
     /// `[observations] transcript_max_bytes` and `transcript_max_files`.
     transcript_bound: Option<aq_handoff_note::TranscriptBound>,
+    /// Spec 0017: each node's pulled admitted environments, shared by its slots.
+    #[cfg(feature = "project_environments")]
+    environments: std::collections::BTreeMap<Uuid, aq_environment_builder::node::Held>,
 }
 /// Starts a node's observation service: its store under `<state_root>/observations/<node id>`,
 /// the transport owner handshake and delivery. A failure leaves the node running unobserved.
@@ -246,10 +249,20 @@ impl NativeSlotBackend {
             sessions: Default::default(),
             observations: Default::default(),
             transcript_bound: None,
+            #[cfg(feature = "project_environments")]
+            environments: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
-        slot_native_config(&self.template, ctx)
+        #[cfg_attr(not(feature = "project_environments"), allow(unused_mut))]
+        let mut cfg = slot_native_config(&self.template, ctx)?;
+        #[cfg(feature = "project_environments")]
+        if let (Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }), Some(held)) =
+            (&mut cfg.executor, self.environments.get(&ctx.node_id))
+        {
+            settings.host.docker_local.environments = held.clone();
+        }
+        Ok(cfg)
     }
 }
 /// Recovery's `launch_closure_pending`: an execution was granted and the journal holds no
@@ -476,6 +489,69 @@ async fn upload_attempt_conversations(
     }
 }
 
+/// Spec 0017: the node's sandbox daemon as the admitted-environments poll uses it,
+/// through the template's docker-local configuration (its static templates only).
+#[cfg(feature = "project_environments")]
+struct NodeTemplates(aq_worker::backend::docker_local::DockerLocalConfig);
+#[cfg(feature = "project_environments")]
+impl aq_environment_builder::node::Templates for NodeTemplates {
+    async fn pull(
+        &mut self,
+        environment: &aq_environment_builder::node::AdmittedEnvironment,
+    ) -> Result<()> {
+        let mut docker = self.0.clone();
+        docker.admit(std::slice::from_ref(environment))?;
+        let digest = aq_worker::backend::TemplateDigest::parse(environment.digest.clone())?;
+        let mut backend =
+            aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(docker).await?;
+        Ok(backend.pull_template(&digest).await?)
+    }
+    async fn remove(
+        &mut self,
+        environment: &aq_environment_builder::node::AdmittedEnvironment,
+    ) -> Result<aq_environment_builder::node::Removal> {
+        let digest = aq_worker::backend::TemplateDigest::parse(environment.digest.clone())?;
+        let mut backend =
+            aq_worker::backend::docker_local::DockerLocalBackend::connect_unix(self.0.clone())
+                .await?;
+        Ok(backend.remove_template(&digest, &environment.image).await?)
+    }
+}
+/// Spec 0017: pulls the server's admitted environments by digest, reports those
+/// this node holds ready, and removes the images of those that left the list once
+/// nothing uses them, on the node's idle presence interval.
+#[cfg(feature = "project_environments")]
+async fn hold_environments(
+    worker: WorkerConfig,
+    config: ServiceConfig,
+    held: aq_environment_builder::node::Held,
+    stop: watch::Receiver<bool>,
+) {
+    let node = worker.node_id;
+    let native = match NativeConfig::load(&config.native_template) {
+        Ok(native) => native,
+        Err(e) => return tracing::error!(%node, "admitted environments not held: {e:#}"),
+    };
+    let Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) = native.executor
+    else {
+        return;
+    };
+    let server = aq_environment_builder::Server {
+        url: worker.server_url,
+        credential: worker.credential,
+        cf_access: worker.cf_client_id.zip(worker.cf_client_secret),
+        max_reply_bytes: config.environments.max_reply_bytes,
+    };
+    let poll = aq_environment_builder::node::Poll {
+        // As often as an idle node renews its presence (`NodeInventory::poll_need`).
+        interval: std::time::Duration::from_millis(native.inventory_ttl_ms / 2),
+        max_list_bytes: config.environments.max_list_bytes,
+    };
+    let templates = NodeTemplates(settings.host.docker_local);
+    if let Err(e) = aq_environment_builder::node::hold(&server, held, poll, stop, templates).await {
+        tracing::error!(%node, "admitted environments not held: {e:#}");
+    }
+}
 /// The node's one heartbeat. Only AQ's own refusal of the credential (revoked or invalid) stops
 /// the node; any other error (an edge 401/403, a 5xx AQ did not mark transient, a protocol
 /// refusal) is logged and the loop is started again after a jittered back-off.
