@@ -1,6 +1,9 @@
 use anyhow::Result;
-use aq_admission_sandbox::{sandbox::Money, transport::WorkerIdentity};
-use aq_session_protocol::Text;
+use aq_admission_sandbox::{
+    sandbox::{Money, Registration},
+    transport::WorkerIdentity,
+};
+use aq_session_protocol::{LaunchManifest, Text};
 use aq_worker::{backend::*, controller::*};
 use std::{
     fs,
@@ -9,12 +12,34 @@ use std::{
 use uuid::Uuid;
 #[path = "../support/controller_config.rs"]
 mod fixture;
-use fixture::{Provider, config, open, reason, request};
-fn reopen(dir: &tempfile::TempDir) -> Result<Controller<FakeBackend, Provider>> {
+use fixture::{config, reason, request, unavailable};
+struct Provider;
+impl PermitProvider for Provider {
+    type Request = ();
+    async fn register(&mut self, registration: &Registration) -> Result<()> {
+        registration.validate()?;
+        Ok(())
+    }
+    async fn issue(
+        &mut self,
+        _: &(),
+        _: &SandboxIdentity,
+        _: &LaunchManifest,
+    ) -> Result<IssuedMaterial> {
+        anyhow::bail!("unused")
+    }
+}
+fn open(dir: &tempfile::TempDir, config: NodeConfig) -> Controller<FakeBackend, Provider> {
+    try_open(dir, config).unwrap()
+}
+fn try_open(
+    dir: &tempfile::TempDir,
+    config: NodeConfig,
+) -> Result<Controller<FakeBackend, Provider>> {
     Controller::open(
         &dir.path().join("node"),
         Uuid::from_u128(1),
-        config(),
+        config,
         FakeBackend::default(),
         Provider,
     )
@@ -124,19 +149,19 @@ async fn startup_rotates_boot_and_holds_old_reservations() {
 fn startup_rejects_second_owner_bad_version_symlink_and_missing_state() {
     let dir = tempfile::tempdir().unwrap();
     let c = open(&dir, config());
-    assert!(reopen(&dir).is_err());
+    assert!(try_open(&dir, config()).is_err());
     drop(c);
     let path = dir.path().join("node/journal.json");
     let original = fs::read(&path).unwrap();
     let mut v: serde_json::Value = serde_json::from_slice(&original).unwrap();
     v["state"]["format"] = 999.into();
     fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
-    assert!(reopen(&dir).is_err());
+    assert!(try_open(&dir, config()).is_err());
     fs::remove_file(&path).unwrap();
     symlink(dir.path().join("elsewhere"), &path).unwrap();
-    assert!(reopen(&dir).is_err());
+    assert!(try_open(&dir, config()).is_err());
     fs::remove_file(path).unwrap();
-    assert!(reopen(&dir).is_err());
+    assert!(try_open(&dir, config()).is_err());
     assert_eq!(
         fs::metadata(dir.path().join("node"))
             .unwrap()
@@ -256,4 +281,38 @@ fn inventory_serialization_shows_measured_disk_fields_and_accepts_legacy_reports
     assert_eq!(decoded.disk_free_bytes, None);
     assert_eq!(decoded.preserved_count, None);
     assert_eq!(decoded.available_disk_bytes, config().capacity.disk_bytes);
+}
+
+#[tokio::test]
+async fn unavailable_provider_preserves_terminal_heartbeat_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = unavailable(&dir.path().join("node")).unwrap();
+    let (_tx, rx) = tokio::sync::watch::channel(false);
+    let error = c
+        .run_with_heartbeat(rx, async {
+            tokio::task::yield_now().await;
+            Err(aq_worker::client::CallError::Revoked)
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<aq_worker::client::CallError>(),
+        Some(aq_worker::client::CallError::Revoked)
+    ));
+}
+
+#[tokio::test]
+async fn heartbeat_does_not_hide_controller_journal_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut c = open(&dir, config());
+    fs::rename(dir.path().join("node"), dir.path().join("old")).unwrap();
+    fs::create_dir(dir.path().join("node")).unwrap();
+    let (_tx, rx) = tokio::sync::watch::channel(false);
+    let error = c
+        .run_with_heartbeat(rx, std::future::pending())
+        .await
+        .unwrap_err();
+    assert_eq!(error.to_string(), "controller root changed");
+    // A replaced root cannot persist draining; admission remains fenced.
+    assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
 }

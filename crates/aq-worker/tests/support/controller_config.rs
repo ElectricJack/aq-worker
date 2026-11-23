@@ -1,31 +1,14 @@
 //! Controller fixtures shared by public admission tests and private recovery scenarios.
 use super::{
-    CapacityLimits, Controller, FakeBackend, IssuedMaterial, LaunchRequest, NodeConfig,
-    PermitProvider, PreserveConfig, RecoveryConfig, RefusalReason, SandboxIdentity,
+    CapacityLimits, Controller, FakeBackend, LaunchRequest, NodeConfig, PreserveConfig,
+    RecoveryConfig, RefusalReason, UnavailableProvider,
 };
-use anyhow::Result;
 use aq_admission_sandbox::{
-    sandbox::{HarnessVersion, Money, Registration, TemplateAdvertisement},
+    sandbox::{HarnessVersion, Money, TemplateAdvertisement},
     transport::WorkerIdentity,
 };
 use aq_session_protocol::{ArtifactRef, Digest, LaunchManifest, SessionIdentity, Text};
 use uuid::Uuid;
-pub(crate) struct Provider;
-impl PermitProvider for Provider {
-    type Request = ();
-    async fn register(&mut self, registration: &Registration) -> Result<()> {
-        registration.validate()?;
-        Ok(())
-    }
-    async fn issue(
-        &mut self,
-        _: &(),
-        _: &SandboxIdentity,
-        _: &LaunchManifest,
-    ) -> Result<IssuedMaterial> {
-        anyhow::bail!("unused")
-    }
-}
 fn manifest() -> LaunchManifest {
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
         "../../../aq-session-protocol/artifacts/fixtures.json"
@@ -95,18 +78,19 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap()
         .as_millis() as u64
 }
-pub(crate) fn open(dir: &tempfile::TempDir, c: NodeConfig) -> Controller<FakeBackend, Provider> {
-    Controller::open(
-        &dir.path().join("node"),
-        Uuid::from_u128(1),
-        c,
-        FakeBackend::default(),
-        Provider,
-    )
-    .unwrap()
-}
 pub(crate) fn reason(error: anyhow::Error) -> RefusalReason {
     *error
         .downcast_ref::<RefusalReason>()
         .expect("typed refusal")
+}
+pub(crate) fn unavailable(
+    root: &std::path::Path,
+) -> anyhow::Result<Controller<FakeBackend, UnavailableProvider>> {
+    Controller::open(
+        root,
+        Uuid::from_u128(1),
+        config(),
+        FakeBackend::default(),
+        UnavailableProvider,
+    )
 }

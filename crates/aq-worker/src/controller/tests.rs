@@ -1,15 +1,12 @@
 use super::*;
-use std::{
-    fs,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 #[path = "../../tests/support/controller_config.rs"]
 mod fixture;
 pub(super) use fixture::{config, now_ms, request};
-use fixture::{open, reason};
+use fixture::{reason, unavailable};
 
 #[tokio::test]
 async fn unavailable_provider_refuses_before_backend_effects() {
@@ -36,17 +33,6 @@ async fn unavailable_provider_refuses_before_backend_effects() {
     );
 }
 
-fn unavailable(
-    root: &std::path::Path,
-) -> anyhow::Result<Controller<FakeBackend, super::UnavailableProvider>> {
-    Controller::open(
-        root,
-        Uuid::from_u128(1),
-        config(),
-        FakeBackend::default(),
-        super::UnavailableProvider,
-    )
-}
 async fn heartbeat_peer(
     stop: tokio::sync::watch::Sender<bool>,
 ) -> (
@@ -139,38 +125,4 @@ async fn unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shu
         reason(c.reserve(request(c.identity(), 20)).unwrap_err()),
         RefusalReason::Draining
     );
-}
-
-#[tokio::test]
-async fn unavailable_provider_preserves_terminal_heartbeat_error() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut c = unavailable(&dir.path().join("node")).unwrap();
-    let (_tx, rx) = tokio::sync::watch::channel(false);
-    let error = c
-        .run_with_heartbeat(rx, async {
-            tokio::task::yield_now().await;
-            Err(crate::client::CallError::Revoked)
-        })
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        error.downcast_ref::<crate::client::CallError>(),
-        Some(crate::client::CallError::Revoked)
-    ));
-}
-
-#[tokio::test]
-async fn heartbeat_does_not_hide_controller_journal_failure() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut c = open(&dir, config());
-    fs::rename(dir.path().join("node"), dir.path().join("old")).unwrap();
-    fs::create_dir(dir.path().join("node")).unwrap();
-    let (_tx, rx) = tokio::sync::watch::channel(false);
-    let error = c
-        .run_with_heartbeat(rx, std::future::pending())
-        .await
-        .unwrap_err();
-    assert_eq!(error.to_string(), "controller root changed");
-    // A replaced root cannot persist draining; admission remains fenced.
-    assert_eq!(c.inventory().refusal, Some(RefusalReason::GrantDenied));
 }
