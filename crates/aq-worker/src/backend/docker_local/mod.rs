@@ -456,7 +456,31 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         sandbox: &SandboxIdentity,
         archive: Vec<u8>,
     ) -> Result<(), BackendError> {
-        let observed = self.observe(sandbox).await?;
+        self.put_preparation_archive(
+            sandbox,
+            Zeroizing::new(archive),
+            self.api_timeout().max(Duration::from_secs(60)),
+        )
+        .await
+    }
+
+    async fn observe_preparation(
+        &self,
+        sandbox: &SandboxIdentity,
+    ) -> Result<Observed, BackendError> {
+        match self.observe(sandbox).await {
+            Err(BackendError::Uncertain(UnconfirmedReason::Timeout)) => self.observe(sandbox).await,
+            result => result,
+        }
+    }
+
+    async fn put_preparation_archive(
+        &self,
+        sandbox: &SandboxIdentity,
+        archive: Zeroizing<Vec<u8>>,
+        timeout: Duration,
+    ) -> Result<(), BackendError> {
+        let observed = self.observe_preparation(sandbox).await?;
         if !observed.container || observed.entry.state != SandboxState::Created {
             return Err(BackendError::InvalidState);
         }
@@ -466,9 +490,9 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
                 DockerMethod::Put,
                 &path,
                 Some("application/x-tar"),
-                Zeroizing::new(archive),
+                archive,
                 MAX_JSON_BYTES,
-                self.api_timeout().max(Duration::from_secs(60)),
+                timeout,
             )
             .await?;
         match response.status {
@@ -680,10 +704,6 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         sandbox: &SandboxIdentity,
         material: PrivateMaterial,
     ) -> Result<(), BackendError> {
-        let observed = self.observe(sandbox).await?;
-        if !observed.container || observed.entry.state != SandboxState::Created {
-            return Err(BackendError::InvalidState);
-        }
         let archive = tar::material_archive(
             &self.config.material_path,
             material.expose_for_control_channel(),
@@ -691,32 +711,31 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             self.config.material_gid,
         )?;
         drop(material);
-        let path = format!("/containers/{}/archive?path=%2F", sandbox.backend_id);
-        let response = self
-            .call(
-                DockerMethod::Put,
-                &path,
-                Some("application/x-tar"),
-                archive,
-                MAX_JSON_BYTES,
-                self.api_timeout(),
-            )
-            .await?;
-        match response.status {
-            200 => Ok(()),
-            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
-        }
+        self.put_preparation_archive(sandbox, archive, self.api_timeout())
+            .await
     }
 
     async fn start_runner(&mut self, sandbox: &SandboxIdentity) -> Result<(), BackendError> {
-        let observed = self.observe(sandbox).await?;
+        let observed = self.observe_preparation(sandbox).await?;
         match observed.entry.state {
             SandboxState::Created if observed.container => {}
             SandboxState::Running => return Ok(()),
             _ => return Err(BackendError::InvalidState),
         }
         let path = format!("/containers/{}/start", sandbox.backend_id);
-        let response = self.send(DockerMethod::Post, &path, None).await?;
+        let response = match self.send(DockerMethod::Post, &path, None).await {
+            // The start may have applied. A read can confirm it without risking
+            // starting a second runner after a first runner exits.
+            Err(BackendError::Uncertain(_))
+                if self
+                    .observe_preparation(sandbox)
+                    .await
+                    .is_ok_and(|seen| seen.entry.state == SandboxState::Running) =>
+            {
+                return Ok(());
+            }
+            result => result?,
+        };
         match response.status {
             204 | 304 => Ok(()),
             404 => Err(BackendError::NotFound),

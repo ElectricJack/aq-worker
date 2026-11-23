@@ -939,6 +939,98 @@ async fn material_is_delivered_by_archive_only() {
 }
 
 #[tokio::test]
+async fn preparation_rechecks_a_timed_out_read_without_replaying_the_upload() {
+    let mut h = harness_with(ScriptedDocker::new(), |config| config.api_timeout_ms = 100).await;
+    let request = request(1, 2, 3);
+    let sandbox = bounded(h.backend.create(&request)).await.unwrap();
+    h.docker.clear_requests();
+    let inspect = format!("/v1.44/containers/{}/json", request.name);
+    h.docker.script(Rule {
+        method: DockerMethod::Get,
+        path_prefix: inspect.clone(),
+        effect: Effect::StallBeforeApply,
+    });
+    bounded(
+        h.backend
+            .deliver_private_material(&sandbox, PrivateMaterial::new(b"material".to_vec())),
+    )
+    .await
+    .unwrap();
+    let requests = h.docker.requests();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(method, path)| *method == DockerMethod::Get && path == &inspect)
+            .count(),
+        2
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(method, _)| *method == DockerMethod::Put)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn exact_running_sandbox_recovers_a_lost_start_reply_without_a_second_start() {
+    let mut h = harness_with(ScriptedDocker::new().runner(Runner::StaysRunning), |_| {}).await;
+    let request = request(1, 2, 3);
+    let sandbox = bounded(h.backend.create(&request)).await.unwrap();
+    bounded(
+        h.backend
+            .deliver_private_material(&sandbox, PrivateMaterial::new(b"material".to_vec())),
+    )
+    .await
+    .unwrap();
+    h.docker.clear_requests();
+    let start = format!("/v1.44/containers/{}/start", request.name);
+    h.docker.script(Rule {
+        method: DockerMethod::Post,
+        path_prefix: start.clone(),
+        effect: Effect::DropReplyAfterApply,
+    });
+    bounded(h.backend.start_runner(&sandbox)).await.unwrap();
+    assert_eq!(h.docker.container(&request.name).unwrap().status, "running");
+    assert_eq!(
+        h.docker
+            .requests()
+            .iter()
+            .filter(|(method, path)| *method == DockerMethod::Post && path == &start)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn ambiguous_start_with_only_created_evidence_sends_one_start() {
+    let mut h = harness_with(ScriptedDocker::new(), |config| config.api_timeout_ms = 100).await;
+    let request = request(1, 2, 3);
+    let sandbox = bounded(h.backend.create(&request)).await.unwrap();
+    h.docker.clear_requests();
+    let start = format!("/v1.44/containers/{}/start", request.name);
+    h.docker.script(Rule {
+        method: DockerMethod::Post,
+        path_prefix: start.clone(),
+        effect: Effect::StallBeforeApply,
+    });
+    assert_eq!(
+        bounded(h.backend.start_runner(&sandbox)).await,
+        Err(BackendError::Uncertain(UnconfirmedReason::Timeout))
+    );
+    assert_eq!(h.docker.container(&request.name).unwrap().status, "created");
+    assert_eq!(
+        h.docker
+            .requests()
+            .iter()
+            .filter(|(method, path)| *method == DockerMethod::Post && path == &start)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn start_runner_and_bounded_read() {
     let mut h = harness_with(ScriptedDocker::new(), |config| config.max_read_bytes = 1024).await;
     let request = request(1, 2, 3);
