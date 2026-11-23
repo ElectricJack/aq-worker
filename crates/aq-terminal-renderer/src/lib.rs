@@ -123,13 +123,11 @@ impl Renderer {
     }
     pub fn bytes(&mut self, ordinal: u64, frame: &OutputFrame) -> Result<()> {
         self.apply(|this| {
-            if ordinal != this.next_ordinal
-                || frame.terminal != this.terminal
-                || frame.sequence != this.next_output
-                || frame.validate().is_err()
-            {
+            let expected = (this.next_ordinal, &this.terminal, this.next_output);
+            if (ordinal, &frame.terminal, frame.sequence) != expected {
                 return Err(Error::Order);
             }
+            frame.validate().map_err(|_| Error::Order)?;
             let mut work = Work(MAX_WORK);
             for &byte in &frame.bytes {
                 this.parser.byte(byte, &mut this.state, &mut work)?;
@@ -195,23 +193,18 @@ impl StateImage {
     }
 }
 fn dimensions(columns: usize, rows: usize) -> Result<()> {
-    if columns == 0
-        || columns > MAX_COLUMNS
-        || rows == 0
-        || rows > MAX_ROWS
-        || columns.checked_mul(rows).is_none_or(|n| n > MAX_GRID_CELLS)
-    {
+    if !(1..=MAX_COLUMNS).contains(&columns) || !(1..=MAX_ROWS).contains(&rows) {
+        return Err(Error::Bound);
+    }
+    // Both axes are positive and already bounded by MAX_COLUMNS and MAX_ROWS.
+    if columns * rows > MAX_GRID_CELLS {
         return Err(Error::Bound);
     }
     Ok(())
 }
 fn scalar_width(c: char) -> Result<usize> {
-    if c == '\u{200d}'
-        || c == '\u{20e3}'
-        || ('\u{fe00}'..='\u{fe0f}').contains(&c)
-        || ('\u{e0100}'..='\u{e01ef}').contains(&c)
-        || ('\u{1f1e6}'..='\u{1f1ff}').contains(&c)
-        || ('\u{1f3fb}'..='\u{1f3ff}').contains(&c)
+    if matches!(c, '\u{200d}' | '\u{20e3}' | '\u{fe00}'..='\u{fe0f}' |
+        '\u{e0100}'..='\u{e01ef}' | '\u{1f1e6}'..='\u{1f1ff}' | '\u{1f3fb}'..='\u{1f3ff}')
     {
         return Err(Error::Unsupported("compound Unicode"));
     }
