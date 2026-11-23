@@ -6,6 +6,7 @@ use crate::local_ipc::Socket;
 #[cfg(test)]
 use std::os::fd::FromRawFd;
 use std::os::fd::{AsRawFd, OwnedFd};
+use terminal_io::TerminalHost;
 const SOCKET: &str = "terminal-reader.sock";
 const VIEWER_SOCKET: &str = "terminal-viewer.sock";
 pub(crate) const LEASE_MS: u64 = 1000;
@@ -66,13 +67,6 @@ pub(crate) struct Owner {
     failed: bool,
     viewer: bool,
 }
-pub(crate) struct ReaderHost<'a> {
-    pub(crate) dir: &'a Path,
-    pub(crate) config: &'a SealedLaunch,
-    pub(crate) host: &'a HostObservation,
-    pub(crate) deadline: u64,
-}
-
 pub(crate) struct Gate<'a> {
     pub guard: &'a terminal_io::DirectoryGuard,
     pub highwater: &'a mut u64,
@@ -121,7 +115,7 @@ impl Owner {
             .as_ref()
             .is_some_and(|r| r.drained_after(after) && r.live_process())
     }
-    pub(crate) fn tick(&mut self, target: &ReaderHost<'_>, gate: Gate<'_>) {
+    pub(crate) fn tick(&mut self, target: &TerminalHost<'_>, gate: Gate<'_>) {
         if self.failed {
             return;
         }
@@ -134,7 +128,7 @@ impl Owner {
             self.failed = !self.viewer;
         }
     }
-    fn try_tick(&mut self, target: &ReaderHost<'_>, gate: Gate<'_>) -> Result<()> {
+    fn try_tick(&mut self, target: &TerminalHost<'_>, gate: Gate<'_>) -> Result<()> {
         gate.guard.verify()?;
         self.verify_socket()?;
         let now = ownership::raw_boot_ms();
@@ -197,7 +191,7 @@ impl Owner {
 
     fn verify_registration(
         &self,
-        target: &ReaderHost<'_>,
+        target: &TerminalHost<'_>,
         gate: Gate<'_>,
         registration: &Registration,
     ) -> Result<()> {
@@ -224,21 +218,13 @@ impl Owner {
                 "viewer requires original interactive Running"
             );
         }
-        terminal_io::verify_output_claim(
-            target.dir,
-            &registration.binding,
-            registration.claim,
-            target.host,
-            gate.guard,
-            gate.highwater,
-            gate.pending_observation,
-        )?;
+        target.verify_output_claim(&registration.binding, registration.claim, gate)?;
         Ok(())
     }
 
     fn start(
         &mut self,
-        target: &ReaderHost<'_>,
+        target: &TerminalHost<'_>,
         registration: Registration,
         now: u64,
     ) -> Result<()> {
@@ -302,7 +288,7 @@ impl Owner {
 
     fn spawn(
         &self,
-        target: &ReaderHost<'_>,
+        target: &TerminalHost<'_>,
     ) -> Result<(
         Child,
         Option<crate::terminal_viewer::ViewerProcess>,
@@ -330,12 +316,6 @@ impl Owner {
             .stderr(Stdio::null())
             .spawn()?;
         Ok((child, None, None))
-    }
-}
-
-impl ReaderHost<'_> {
-    fn ceiling(&self) -> u64 {
-        self.host.permit_deadline_boot_ms.min(self.deadline)
     }
 }
 
@@ -374,7 +354,7 @@ impl Reader {
         Ok(!matches!(state, b'T' | b't'))
     }
 
-    fn tick(&mut self, target: &ReaderHost<'_>) -> Result<()> {
+    fn tick(&mut self, target: &TerminalHost<'_>) -> Result<()> {
         ensure!(self.running()?, "reader process stopped");
         if let Some(viewer) = &mut self.viewer {
             viewer.tick(target, self.process.pid)?;

@@ -1,11 +1,11 @@
 //! Disposable, read-only tmux PTY attachment. Bytes are tmux's real redraw,
 //! never a capture-text reconstruction, Snapshot or complete-history claim.
 use super::*;
-use reader_lease::ReaderHost;
 use std::os::{
     fd::{AsRawFd, FromRawFd},
     unix::process::CommandExt,
 };
+use terminal_io::TerminalHost;
 use terminal_output::ControlEvent;
 
 const MAX_READ: usize = 16 * 1024;
@@ -67,7 +67,7 @@ pub(crate) struct ViewerProcess {
     checked: Instant,
 }
 impl ViewerProcess {
-    pub(crate) fn tick(&mut self, target: &ReaderHost<'_>, pid: u32) -> Result<()> {
+    pub(crate) fn tick(&mut self, target: &TerminalHost<'_>, pid: u32) -> Result<()> {
         if self.checked.elapsed() < Duration::from_millis(500) {
             return Ok(());
         }
@@ -87,16 +87,9 @@ impl ViewerProcess {
         Ok(())
     }
 }
-impl ReaderHost<'_> {
+impl TerminalHost<'_> {
     fn query(&self, args: &[&str]) -> Result<Vec<u8>> {
-        terminal_io::guarded_tmux(
-            self.dir,
-            self.config,
-            self.host,
-            self.deadline,
-            self.host.permit_deadline_boot_ms,
-            args,
-        )
+        self.guarded_tmux(self.host.permit_deadline_boot_ms, args)
     }
 
     fn pane(&self) -> Result<(String, u16, u16)> {
@@ -144,7 +137,7 @@ fn numeric_session(s: &str) -> bool {
     s.strip_prefix('$')
         .is_some_and(|v| !v.is_empty() && v.len() <= 10 && v.bytes().all(|b| b.is_ascii_digit()))
 }
-pub(crate) fn spawn(target: &ReaderHost<'_>) -> Result<(Child, ViewerProcess, File)> {
+pub(crate) fn spawn(target: &TerminalHost<'_>) -> Result<(Child, ViewerProcess, File)> {
     let (session, columns, rows) = target.pane()?;
     let (mut child, viewer, output) = spawn_attach(
         &target.config.tmux,

@@ -354,14 +354,13 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                     }
                     if state.phase == HostPhase::Running
                         && !terminal_failed
-                        && terminal_io::tick(
+                        && (terminal_io::TerminalHost {
                             dir,
-                            &config,
-                            &state,
-                            wall_deadline,
-                            &directory_guard,
-                            &mut terminal_revision_highwater,
-                        )
+                            config: &config,
+                            host: &state,
+                            deadline: wall_deadline,
+                        })
+                        .tick(&directory_guard, &mut terminal_revision_highwater)
                         .is_err()
                     {
                         // Terminal IPC failure must not block independent expiry.
@@ -401,7 +400,7 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
                 }
             }
         }
-        let reader_host = reader_lease::ReaderHost {
+        let reader_host = terminal_io::TerminalHost {
             dir,
             config: &config,
             host: &state,
