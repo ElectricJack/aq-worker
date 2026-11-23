@@ -21,13 +21,17 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def checked_copy(source, destination, pin):
+def copy_regular(source, destination):
     # Copy through an opened regular file, then verify the exact copied bytes.
     with source.open('rb') as stream:
         if source.is_symlink() or not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
             raise ValueError(f'not a regular input: {source.name}')
         with destination.open('xb') as output:
             shutil.copyfileobj(stream, output)
+
+
+def checked_copy(source, destination, pin):
+    copy_regular(source, destination)
     if digest(destination) != pin['sha256']:
         raise ValueError(f'input checksum mismatch: {source.name}')
     if 'bytes' in pin and destination.stat().st_size != pin['bytes']:

@@ -59,16 +59,19 @@ class SandboxPackaging(unittest.TestCase):
             self.package(self.root / 'out')
         self.assertFalse((self.root / 'out').exists())
 
-    def test_claude_input_is_pinned_and_checked(self):
+    def assert_pinned_input(self, name):
         output = self.root / 'out'
         self.package(output)
         sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
-        self.assertIn(self.pins['inputs']['claude']['sha256'] + '  claude', sums)
-        self.assertEqual((output / 'runtime/claude').read_bytes(), b'claude')
-        (self.inputs / 'claude').write_bytes(b'corrupt')
-        with self.assertRaisesRegex(ValueError, 'checksum mismatch: claude'):
+        self.assertIn(self.pins['inputs'][name]['sha256'] + '  ' + name, sums)
+        self.assertEqual((output / 'runtime' / name).read_bytes(), name.encode())
+        (self.inputs / name).write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, f'checksum mismatch: {name}'):
             self.package(self.root / 'corrupt')
         self.assertFalse((self.root / 'corrupt').exists())
+
+    def test_claude_input_is_pinned_and_checked(self):
+        self.assert_pinned_input('claude')
 
     def test_aqv2_input_is_pinned_and_checked(self):
         output = self.root / 'out'
@@ -86,26 +89,10 @@ class SandboxPackaging(unittest.TestCase):
         self.assertFalse((self.root / 'corrupt').exists())
 
     def test_opencode_input_is_pinned_and_checked(self):
-        output = self.root / 'out'
-        self.package(output)
-        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
-        self.assertIn(self.pins['inputs']['opencode']['sha256'] + '  opencode', sums)
-        self.assertEqual((output / 'runtime/opencode').read_bytes(), b'opencode')
-        (self.inputs / 'opencode').write_bytes(b'corrupt')
-        with self.assertRaisesRegex(ValueError, 'checksum mismatch: opencode'):
-            self.package(self.root / 'corrupt')
-        self.assertFalse((self.root / 'corrupt').exists())
+        self.assert_pinned_input('opencode')
 
     def test_gemini_input_is_pinned_and_checked(self):
-        output = self.root / 'out'
-        self.package(output)
-        sums = (output / 'runtime/SHA256SUMS').read_text().splitlines()
-        self.assertIn(self.pins['inputs']['gemini.tgz']['sha256'] + '  gemini.tgz', sums)
-        self.assertEqual((output / 'runtime/gemini.tgz').read_bytes(), b'gemini.tgz')
-        (self.inputs / 'gemini.tgz').write_bytes(b'corrupt')
-        with self.assertRaisesRegex(ValueError, 'checksum mismatch: gemini.tgz'):
-            self.package(self.root / 'corrupt')
-        self.assertFalse((self.root / 'corrupt').exists())
+        self.assert_pinned_input('gemini.tgz')
 
     def test_symlink_input_refuses(self):
         (self.inputs / 'codex').unlink()
