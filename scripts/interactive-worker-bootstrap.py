@@ -47,16 +47,25 @@ def stop(child):
             child.wait(timeout=3)
 
 
-def run():
+def check_capabilities():
     require(ctypes.CDLL(None).prctl(38, 1, 0, 0, 0) == 0)
     status = Path('/proc/thread-self/status').read_text()
     require(all(int(next(line.split(':', 1)[1].strip() for line in status.splitlines()
                         if line.startswith(name+':')), 16) == 0
                 for name in ['CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb']))
+
+
+def check_environment():
+    check_capabilities()
     programs = ['aq-worker', 'aq-session-host', 'aq-agent', 'aq-git', 'codex', 'tmux']
     require(os.statvfs(IMAGE).f_flag & os.ST_RDONLY)
     require(os.stat(IMAGE).st_dev != os.stat(STATE).st_dev)
     require(all((IMAGE/name).is_file() and os.stat(IMAGE/name).st_nlink == 1 for name in programs))
+    return programs
+
+
+def preflight():
+    programs = check_environment()
     if sys.argv[1] in ('true', 'inspect'):
         print(json.dumps({'schema_version': 1, 'kind': 'local_worker_environment_observation',
                           'no_new_privs': True, 'all_capabilities_zero': True,
@@ -77,10 +86,39 @@ def run():
     require(stat.S_ISREG(metadata.st_mode) and metadata.st_mode & 0o077 == 0
             and metadata.st_size <= 65536)
     require(not (STATE/'journal/journal.json').exists())
+
+
+def read_binding():
     binding = json.loads((CONFIG/'source-binding.json').read_bytes())
     require(set(binding) == {'repository_id', 'logical_identity', 'binding_generation', 'registration_operation_id'})
-    uuid.UUID(binding['repository_id']); uuid.UUID(binding['registration_operation_id'])
+    uuid.UUID(binding['repository_id'])
+    uuid.UUID(binding['registration_operation_id'])
     require(isinstance(binding['binding_generation'], int) and binding['binding_generation'] > 0)
+    return binding
+
+
+def verify_worker_binding(binding):
+    operation = binding['registration_operation_id']
+    request = {'protocol_version': 1, 'request_id': operation, 'operation_id': operation,
+               'operation': 'repo.register', 'repository_id': binding['repository_id'],
+               'expected_binding_generation': 0,
+               'params': {'binding': {'identity': binding['logical_identity'], 'mode': 'worker',
+                                     'binding_generation': binding['binding_generation'], 'object_format': 'sha1'}}}
+    registered = exchange(request)
+    request = {'protocol_version': 1, 'request_id': str(uuid.uuid4()), 'operation': 'repo.show',
+               'repository_id': binding['repository_id'],
+               'expected_binding_generation': binding['binding_generation'], 'params': {}}
+    current = exchange(request)
+    require(current == registered and current['mode'] == 'worker'
+            and current['identity'] == binding['logical_identity']
+            and current['binding_generation'] == binding['binding_generation'])
+
+
+def run():
+    status = preflight()
+    if status is not None:
+        return status
+    binding = read_binding()
     git = worker = None
     try:
         git = subprocess.Popen([str(IMAGE/'aq-git'), '--state-dir', str(STATE/'git'),
@@ -90,20 +128,7 @@ def run():
         while not (STATE/'git.sock').exists():
             require(git.poll() is None and time.monotonic() < deadline)
             time.sleep(.02)
-        operation = binding['registration_operation_id']
-        request = {'protocol_version': 1, 'request_id': operation, 'operation_id': operation,
-                   'operation': 'repo.register', 'repository_id': binding['repository_id'],
-                   'expected_binding_generation': 0,
-                   'params': {'binding': {'identity': binding['logical_identity'], 'mode': 'worker',
-                                         'binding_generation': binding['binding_generation'], 'object_format': 'sha1'}}}
-        registered = exchange(request)
-        request = {'protocol_version': 1, 'request_id': str(uuid.uuid4()), 'operation': 'repo.show',
-                   'repository_id': binding['repository_id'],
-                   'expected_binding_generation': binding['binding_generation'], 'params': {}}
-        current = exchange(request)
-        require(current == registered and current['mode'] == 'worker'
-                and current['identity'] == binding['logical_identity']
-                and current['binding_generation'] == binding['binding_generation'])
+        verify_worker_binding(binding)
         worker = subprocess.Popen([str(IMAGE/'aq-worker'), '--config', str(CONFIG/'worker.toml'),
                                    'run-native', '--native-config', str(CONFIG/'native.json')], close_fds=True)
         (STATE/'worker-namespace.pid').write_text(str(worker.pid)+'\n')
