@@ -9,11 +9,15 @@ use serde_json::json;
 use std::{
     fs::{File, Metadata},
     io::Read,
-    os::unix::fs::MetadataExt,
+    os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::fs::MetadataExt,
+    },
     path::Path,
     time::Duration,
 };
 use uuid::Uuid;
+pub mod storage;
 
 pub struct ResultClient {
     root: PrivateDir,
@@ -262,6 +266,44 @@ impl ResultClient {
         })
     }
 }
+/// Read only the fixed outbox entry beneath an already verified directory.
+fn read_submission_bytes(submissions: &File) -> Result<Option<Vec<u8>>> {
+    let fd = unsafe {
+        libc::openat(
+            submissions.as_raw_fd(),
+            c"submission.json".as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ENOENT) {
+            return Ok(None);
+        }
+        return Err(e.into());
+    }
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    let before = file.metadata()?;
+    ensure!(
+        before.is_file()
+            && before.nlink() == 1
+            && before.uid() == unsafe { libc::geteuid() }
+            && before.mode() & 0o7777 == 0o600
+            && before.len() <= wire::MAX_BYTES as u64,
+        "result submission owner/type/mode/bound"
+    );
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(wire::MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    let after = file.metadata()?;
+    ensure!(
+        bytes.len() == before.len() as usize && same_file(&before, &after),
+        "result submission changed during read"
+    );
+    Ok(Some(bytes))
+}
+
 fn same_file(a: &Metadata, b: &Metadata) -> bool {
     a.dev() == b.dev()
         && a.ino() == b.ino()

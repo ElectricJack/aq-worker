@@ -23,18 +23,7 @@ pub const MAX_HISTORY_BYTES: usize = 512 * 1024;
 pub const MAX_GIT_REPLY_BYTES: usize = 32768;
 pub const MAX_SOURCE_HISTORY_BYTES: usize = 256 * 1024;
 pub const MAX_REPORT_BYTES: usize = 16384;
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DirectoryPin {
-    pub device: u64,
-    pub inode: u64,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StoragePins {
-    pub root: DirectoryPin,
-    pub submissions: DirectoryPin,
-}
+pub use aq_agent_client::completion::storage::{DirectoryPin, StoragePins};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "stage", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StorageStage {

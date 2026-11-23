@@ -538,8 +538,8 @@ async fn production_request_retains_prepared_owners_before_http_and_on_unknown_o
             .digest()
             .unwrap()
     );
-    // R1 review: a journaled Prepare with no grant may have been granted, so recovery holds the
-    // slot. R4: that recovery fits half a 2 MiB worker stack (the base needed 1.99 MiB here).
+    // A journaled Prepare without a grant needs authoritative recovery. An
+    // unreachable server leaves the slot in bounded retry on the worker stack.
     drop(h.pipeline.take());
     let (_pins, mut config) = crate::native::runner::tests::config();
     config.state_dir = h._dir.path().canonicalize().unwrap();
@@ -559,6 +559,9 @@ async fn production_request_retains_prepared_owners_before_http_and_on_unknown_o
     let salvage = async move { salvage_interrupted(&worker, &config, id).await };
     let held = crate::native::test_support::on_worker_stack(salvage);
     let held = held.err().unwrap();
-    let hold = held.downcast_ref::<RecoveryHold>().map(|h| h.0);
-    assert_eq!(hold, Some("prepare_disposition_unknown"), "{held:#}");
+    assert!(held.downcast_ref::<RecoveryHold>().is_none(), "{held:#}");
+    assert!(
+        held.to_string().contains("native control transport failed"),
+        "{held:#}"
+    );
 }

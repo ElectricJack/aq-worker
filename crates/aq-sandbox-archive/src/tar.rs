@@ -266,13 +266,26 @@ fn pax_path(record: &[u8]) -> Option<String> {
 /// directory's own name) is stripped. Unsafe or unsupported members are refused,
 /// never skipped silently; hard links, devices and FIFOs are refused.
 pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, InvalidArchive> {
+    read_workspace_tree(archive, max_total, true)
+}
+
+/// Container archives carry a directory prefix. Volume exports have root-relative paths.
+pub fn read_workspace_tree(
+    archive: &[u8],
+    max_total: u64,
+    container_root: bool,
+) -> Result<Vec<TreeEntry>, InvalidArchive> {
     let malformed = InvalidArchive("tree archive malformed or unsafe");
     let mut offset = 0;
     let mut entries = Vec::new();
     let mut total = 0u64;
     let mut long_name: Option<String> = None;
+    let mut complete = false;
     while let Some(h) = archive.get(offset..offset + BLOCK) {
         if h.iter().all(|b| *b == 0) {
+            complete = archive
+                .get(offset + BLOCK..offset + 2 * BLOCK)
+                .is_some_and(|next| next.iter().all(|b| *b == 0));
             break;
         }
         let stored = octal(&h[148..156]).ok_or(malformed)?;
@@ -332,8 +345,16 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Inval
             }
         };
         let name = name.trim_start_matches("./").trim_end_matches('/');
-        let Some((_, rel)) = name.split_once('/') else {
-            continue; // the archived directory itself
+        let rel = if container_root {
+            let Some((_, rel)) = name.split_once('/') else {
+                continue; // the archived directory itself
+            };
+            rel
+        } else {
+            if (name == "." || name.is_empty()) && kind == b'5' {
+                continue;
+            }
+            name
         };
         if !valid_relative(rel) {
             return Err(malformed);
@@ -348,7 +369,9 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Inval
             let link = field(157..257);
             let link = link.trim_start_matches("./").trim_start_matches('/');
             let target = match link.split_once('/') {
-                Some((first, rest)) if name.starts_with(&format!("{first}/")) => rest,
+                Some((first, rest)) if container_root && name.starts_with(&format!("{first}/")) => {
+                    rest
+                }
                 _ => link,
             };
             let data = entries
@@ -386,6 +409,9 @@ pub fn read_tree(archive: &[u8], max_total: u64) -> Result<Vec<TreeEntry>, Inval
             _ => return Err(malformed),
         });
     }
+    if !container_root && !complete {
+        return Err(malformed);
+    }
     Ok(entries)
 }
 
@@ -419,6 +445,30 @@ mod tests {
         assert!(single_file(&file, 100).is_err());
         assert!(single_file(&archive, 100).is_err(), "directory first");
     }
+    #[test]
+    fn volume_archive_preserves_root_and_nested_files_and_rejects_partial_data() {
+        let files = [
+            TreeEntry::File {
+                path: "one".into(),
+                mode: 0o644,
+                data: b"first".to_vec(),
+            },
+            TreeEntry::File {
+                path: "dir/two".into(),
+                mode: 0o644,
+                data: b"second".to_vec(),
+            },
+        ];
+        let archive = tree_archive(".", &files).unwrap();
+        let entries = read_workspace_tree(&archive, 1024, false).unwrap();
+        assert_eq!(
+            entries.iter().map(TreeEntry::path).collect::<Vec<_>>(),
+            ["one", "dir/two"]
+        );
+        assert!(read_workspace_tree(&archive[..archive.len() - BLOCK], 1024, false).is_err());
+        assert!(read_workspace_tree(&archive, 5, false).is_err());
+    }
+
     #[test]
     fn tree_archive_round_trips_long_names_and_refuses_traversal() {
         let long = format!("{}/file.txt", "d".repeat(120));

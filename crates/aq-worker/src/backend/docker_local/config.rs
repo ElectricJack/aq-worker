@@ -4,12 +4,13 @@ use crate::backend::{BackendError, TemplateDigest, valid_alias_name};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    os::unix::fs::{FileTypeExt, MetadataExt},
     path::{Path, PathBuf},
 };
 
-/// The host's main Docker daemon sockets (SBX10). Never used, even via symlink.
-pub const MAIN_DAEMON_SOCKETS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock"];
+pub use aq_sandbox_archive::docker_engine::MAIN_DAEMON_SOCKETS;
+use aq_sandbox_archive::docker_engine::{
+    container_path_ok, exposes_daemon_socket, parent, under, validate_socket,
+};
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
 /// The attempt's agent-channel directory is always mounted here (0006 §5.1).
@@ -113,9 +114,6 @@ fn default_disk_watch_interval_ms() -> u64 {
     10_000
 }
 
-const REFUSE_MAIN: BackendError =
-    BackendError::InvalidRequest("refusing the host's main Docker daemon");
-
 impl DockerLocalConfig {
     pub fn new(socket: PathBuf) -> Self {
         Self {
@@ -150,7 +148,7 @@ impl DockerLocalConfig {
     }
 
     pub fn validate(&self) -> Result<(), BackendError> {
-        self.validate_socket()?;
+        validate_socket(&self.socket).map_err(BackendError::InvalidRequest)?;
         check_templates(&self.templates)?;
         if let Some(root) = &self.channel_root {
             self.check_channel_root(root)?;
@@ -186,7 +184,7 @@ impl DockerLocalConfig {
                     "mount alias host path must be absolute",
                 ));
             }
-            if self.exposes_daemon_socket(&alias.host_path) {
+            if exposes_daemon_socket(&self.socket, &alias.host_path) {
                 return Err(BackendError::InvalidRequest(
                     "mount alias exposes a daemon socket",
                 ));
@@ -229,7 +227,7 @@ impl DockerLocalConfig {
     pub fn check_channel_root(&self, root: &Path) -> Result<(), BackendError> {
         let alias = |a: &MountAlias| aq_agent_channel::paths_overlap(&a.host_path, root);
         if !root.is_absolute()
-            || self.exposes_daemon_socket(root)
+            || exposes_daemon_socket(&self.socket, root)
             || self.mount_aliases.values().any(alias)
         {
             return Err(BackendError::InvalidRequest(
@@ -237,46 +235,6 @@ impl DockerLocalConfig {
             ));
         }
         Ok(())
-    }
-
-    fn validate_socket(&self) -> Result<(), BackendError> {
-        if !self.socket.is_absolute() {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon socket must be an absolute path",
-            ));
-        }
-        if is_main_daemon_path(&self.socket) {
-            return Err(REFUSE_MAIN);
-        }
-        let canonical = std::fs::canonicalize(&self.socket)
-            .map_err(|_| BackendError::InvalidRequest("sandbox daemon socket unavailable"))?;
-        let metadata = std::fs::metadata(&canonical)
-            .map_err(|_| BackendError::InvalidRequest("sandbox daemon socket unavailable"))?;
-        if is_main_daemon_path(&canonical) || same_file_as_main_daemon(&metadata) {
-            return Err(REFUSE_MAIN);
-        }
-        if !metadata.file_type().is_socket() {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon socket is not a Unix socket",
-            ));
-        }
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        if metadata.uid() != unsafe { libc::geteuid() } {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon socket is not owned by the worker user",
-            ));
-        }
-        Ok(())
-    }
-
-    fn exposes_daemon_socket(&self, host_path: &Path) -> bool {
-        let canonical = std::fs::canonicalize(host_path).unwrap_or_else(|_| host_path.into());
-        let socket = std::fs::canonicalize(&self.socket).unwrap_or_else(|_| self.socket.clone());
-        is_main_daemon_path(host_path)
-            || is_main_daemon_path(&canonical)
-            || socket.starts_with(&canonical)
-            || std::fs::metadata(&canonical)
-                .is_ok_and(|m| m.file_type().is_socket() || same_file_as_main_daemon(&m))
     }
 }
 
@@ -380,39 +338,4 @@ impl DockerLocalConfig {
             .map_or(boot, |t| &t.digest)
             .clone())
     }
-}
-
-fn is_main_daemon_path(path: &Path) -> bool {
-    MAIN_DAEMON_SOCKETS
-        .iter()
-        .any(|main| path == Path::new(main))
-}
-
-fn same_file_as_main_daemon(metadata: &std::fs::Metadata) -> bool {
-    MAIN_DAEMON_SOCKETS.iter().any(|main| {
-        std::fs::metadata(main)
-            .is_ok_and(|m| m.dev() == metadata.dev() && m.ino() == metadata.ino())
-    })
-}
-
-/// Absolute, normalized and under `/aq/`.
-fn container_path_ok(path: &str) -> bool {
-    path.strip_prefix("/aq/").is_some_and(|rest| {
-        !rest.is_empty()
-            && rest
-                .split('/')
-                .all(|part| !part.is_empty() && part != "." && part != "..")
-    })
-}
-
-/// True when `path` is `base` or below it.
-fn under(path: &str, base: &str) -> bool {
-    path == base
-        || path
-            .strip_prefix(base)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
-fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("/", |(parent, _)| parent)
 }

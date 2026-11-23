@@ -3,11 +3,15 @@ use super::codex::ExecutorConfig;
 use super::*;
 use crate::backend::{
     SandboxIdentity, SandboxState,
-    docker_local::{DockerLocalBackend, tar},
+    docker_local::{DockerLocalBackend, tar::TreeEntry},
 };
 use crate::native::journal::{Attempt, RecoveryHold};
 use crate::sandbox_driver as driver;
-use aq_admission::result_record;
+use aq_admission::{
+    control::{CurrentPhase, FailureCode, ReconcileEntry},
+    result_record,
+    transport::{JournalEvidence, Reconcile, ReconcileAttempt},
+};
 use aq_agent_result_local as local;
 use aq_handoff_note::{preserved_claim_bytes as preserved, salvage_note};
 use profile::TerminalProfile;
@@ -104,8 +108,20 @@ pub async fn reconcile_native(
     )?;
     // R4: boxed, as are the inner futures below: an Attempt is about 35 KiB.
     let mut attempt = attempt_of(&journal, attempt_id)?;
-    if let Some(disposition) = pre_launch(&attempt) {
-        return disposition;
+    match pre_launch(&attempt) {
+        Some(PreLaunch::NeverExecuted) => return Ok(ReconcileDisposition::NeverExecuted),
+        Some(PreLaunch::PrepareUnconfirmed) => {
+            let client = NativeClient::from_config(worker)?;
+            return Box::pin(reconcile_prepared(&client, journal.state(), &attempt)).await;
+        }
+        Some(PreLaunch::Granted) => {
+            return Err(RecoveryHold(
+                "launch_closure_pending",
+                anyhow::anyhow!("execution granted, no launch recorded"),
+            )
+            .into());
+        }
+        None => {}
     }
     // B5b/AQ-08: a granted Frozen-phase launch with no Running history never
     // started. Stop any host it configured, durably close it, and report the
@@ -201,11 +217,9 @@ pub async fn salvage_interrupted(
             DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
         let sandboxes = stopped_sandboxes(&mut backend, worker.node_id, attempt).await?;
         let max = settings.host.max_workspace_bytes;
-        let bound = usize::try_from(max)?.saturating_mul(2);
-        let archive =
-            async |s: &SandboxIdentity| Ok(backend.get_archive(s, "/aq/work", bound).await?);
+        let archive = async |s: &SandboxIdentity| Ok(backend.stopped_work_tree(s, max).await?);
         let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
-        match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, max, archive)).await? {
+        match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, archive)).await? {
             Ok(claim) => Some(claim),
             Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
         }
@@ -248,8 +262,7 @@ async fn salvage_claim(
     h: &crate::native::result::history::ResultHistory,
     (reason, proof): (aq_protocol::HandoffReason, Option<&Option<String>>),
     sandboxes: &[SandboxIdentity],
-    max_workspace_bytes: u64,
-    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<u8>>,
+    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<TreeEntry>>,
 ) -> Result<Result<local::Submission, &'static str>> {
     let [sandbox] = sandboxes else {
         return Ok(Err(if sandboxes.is_empty() {
@@ -258,11 +271,17 @@ async fn salvage_claim(
             "sandbox_ambiguous"
         }));
     };
-    let entries = tar::read_tree(&archive(sandbox).await?, max_workspace_bytes)?;
+    let entries = archive(sandbox).await?;
     if aq_sandbox_archive::workspace::credential_shaped(&entries) {
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
+    if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope)
+        && !aq_agent_channel::holds_agent_credential(original.conclusion.as_str().as_bytes())
+        && !aq_agent_channel::holds_claude_token_shape(original.conclusion.as_str().as_bytes())
+    {
+        return Ok(Ok(original));
+    }
     let conclusion = local::Conclusion::new(salvage_note(reason, &changed, proof))?;
     let input = local::SubmissionInput {
         schema_version: 1,
@@ -290,30 +309,88 @@ fn attempt_of(journal: &Journal, id: Uuid) -> Result<Box<Attempt>> {
         a.context("native recovery attempt absent")?.clone(),
     ))
 }
-/// R1: the disposition of an attempt with no host history (it never launched), or None.
-fn pre_launch(a: &Attempt) -> Option<Result<ReconcileDisposition>> {
-    let hold = |r, why: &'static str| Some(Err(RecoveryHold(r, anyhow::anyhow!(why)).into()));
+#[derive(Debug, PartialEq, Eq)]
+enum PreLaunch {
+    NeverExecuted,
+    PrepareUnconfirmed,
+    Granted,
+}
+
+/// Disposition of an attempt with no host or result history.
+fn pre_launch(a: &Attempt) -> Option<PreLaunch> {
     if a.native_host.is_some() || a.result.is_some() {
         return None;
     }
     let granted = a.initial_grant.is_some() || a.phase_execution.is_some();
     let prepared = a.prepared.is_some() || a.phase_prepared.is_some();
-    match (
-        granted || a.refresh_execution.is_some(),
-        prepared || a.refresh_prepared.is_some(),
-    ) {
-        // Failed in preparation before Prepare: the server's pre-grant expiry closes its claim.
-        (false, false) => Some(Ok(ReconcileDisposition::NeverExecuted)),
-        // Prepare was journaled (then sent) but no grant is: the reply may be lost, and the
-        // server's pre-grant expiry never closes a granted claim. Recovery cannot record a
-        // replayed grant (its journal is not live). follow-up: replay the journaled Prepare to
-        // learn its disposition, then close or settle the grant.
-        (false, true) => hold("prepare_disposition_unknown", "Prepare journaled, no grant"),
-        // Nothing launched: the service archives it and frees the slot. follow-up: its closure.
-        (true, _) => hold(
-            "launch_closure_pending",
-            "execution granted, no launch recorded",
-        ),
+    Some(
+        match (
+            granted || a.refresh_execution.is_some(),
+            prepared || a.refresh_prepared.is_some(),
+        ) {
+            (false, false) => PreLaunch::NeverExecuted,
+            (false, true) => PreLaunch::PrepareUnconfirmed,
+            (true, _) => PreLaunch::Granted,
+        },
+    )
+}
+
+async fn reconcile_prepared(
+    client: &NativeClient,
+    state: &crate::native::journal::State,
+    attempt: &Attempt,
+) -> Result<ReconcileDisposition> {
+    let reservation = &attempt.reservation;
+    let request = Reconcile {
+        schema_version: 1,
+        operation_id: Uuid::new_v4(),
+        identity: state.identity.clone(),
+        after_attempt: None,
+        limit: 1,
+        attempts: vec![ReconcileAttempt {
+            binding: reservation.offer.offered.offer.binding.clone(),
+            guardian_id: reservation.guardian_id,
+            launch_id: reservation.launch_id,
+            last_grant_id: None,
+            journal: JournalEvidence::Recorded {
+                revision: state.revision,
+                digest: crate::native::journal::canonical_digest(state)?,
+            },
+        }],
+    };
+    let page = client.reconcile(&request).await?;
+    match page.attempts.as_slice() {
+        [ReconcileEntry::Current { authority }] => match &authority.phase {
+            CurrentPhase::NeverGranted { closure } => {
+                ensure!(closure.version.as_str() == "1"
+                    && closure.id.as_str().strip_prefix("aq.never-granted/")
+                        .is_some_and(|id| Uuid::parse_str(id).is_ok()),
+                    "invalid never-granted closure identity");
+                tracing::info!(attempt = %authority.binding.attempt_id, closure = %closure.id.as_str(),
+                    "closed preparation confirmed by server; ready to archive the slot");
+                Ok(ReconcileDisposition::NeverExecuted)
+            }
+            CurrentPhase::Released { release }
+                if authority.versions.grant_revision > 0
+                    && release.version.as_str() == "1"
+                    && release.id.as_str() == format!("aq.granted-never-started/{}", reservation.offer.offered.offer.binding.attempt_id) =>
+            {
+                tracing::info!(attempt = %authority.binding.attempt_id, receipt = %release.id.as_str(),
+                    "server settled the undelivered launch grant; ready to archive the slot");
+                Ok(ReconcileDisposition::NeverExecuted)
+            }
+            CurrentPhase::Released { .. } | CurrentPhase::Stopped { .. }
+            | CurrentPhase::Granted { started_operation_id: Some(_), .. } => Err(RecoveryHold(
+                "prepare_history_conflict",
+                anyhow::anyhow!("server history cannot establish that the launch missing from this journal never started"),
+            ).into()),
+            _ => anyhow::bail!("waiting for AQ to settle this preparation or its undelivered grant"),
+        },
+        [ReconcileEntry::Refused { code: FailureCode::UnknownOrNotOwned, .. }] => Err(RecoveryHold(
+            "prepare_reconciliation_scope_refused",
+            anyhow::anyhow!("the server could not identify this preparation in the worker's scope"),
+        ).into()),
+        _ => anyhow::bail!("waiting for AQ to settle this preparation or its undelivered grant"),
     }
 }
 /// A Frozen-phase launch whose host never recorded Running or a terminal.
