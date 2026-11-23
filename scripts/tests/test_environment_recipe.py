@@ -229,9 +229,16 @@ class BuildEnvironmentTests(Fixture, unittest.TestCase):
         self.assertEqual((build['name'], build['provides'], build['warm']),
                          ('web', ['node'], ['pnpm install --frozen-lockfile']))
         self.assertEqual(build['harnesses'], [{'harness': 'codex', 'version': '0.166.0'}])
-        self.assertEqual(list(build), ['name', 'digest', 'image', 'recipe_sha256', 'provides',
+        self.assertEqual(list(build), ['name', 'default', 'digest', 'image', 'recipe_sha256', 'provides',
                                        'toolchain', 'warm', 'harnesses'])
+        self.assertIs(build['default'], False)
         self.assertTrue((self.root / 'out/image.oci.tar').is_file())
+
+    def test_a_recipe_with_default_true_reports_default_true(self):
+        (self.root / 'default.md').write_text(RECIPE.replace('name: web\n', 'name: web\ndefault: true\n'))
+        env = parse_environment(self.root / 'default.md', LIMITS)
+        build = self.tool.build_environment(env, self.config(), self.root / 'default-out')
+        self.assertIs(build['default'], True)
 
     def test_builds_the_template_then_the_check_output_with_a_checks_stage(self):
         self.build()
@@ -378,6 +385,7 @@ class JobTests(Fixture, unittest.TestCase):
         self.assertEqual(list(result), ['job_id', 'outcome', 'builds', 'failure', 'run'])
         self.assertEqual((result['outcome'], result['failure'], result['run']), ('built', None, None))
         build = result['builds'][0]
+        self.assertIs(build['default'], False)
         self.assertEqual(build['digest'], self.digest)
         self.assertEqual(build['image'], f"{TARGET}@{build['digest']}")
         self.assertEqual(build['toolchain'][0], {'command': 'node --version', 'output': 'v24.22.3\n'})
