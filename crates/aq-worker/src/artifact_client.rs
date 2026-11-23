@@ -78,6 +78,10 @@ impl ArtifactClient {
             transport: TransferClient::from_config(config, 1)?,
         })
     }
+    async fn post(&self, path: &str, body: &impl Serialize) -> Result<ArtifactTransferStatus> {
+        self.status(self.transport.at(Method::POST, path).json(body))
+            .await
+    }
     async fn status(&self, request: reqwest::RequestBuilder) -> Result<ArtifactTransferStatus> {
         let bytes = TransferClient::bytes(request, JSON_LIMIT).await?;
         serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid artifact response"))
@@ -85,12 +89,7 @@ impl ArtifactClient {
 }
 impl ArtifactRoutes for ArtifactClient {
     async fn begin(&self, request: &BeginArtifact) -> Result<ArtifactTransferStatus> {
-        self.status(
-            self.transport
-                .at(Method::POST, &format!("{PREFIX}/begin"))
-                .json(request),
-        )
-        .await
+        self.post(&format!("{PREFIX}/begin"), request).await
     }
     async fn chunk(
         &self,
@@ -118,12 +117,8 @@ impl ArtifactRoutes for ArtifactClient {
         transfer: Uuid,
         request: &CommitArtifact,
     ) -> Result<ArtifactTransferStatus> {
-        self.status(
-            self.transport
-                .at(Method::POST, &format!("{PREFIX}/{transfer}/commit"))
-                .json(request),
-        )
-        .await
+        self.post(&format!("{PREFIX}/{transfer}/commit"), request)
+            .await
     }
 }
 
@@ -165,15 +160,14 @@ pub async fn retain_artifact<R: ArtifactRoutes>(
         digest: Digest::of(bytes),
     };
     let op = |step: &str| operation_id(binding, &artifact, &role, step);
-    let mut status = routes
-        .begin(&BeginArtifact {
-            operation_id: op("begin"),
-            attempt_id: binding.attempt_id,
-            artifact: artifact.clone(),
-            role: role.clone(),
-            bytes: total,
-        })
-        .await?;
+    let begin = BeginArtifact {
+        operation_id: op("begin"),
+        attempt_id: binding.attempt_id,
+        artifact: artifact.clone(),
+        role: role.clone(),
+        bytes: total,
+    };
+    let mut status = routes.begin(&begin).await?;
     let transfer = status.transfer_id;
     ensure!(
         status.bytes == total && status.offset <= total,
@@ -196,15 +190,20 @@ pub async fn retain_artifact<R: ArtifactRoutes>(
         );
     }
     if status.receipt.is_none() {
-        status = routes
-            .commit(
-                transfer,
-                &CommitArtifact {
-                    operation_id: op("commit"),
-                },
-            )
-            .await?;
+        let commit = CommitArtifact {
+            operation_id: op("commit"),
+        };
+        status = routes.commit(transfer, &commit).await?;
     }
+    retained_receipt(status, transfer, &begin, binding)
+}
+
+fn retained_receipt(
+    status: ArtifactTransferStatus,
+    transfer: Uuid,
+    begun: &BeginArtifact,
+    binding: &Binding,
+) -> Result<RetentionReceipt> {
     ensure!(
         status.transfer_id == transfer && status.state == "retained",
         "artifact not retained"
@@ -213,7 +212,9 @@ pub async fn retain_artifact<R: ArtifactRoutes>(
         .receipt
         .ok_or_else(|| anyhow::anyhow!("retained artifact without receipt"))?;
     ensure!(
-        receipt.artifact == artifact && receipt.role == role && receipt.bytes == total,
+        receipt.artifact == begun.artifact
+            && receipt.role == begun.role
+            && receipt.bytes == begun.bytes,
         "retention receipt does not name the uploaded artifact"
     );
     validate_retention(std::slice::from_ref(&receipt), binding)?;
