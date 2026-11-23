@@ -51,16 +51,17 @@ pub struct ObservationProfile {
     columns: u16,
     rows: u16,
 }
+fn valid_geometry(columns: u16, rows: u16) -> bool {
+    (1..=240).contains(&columns)
+        && (1..=120).contains(&rows)
+        && u32::from(columns) * u32::from(rows) <= 12000
+}
 impl ObservationProfile {
     pub fn small_elf(renderer: ArtifactRef, columns: u16, rows: u16) -> Result<Self> {
         renderer.id.validate()?;
         renderer.version.validate()?;
         ensure!(
-            columns > 0
-                && columns <= 240
-                && rows > 0
-                && rows <= 120
-                && u32::from(columns) * u32::from(rows) <= 12000,
+            valid_geometry(columns, rows),
             "observed pane geometry bounds"
         );
         Ok(Self {
@@ -80,6 +81,13 @@ pub trait ObservedHarnessAdapter: HarnessAdapter {
         manifest: &LaunchManifest,
     ) -> Result<ObservedAdapterQualification>;
 }
+struct StartupTarget {
+    terminal: TerminalIdentity,
+    profile: ObservationProfile,
+    name: &'static str,
+    deadline: u64,
+}
+
 pub struct ObservedStartup {
     pub(crate) rendered: RenderedStartup,
     pub(crate) program: ObservedProgram,
@@ -100,6 +108,30 @@ pub(crate) struct Spec {
     pub program: ElfIdentity,
 }
 impl ObservedStartup {
+    fn qualified(
+        rendered: RenderedStartup,
+        program: ObservedProgram,
+        target: StartupTarget,
+    ) -> Result<Self> {
+        let spec = Spec {
+            version: 1,
+            owner: ownership::process_evidence(std::process::id())?,
+            profile: target.name.into(),
+            baseline_id: Uuid::new_v4(),
+            terminal: target.terminal,
+            renderer: target.profile.renderer,
+            columns: target.profile.columns,
+            rows: target.profile.rows,
+            hard_deadline_boot_ms: target.deadline,
+            program: program.identity().clone(),
+        };
+        Ok(Self {
+            rendered,
+            program,
+            spec,
+        })
+    }
+
     pub fn manifest(&self) -> &LaunchManifest {
         &self.rendered.manifest
     }
@@ -119,23 +151,16 @@ impl ObservedStartup {
                 && hard_deadline_boot_ms > ownership::raw_boot_ms(),
             "observed exact session/deadline"
         );
-        let spec = Spec {
-            version: 1,
-            owner: ownership::process_evidence(std::process::id())?,
-            profile: OBSERVATION_PROFILE.into(),
-            baseline_id: Uuid::new_v4(),
-            terminal,
-            renderer: profile.renderer,
-            columns: profile.columns,
-            rows: profile.rows,
-            hard_deadline_boot_ms,
-            program: program.identity().clone(),
-        };
-        Ok(Self {
+        Self::qualified(
             rendered,
-            program: ObservedProgram::Sealed(program),
-            spec,
-        })
+            ObservedProgram::Sealed(program),
+            StartupTarget {
+                terminal,
+                profile,
+                name: OBSERVATION_PROFILE,
+                deadline: hard_deadline_boot_ms,
+            },
+        )
     }
 }
 impl ObservedStartup {
@@ -180,24 +205,16 @@ impl ObservedStartup {
                 && hard_deadline_boot_ms > ownership::raw_boot_ms(),
             "named readonly startup session/deadline/input policy"
         );
-        let program = ObservedProgram::Named(program);
-        let spec = Spec {
-            version: 1,
-            owner: ownership::process_evidence(std::process::id())?,
-            profile: NAMED_READONLY_EXEC_PROFILE.into(),
-            baseline_id: Uuid::new_v4(),
-            terminal,
-            renderer: profile.0.renderer,
-            columns: profile.0.columns,
-            rows: profile.0.rows,
-            hard_deadline_boot_ms,
-            program: program.identity().clone(),
-        };
-        Ok(Self {
+        Self::qualified(
             rendered,
-            program,
-            spec,
-        })
+            ObservedProgram::Named(program),
+            StartupTarget {
+                terminal,
+                profile: profile.0,
+                name: NAMED_READONLY_EXEC_PROFILE,
+                deadline: hard_deadline_boot_ms,
+            },
+        )
     }
 }
 impl ObservedStartup {
@@ -222,24 +239,16 @@ impl ObservedStartup {
                 && hard_deadline_boot_ms > ownership::raw_boot_ms(),
             "interactive readonly startup session/deadline/input policy"
         );
-        let program = ObservedProgram::Named(program);
-        let spec = Spec {
-            version: 1,
-            owner: ownership::process_evidence(std::process::id())?,
-            profile: NAMED_READONLY_INTERACTIVE_PROFILE.into(),
-            baseline_id: Uuid::new_v4(),
-            terminal,
-            renderer: profile.0.renderer,
-            columns: profile.0.columns,
-            rows: profile.0.rows,
-            hard_deadline_boot_ms,
-            program: program.identity().clone(),
-        };
-        Ok(Self {
+        Self::qualified(
             rendered,
-            program,
-            spec,
-        })
+            ObservedProgram::Named(program),
+            StartupTarget {
+                terminal,
+                profile: profile.0,
+                name: NAMED_READONLY_INTERACTIVE_PROFILE,
+                deadline: hard_deadline_boot_ms,
+            },
+        )
     }
 }
 impl Spec {
@@ -252,6 +261,52 @@ impl Spec {
     pub(crate) fn interactive(&self) -> bool {
         self.profile == NAMED_READONLY_INTERACTIVE_PROFILE
     }
+    fn named_program(&self) -> bool {
+        matches!(&self.program.profile, Some(executable::ImageProfile::NamedReadonlyExecStdinV1(image)) if image.role == named_image::NamedImageRole::Program)
+            && self.program.bytes <= MAX_NAMED_EXEC_BYTES
+    }
+
+    fn valid_profile(&self, config: &SealedLaunch) -> bool {
+        match self.profile.as_str() {
+            OBSERVATION_PROFILE => {
+                self.program.profile.is_none() && self.program.bytes <= MAX_ELF_BYTES
+            }
+            NATIVE_EXEC_PROFILE => {
+                self.program.profile == Some(executable::ImageProfile::NativeExecStdinV1)
+                    && self.program.bytes <= MAX_NATIVE_EXEC_BYTES
+                    && !config.manifest.terminal().input_enabled
+            }
+            NAMED_READONLY_EXEC_PROFILE => {
+                self.named_program() && !config.manifest.terminal().input_enabled
+            }
+            NAMED_READONLY_INTERACTIVE_PROFILE => {
+                self.named_program()
+                    && config.manifest.terminal().input_enabled
+                    && config.command.arguments.last().is_some_and(|v| v == "--")
+            }
+            _ => false,
+        }
+    }
+    fn matches_launch(&self, config: &SealedLaunch) -> Result<bool> {
+        Ok(!self.baseline_id.is_nil()
+            && self.terminal.session == config.manifest.task()?.bindings.session
+            && config.rendered_startup.is_some()
+            && config.tmux_version == "tmux 3.4")
+    }
+    fn valid_artifacts(&self) -> bool {
+        valid_geometry(self.columns, self.rows)
+            && self.program.bytes >= 64
+            && self.program.inode > 0
+    }
+    fn valid_deadline(&self, config: &SealedLaunch) -> Result<bool> {
+        Ok(self.hard_deadline_boot_ms >= config.permit.expires_boot_ms
+            && self.hard_deadline_boot_ms
+                <= config
+                    .permit
+                    .issued_boot_ms
+                    .checked_add(config.manifest.resources().wall_time_ms)
+                    .context("observed wall deadline overflow")?)
+    }
     pub(crate) fn validate(&self, config: &SealedLaunch) -> Result<()> {
         self.terminal.validate()?;
         self.renderer.id.validate()?;
@@ -262,44 +317,10 @@ impl Spec {
             self.owner.pid > 0
                 && self.owner.start_ticks > 0
                 && self.version == 1
-                && match self.profile.as_str() {
-                    OBSERVATION_PROFILE =>
-                        self.program.profile.is_none() && self.program.bytes <= MAX_ELF_BYTES,
-                    NATIVE_EXEC_PROFILE =>
-                        self.program.profile == Some(executable::ImageProfile::NativeExecStdinV1)
-                            && self.program.bytes <= MAX_NATIVE_EXEC_BYTES
-                            && !config.manifest.terminal().input_enabled,
-                    NAMED_READONLY_EXEC_PROFILE =>
-                        matches!(&self.program.profile,
-                        Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
-                            && self.program.bytes <= MAX_NAMED_EXEC_BYTES
-                            && !config.manifest.terminal().input_enabled,
-                    NAMED_READONLY_INTERACTIVE_PROFILE =>
-                        matches!(&self.program.profile,
-                        Some(executable::ImageProfile::NamedReadonlyExecStdinV1(e)) if e.role==named_image::NamedImageRole::Program)
-                            && self.program.bytes <= MAX_NAMED_EXEC_BYTES
-                            && config.manifest.terminal().input_enabled
-                            && config.command.arguments.last().is_some_and(|v| v == "--"),
-                    _ => false,
-                }
-                && !self.baseline_id.is_nil()
-                && self.terminal.session == config.manifest.task()?.bindings.session
-                && config.rendered_startup.is_some()
-                && config.tmux_version == "tmux 3.4"
-                && self.columns > 0
-                && self.columns <= 240
-                && self.rows > 0
-                && self.rows <= 120
-                && u32::from(self.columns) * u32::from(self.rows) <= 12000
-                && self.program.bytes >= 64
-                && self.program.inode > 0
-                && self.hard_deadline_boot_ms >= config.permit.expires_boot_ms
-                && self.hard_deadline_boot_ms
-                    <= config
-                        .permit
-                        .issued_boot_ms
-                        .checked_add(config.manifest.resources().wall_time_ms)
-                        .context("observed wall deadline overflow")?,
+                && self.valid_profile(config)
+                && self.matches_launch(config)?
+                && self.valid_artifacts()
+                && self.valid_deadline(config)?,
             "observed closed profile or authority bounds"
         );
         Ok(())

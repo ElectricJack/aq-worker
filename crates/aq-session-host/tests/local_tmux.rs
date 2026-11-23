@@ -2436,9 +2436,12 @@ fn observed_blank_gate_releases_only_after_durable_baseline_and_live_fd_exec() {
 }
 
 fn observed_closed_case() -> (Case, observed::PendingObservedSession) {
-    observed_closed_case_mode(false)
+    observed_closed_case_mode(false, 5_000)
 }
-fn observed_closed_case_mode(short: bool) -> (Case, observed::PendingObservedSession) {
+fn observed_closed_case_mode(
+    short: bool,
+    permit_ms: u64,
+) -> (Case, observed::PendingObservedSession) {
     use aq_session_protocol::{ArtifactRef, Digest, TerminalIdentity, Text};
     let mut c = Case::new("unused", false);
     let program = c.temp.path().join("observed-native");
@@ -2467,7 +2470,7 @@ fn observed_closed_case_mode(short: bool) -> (Case, observed::PendingObservedSes
         terminal,
         elf,
         observed::ObservationProfile::small_elf(renderer.clone(), 80, 24).unwrap(),
-        now + 1500,
+        now + permit_ms,
     )
     .unwrap();
     let adapter = ObservedAdapter {
@@ -2483,7 +2486,7 @@ fn observed_closed_case_mode(short: bool) -> (Case, observed::PendingObservedSes
         manifest_digest: canonical_digest(&c.manifest).unwrap(),
         sequence: 1,
         issued_boot_ms: now,
-        expires_boot_ms: now + 1500,
+        expires_boot_ms: now + permit_ms,
     };
     let result = SessionHost::prepare_observed(
         c.temp.path(),
@@ -2556,16 +2559,7 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
             drop(observer);
         } else {
             if mode == "reader-stop" {
-                let pidfd = ownership::verified_pidfd(observer.process()).unwrap();
-                ownership::signal(&pidfd, libc::SIGSTOP).unwrap();
-                wait_named("reader enters kernel stopped state", || {
-                    std::fs::read_to_string(format!("/proc/{}/stat", observer.process().pid))
-                        .ok()
-                        .filter(|s| {
-                            s.rsplit_once(") ")
-                                .is_some_and(|(_, f)| f.starts_with('T') || f.starts_with('t'))
-                        })
-                });
+                stop_observed_reader(observer.process());
             }
             if mode == "server-death" {
                 terminate(&initial.pane.as_ref().unwrap().server);
@@ -2586,20 +2580,7 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
                     .is_err(),
                 "{mode}"
             );
-            let mut recovered =
-                SessionHost::recover(c.temp.path(), &initial.guardian.intent).unwrap();
-            assert!(
-                recovered
-                    .wait_stopped(Duration::from_secs(3))
-                    .unwrap()
-                    .kernel_wait_echild,
-                "{mode}"
-            );
-            assert!(!c.adapter.dir.join("pane-exec.claim").exists(), "{mode}");
-            assert!(
-                !c.temp.path().join("caller-started.json").exists(),
-                "{mode}"
-            );
+            assert_stopped_without_exec(&c, &initial, mode);
             continue;
         }
         assert!(
@@ -2608,20 +2589,44 @@ fn observed_baseline_durability_reader_and_expiry_fail_closed_without_exec() {
                 .is_err(),
             "{mode}"
         );
-        let mut recovered = SessionHost::recover(c.temp.path(), &initial.guardian.intent).unwrap();
-        assert!(
-            recovered
-                .wait_stopped(Duration::from_secs(3))
-                .unwrap()
-                .kernel_wait_echild,
-            "{mode}"
-        );
-        assert!(!c.adapter.dir.join("pane-exec.claim").exists(), "{mode}");
-        assert!(
-            !c.temp.path().join("caller-started.json").exists(),
-            "{mode}"
-        );
+        assert_stopped_without_exec(&c, &initial, mode);
     }
+}
+
+fn stop_observed_reader(process: &ProcessEvidence) {
+    let pidfd = ownership::verified_pidfd(process).unwrap();
+    ownership::signal(&pidfd, libc::SIGSTOP).unwrap();
+    wait_named("reader stopped or already reaped by its guardian", || {
+        // The guardian kills a stopped reader. Its pidfd can signal exit before
+        // this sampling thread sees T in /proc.
+        if !ownership::pidfd_is_live(&pidfd).unwrap() {
+            return Some(());
+        }
+        let stat = std::fs::read_to_string(format!("/proc/{}/stat", process.pid)).ok()?;
+        let (_, fields) = stat.rsplit_once(") ")?;
+        matches!(fields.as_bytes().first(), Some(b'T' | b't')).then_some(())
+    });
+}
+
+fn assert_stopped_without_exec(c: &Case, initial: &HostObservation, mode: &str) {
+    let mut recovered = SessionHost::recover(c.temp.path(), &initial.guardian.intent).unwrap();
+    assert!(
+        recovered
+            .wait_stopped(Duration::from_millis(
+                initial
+                    .permit_deadline_boot_ms
+                    .saturating_sub(ownership::raw_boot_ms())
+                    + 3_000
+            ))
+            .unwrap()
+            .kernel_wait_echild,
+        "{mode}"
+    );
+    assert!(!c.adapter.dir.join("pane-exec.claim").exists(), "{mode}");
+    assert!(
+        !c.temp.path().join("caller-started.json").exists(),
+        "{mode}"
+    );
 }
 
 #[test]
@@ -2642,7 +2647,7 @@ fn observed_short_exec_without_live_kernel_evidence_never_records_started() {
         assert!(status.success());
         return;
     }
-    let (mut c, pending) = observed_closed_case_mode(true);
+    let (mut c, pending) = observed_closed_case_mode(true, 1_500);
     let initial = pending.observe().unwrap();
     let (mut observer, baseline) = pending.open_baseline_observer().unwrap();
     let mut released = pending

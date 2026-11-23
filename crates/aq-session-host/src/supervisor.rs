@@ -1,3 +1,4 @@
+mod lifecycle;
 use std::sync::atomic::{AtomicBool, Ordering};
 static IN_GUARDIAN: AtomicBool = AtomicBool::new(false);
 pub(crate) fn in_guardian() -> bool {
@@ -91,6 +92,41 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
     IN_GUARDIAN.store(true, Ordering::Relaxed);
     let directory_guard = terminal_io::DirectoryGuard::open(dir)?;
     directory_guard.anchor()?;
+    let (config, intent) = read_launch(dir)?;
+    let identity = claim_guardian(dir, intent)?;
+    let state = waiting(&identity, &config);
+    let mut observed_owner = if config.observed.is_some() {
+        Some(observed::gate::Owner::new(dir)?)
+    } else {
+        None
+    };
+    save(dir, &state)?;
+    durable_new(&dir.join("identity.json"), &serde_json::to_vec(&identity)?)?;
+    let _reaper = EmergencyReaper;
+    let reader_owner = reader_lease::Owner::new(dir)?;
+    let viewer_owner = reader_lease::Owner::new_viewer(dir)?;
+    lifecycle::Guardian {
+        dir,
+        config: &config,
+        identity: &identity,
+        directory_guard: &directory_guard,
+        state,
+        observed_owner: &mut observed_owner,
+        reader_owner,
+        viewer_owner,
+        viewer_revision_highwater: 0,
+        _root: None,
+        root_pid: None,
+        stop_started: None,
+        pane_fd: None,
+        terminal_failed: false,
+        terminal_revision_highwater: 0,
+        last_time: raw_boot_ms(),
+        wall_deadline: config.wall_deadline()?,
+    }
+    .supervise()
+}
+fn read_launch(dir: &Path) -> Result<(SealedLaunch, LaunchIntent)> {
     let config: SealedLaunch = read_json(&dir.join("launch.json"))?;
     config.manifest.validate()?;
     config.command.validate()?;
@@ -104,19 +140,26 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
         &intent.manifest_digest,
         raw_boot_ms(),
     )?;
+    Ok((config, intent))
+}
+
+fn claim_guardian(dir: &Path, intent: LaunchIntent) -> Result<GuardianIdentity> {
     durable_new(
         &dir.join("guardian.claim"),
         b"one guardian per immutable launch\n",
     )?;
     let (boot, ns) = machine()?;
-    let identity = GuardianIdentity {
+    Ok(GuardianIdentity {
         intent,
         nonce: Uuid::new_v4(),
         process: process_evidence(std::process::id())?,
         machine_boot_id: boot,
         pid_namespace: ns,
-    };
-    let mut state = HostObservation {
+    })
+}
+
+fn waiting(identity: &GuardianIdentity, config: &SealedLaunch) -> HostObservation {
+    HostObservation {
         guardian: identity.clone(),
         phase: HostPhase::Waiting,
         pane: None,
@@ -127,308 +170,9 @@ pub(crate) fn run(dir: &Path) -> Result<()> {
         kernel_wait_echild: false,
         root_status: None,
         stop_reason: None,
-    };
-    let mut observed_owner = if config.observed.is_some() {
-        Some(observed::gate::Owner::new(dir)?)
-    } else {
-        None
-    };
-    save(dir, &state)?;
-    durable_new(&dir.join("identity.json"), &serde_json::to_vec(&identity)?)?;
-    let _reaper = EmergencyReaper;
-    let mut reader_owner = reader_lease::Owner::new(dir)?;
-    let mut viewer_owner = reader_lease::Owner::new_viewer(dir)?;
-    let mut viewer_revision_highwater = 0;
-    let mut root: Option<Child> = None;
-    let mut root_pid = None;
-    let mut stop_started = None;
-    let mut pane_fd = None;
-    let mut terminal_failed = false;
-    let mut terminal_revision_highwater = 0;
-    let mut last_time = raw_boot_ms();
-    let wall_deadline = config.wall_deadline()?;
-    loop {
-        let now = raw_boot_ms();
-        if now < last_time {
-            state.phase = HostPhase::Stopping;
-            state.stop_reason = Some("clock regressed".into());
-        }
-        last_time = now;
-        state.observed_boot_ms = now;
-        // Stop and expiry are evaluated before renewal or any new process effect.
-        if dir.join("stop.request").exists() {
-            match request(dir, "stop.request", &identity) {
-                Ok(Some(_)) => {
-                    state.phase = HostPhase::Stopping;
-                    state.stop_reason = Some("cancelled".into());
-                }
-                _ => {
-                    state.phase = HostPhase::Stopping;
-                    state.stop_reason = Some("invalid stop directive".into());
-                }
-            }
-        }
-        if now >= state.permit_deadline_boot_ms || now >= wall_deadline {
-            state.phase = HostPhase::Stopping;
-            state.stop_reason = Some("execution permit expired".into());
-        }
-        let reaped = reap_children()?;
-        state.reaped_count += reaped.processes.len() as u64;
-        for (pid, status) in &reaped.processes {
-            if Some(*pid) == root_pid {
-                state.root_status = Some(*status);
-            }
-        }
-        if reaped.kernel_echild && (state.phase == HostPhase::Stopping || root_pid.is_some()) {
-            state.phase = HostPhase::Stopped;
-            state.kernel_wait_echild = true;
-            save(dir, &state)?;
-            return Ok(());
-        }
-        if state.root_status.is_some() {
-            state.phase = HostPhase::Stopping;
-            state.stop_reason.get_or_insert("tmux server exited".into());
-        }
-        if state.phase == HostPhase::Stopping {
-            let started = *stop_started.get_or_insert(now);
-            let grace = config.manifest.resources().stop_grace_ms.min(1000);
-            signal_children_bounded(if now.saturating_sub(started) < grace {
-                libc::SIGTERM
-            } else {
-                libc::SIGKILL
-            })?;
-            save(dir, &state)?;
-            if now.saturating_sub(started) >= 5000 {
-                state.phase = HostPhase::StopUncertain;
-                save(dir, &state)?;
-                return Ok(());
-            }
-        } else {
-            let startup = (|| -> Result<()> {
-                if state.phase == HostPhase::Waiting && dir.join("start.request").exists() {
-                    let permit =
-                        request(dir, "start.request", &identity)?.context("start request")?;
-                    ensure!(permit == config.permit, "changed initial start permit");
-                    config.validate_permit_at(
-                        &permit,
-                        &identity.intent.session,
-                        &identity.intent.manifest_digest,
-                        raw_boot_ms(),
-                    )?;
-                    state.phase = HostPhase::Starting;
-                    save(dir, &state)?;
-                    ensure!(!dir.join("tmux.sock").exists(), "tmux socket collision");
-                    fault_point(dir, "before-tmux-spawn")?;
-                    ensure!(
-                        raw_boot_ms() < state.permit_deadline_boot_ms
-                            && raw_boot_ms() < wall_deadline
-                            && !dir.join("stop.request").exists(),
-                        "authority expired/cancelled before tmux spawn"
-                    );
-                    let child = Command::new(&config.tmux)
-                        .args(["-D", "-u", "-S"])
-                        .arg(dir.join("tmux.sock"))
-                        .args(["-f", "/dev/null"])
-                        .env_clear()
-                        .env("PATH", "/usr/bin:/bin")
-                        .env("TERM", "xterm-256color")
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .spawn()?;
-                    root_pid = Some(child.id());
-                    fault_point(dir, "after-tmux-spawn")?;
-                    let server = process_evidence(child.id())?;
-                    root = Some(child);
-                    durable_new(&dir.join("server.json"), &serde_json::to_vec(&server)?)?;
-                }
-                // tmux binds its socket before it listens; a client that
-                // connects in between fails with "no server running".
-                if state.phase == HostPhase::Starting
-                    && state.pane.is_none()
-                    && std::os::unix::net::UnixStream::connect(dir.join("tmux.sock")).is_ok()
-                {
-                    fault_point(dir, "socket-created")?;
-                    ensure!(
-                        raw_boot_ms() < state.permit_deadline_boot_ms
-                            && raw_boot_ms() < wall_deadline
-                            && !dir.join("stop.request").exists(),
-                        "authority expired/cancelled before pane launch"
-                    );
-                    tmux(&config, dir, &["set-option", "-g", "remain-on-exit", "on"])?;
-                    let helper = config.helper.to_str().context("helper UTF-8")?;
-                    let launch_dir = dir.to_str().context("launch directory UTF-8")?;
-                    let workspace = config.workspace.to_str().context("workspace UTF-8")?;
-                    ensure!(
-                        raw_boot_ms() < state.permit_deadline_boot_ms
-                            && raw_boot_ms() < wall_deadline
-                            && !dir.join("stop.request").exists(),
-                        "authority expired/cancelled immediately before pane creation"
-                    );
-                    tmux(&config, dir, &["set-option", "-g", "status", "off"])?;
-                    // Input on an attached viewer is for the pane. Disabling
-                    // the prefix keeps the tmux command prompt out of that path.
-                    tmux(&config, dir, &["set-option", "-g", "prefix", "None"])?;
-                    let columns = config
-                        .observed
-                        .as_ref()
-                        .map_or(80, |s| s.columns)
-                        .to_string();
-                    let rows = config.observed.as_ref().map_or(24, |s| s.rows).to_string();
-                    let mut arguments = vec!["new-session", "-d", "-s", "aq", "-c", workspace];
-                    arguments.extend(["-x", &columns, "-y", &rows]);
-                    arguments.extend(["--", helper, "pane", launch_dir]);
-                    tmux(&config, dir, &arguments)?;
-                    // After the session exists: tmux 3.4's server exits on `new-session` when
-                    // `window-size manual` is set globally before the first session.
-                    tmux(
-                        &config,
-                        dir,
-                        &["set-window-option", "-t", "aq", "window-size", "manual"],
-                    )?;
-                    fault_point(dir, "pane-created")?;
-                    let (server_pid, pane_pid, dead, pane_id) = pane_status(&config, dir)?;
-                    ensure!(
-                        Some(server_pid) == root_pid && !dead,
-                        "tmux/pane identity mismatch"
-                    );
-                    ensure!(
-                        parent(server_pid)? == std::process::id()
-                            && descendant(pane_pid, server_pid)?,
-                        "tmux escaped guardian ancestry"
-                    );
-                    let pane = PaneIdentity {
-                        server: process_evidence(server_pid)?,
-                        pane: process_evidence(pane_pid)?,
-                        pane_id,
-                        session_name: "aq".into(),
-                    };
-                    pane_fd = Some(verified_pidfd(&pane.pane)?);
-                    state.pane = Some(pane);
-                    if config.observed.is_none() {
-                        state.phase = HostPhase::Running;
-                    }
-                    save(dir, &state)?;
-                }
-                Ok(())
-            })();
-            if let Err(error) = startup {
-                state.phase = HostPhase::Stopping;
-                state.stop_reason = Some(format!("startup failed: {error}"));
-                save(dir, &state)?;
-            }
-            if state.phase == HostPhase::Running {
-                let running = (|| -> Result<()> {
-                    if let Some(permit) = request(dir, "renew.request", &identity)?
-                        && permit.sequence > state.permit_sequence
-                    {
-                        config.validate_permit_at(
-                            &permit,
-                            &identity.intent.session,
-                            &identity.intent.manifest_digest,
-                            raw_boot_ms(),
-                        )?;
-                        ensure!(
-                            raw_boot_ms() < state.permit_deadline_boot_ms,
-                            "late renewal cannot revive session"
-                        );
-                        ensure!(
-                            permit.expires_boot_ms <= wall_deadline,
-                            "renewal exceeds attempt wall limit"
-                        );
-                        if matches!(config.manifest, LaunchDocument::Plan(_)) {
-                            ensure!(
-                                state.permit_sequence.checked_add(1) == Some(permit.sequence)
-                                    && permit.expires_boot_ms > state.permit_deadline_boot_ms,
-                                "host renewal must advance exact live prior permit"
-                            );
-                        }
-                        state.permit_sequence = permit.sequence;
-                        state.permit_deadline_boot_ms = permit.expires_boot_ms;
-                        save(dir, &state)?;
-                    }
-                    if !ownership::pidfd_is_live(pane_fd.as_ref().context("pane pidfd")?)? {
-                        state.phase = HostPhase::Stopping;
-                        state.stop_reason = Some("harness pane exited".into());
-                        save(dir, &state)?;
-                    }
-                    if state.phase == HostPhase::Running
-                        && !terminal_failed
-                        && (terminal_io::TerminalHost {
-                            dir,
-                            config: &config,
-                            host: &state,
-                            deadline: wall_deadline,
-                        })
-                        .tick(&directory_guard, &mut terminal_revision_highwater)
-                        .is_err()
-                    {
-                        // Terminal IPC failure must not block independent expiry.
-                        terminal_failed = true;
-                        let _ = durable_new(
-                            &dir.join("terminal.disabled"),
-                            b"terminal effects refused\n",
-                        );
-                    }
-                    Ok(())
-                })();
-                if let Err(error) = running {
-                    state.phase = HostPhase::Stopping;
-                    state.stop_reason = Some(format!("running validation failed: {error}"));
-                    save(dir, &state)?;
-                }
-            }
-        }
-        if let Some(owner) = &mut observed_owner
-            && matches!(state.phase, HostPhase::Waiting | HostPhase::Starting)
-        {
-            match owner.tick(&config, &state, dir, &reader_owner, &directory_guard) {
-                Ok(true) => {
-                    state.phase = HostPhase::Running;
-                    state.observed_boot_ms = raw_boot_ms();
-                    save(dir, &state)?;
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    // Production guardian stderr is /dev/null; test builds keep guardian-test-stderr.log.
-                    eprintln!("observed gate failed closed: {error:#}");
-                    state.phase = HostPhase::Stopping;
-                    state.stop_reason = Some(format!(
-                        "observed gate failed closed; post-grant exec evidence may be unknown: {error:#}"
-                    ));
-                    save(dir, &state)?;
-                }
-            }
-        }
-        let reader_host = terminal_io::TerminalHost {
-            dir,
-            config: &config,
-            host: &state,
-            deadline: wall_deadline,
-        };
-        reader_owner.tick(
-            &reader_host,
-            reader_lease::Gate {
-                guard: &directory_guard,
-                highwater: &mut terminal_revision_highwater,
-                pending_observation: observed_owner
-                    .as_ref()
-                    .and_then(|o| o.closed_ready())
-                    .is_some(),
-            },
-        );
-        viewer_owner.tick(
-            &reader_host,
-            reader_lease::Gate {
-                guard: &directory_guard,
-                highwater: &mut viewer_revision_highwater,
-                pending_observation: false,
-            },
-        );
-        let _ = &root;
-        std::thread::sleep(Duration::from_millis(5));
     }
 }
+
 /// Holds the harness until the guardian has recorded this pane's identity, so a
 /// harness that finishes at once never leaves only a dead pane to verify.
 fn wait_recorded(
@@ -613,44 +357,20 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
             "fixture intermediate reap"
         );
     }
+    fixture_input(dir, mode)
+}
+
+#[cfg(feature = "test-support")]
+fn fixture_input(dir: &Path, mode: &str) -> Result<()> {
     println!("AQ_FIXTURE_READY");
     std::io::stdout().flush()?;
     for line in BufReader::new(std::io::stdin()).lines() {
         let line = line?;
-        if mode == "output-pattern" && line == "emit" {
-            std::io::stdout()
-                .write_all("\x1b[?1049h\x1b[2J\x1b[3;4H雪🙂e\u{301}\x1b[?1049l\n".as_bytes())?;
-            std::io::stdout().flush()?;
-        }
-        if mode == "output-flood" && line == "flood" {
-            std::fs::write(
-                dir.join("fixture-output-start"),
-                b"synthetic flood accepted",
-            )?;
-            let block = vec![b'x'; 8192];
-            for n in 1..=4096u64 {
-                std::io::stdout().write_all(&block)?;
-                if n.is_multiple_of(8) {
-                    std::io::stdout().flush()?;
-                    // Volatile synthetic progress: fsync latency must not stand in
-                    // for PTY backpressure in the stalled-reader qualification.
-                    std::fs::write(
-                        dir.join("fixture-output-progress"),
-                        (n * block.len() as u64).to_string().as_bytes(),
-                    )?;
-                }
-            }
-        }
-        if mode == "terminal-journal" {
-            let mut file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .mode(0o600)
-                .open(dir.join("fixture-input.jsonl"))?;
-            let mut encoded = serde_json::to_vec(&line)?;
-            encoded.push(b'\n');
-            file.write_all(&encoded)?;
-            file.sync_all()?;
+        match (mode, line.as_str()) {
+            ("output-pattern", "emit") => emit_pattern()?,
+            ("output-flood", "flood") => emit_flood(dir)?,
+            ("terminal-journal", _) => journal_line(dir, &line)?,
+            _ => {}
         }
         if line == "exit" {
             break;
@@ -658,6 +378,50 @@ pub(crate) fn fixture(dir: &Path, mode: &str) -> Result<()> {
         println!("echo:{line}");
         std::io::stdout().flush()?;
     }
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+fn emit_pattern() -> Result<()> {
+    std::io::stdout()
+        .write_all("\x1b[?1049h\x1b[2J\x1b[3;4H雪🙂e\u{301}\x1b[?1049l\n".as_bytes())?;
+    std::io::stdout().flush()?;
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+fn emit_flood(dir: &Path) -> Result<()> {
+    std::fs::write(
+        dir.join("fixture-output-start"),
+        b"synthetic flood accepted",
+    )?;
+    let block = vec![b'x'; 8192];
+    for n in 1..=4096u64 {
+        std::io::stdout().write_all(&block)?;
+        if n.is_multiple_of(8) {
+            std::io::stdout().flush()?;
+            // Volatile synthetic progress: fsync latency must not stand in
+            // for PTY backpressure in the stalled-reader qualification.
+            std::fs::write(
+                dir.join("fixture-output-progress"),
+                (n * block.len() as u64).to_string().as_bytes(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "test-support")]
+fn journal_line(dir: &Path, line: &str) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(dir.join("fixture-input.jsonl"))?;
+    let mut encoded = serde_json::to_vec(&line)?;
+    encoded.push(b'\n');
+    file.write_all(&encoded)?;
+    file.sync_all()?;
     Ok(())
 }
 
