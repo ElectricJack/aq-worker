@@ -70,6 +70,34 @@ impl GuardedTerminal {
         );
         self.terminal.current_viewport()
     }
+    fn check_input(&self, effect: &Effect) -> Result<()> {
+        if let Effect::Input(input) = effect {
+            use aq_codex_mapper::InteractiveViewport;
+            let view = self.terminal.current_viewport()?;
+            match aq_codex_mapper::classify_current_viewport(&view) {
+                InteractiveViewport::AuthenticationRequired => {
+                    tracing::info!(stage = "authentication", "native terminal control refused");
+                    anyhow::bail!("native terminal authentication required; input quarantined");
+                }
+                InteractiveViewport::TrustDirectory => {
+                    let bytes = input.bytes.as_slice();
+                    if !matches!(bytes, b"\r" | b"\n" | b"\x03") {
+                        tracing::info!(
+                            stage = "workspace_trust",
+                            "native terminal control refused"
+                        );
+                        anyhow::bail!(
+                            "unexpected workspace trust dialog requires explicit controller choice"
+                        );
+                    }
+                }
+                // V1 direct terminal control permits editing, menus and Ctrl-C
+                // while busy; composer readiness gates automated nudges only.
+                InteractiveViewport::Ready | InteractiveViewport::Waiting => {}
+            }
+        }
+        Ok(())
+    }
 }
 impl OwnedTerminal for GuardedTerminal {
     fn binding(&self) -> &TerminalBinding {
@@ -83,47 +111,19 @@ impl OwnedTerminal for GuardedTerminal {
         // The guardian independently rechecks its permit and exact pane before
         // any tmux effect; the Bridge's irreversible no-replay boundary is used.
         let physical = lock(&entry.physical)?;
-        if entry.stop.load(Ordering::SeqCst)
-            || !matches!(physical.outcome, Outcome::Running)
-            || physical.stopped.is_some()
-        {
+        let running = || {
+            !entry.stop.load(Ordering::SeqCst)
+                && matches!(physical.outcome, Outcome::Running)
+                && physical.stopped.is_none()
+        };
+        if !running() {
             tracing::info!(
                 stage = "physical_stopped",
                 "native terminal control refused"
             );
         }
-        ensure!(
-            !entry.stop.load(Ordering::SeqCst)
-                && matches!(physical.outcome, Outcome::Running)
-                && physical.stopped.is_none(),
-            "native terminal safety stop fenced"
-        );
-        if let Effect::Input(input) = effect {
-            use aq_codex_mapper::InteractiveViewport;
-            let view = self.terminal.current_viewport()?;
-            match aq_codex_mapper::classify_current_viewport(&view) {
-                InteractiveViewport::AuthenticationRequired => {
-                    tracing::info!(stage = "authentication", "native terminal control refused");
-                    anyhow::bail!("native terminal authentication required; input quarantined");
-                }
-                InteractiveViewport::TrustDirectory => {
-                    let bytes = input.bytes.as_slice();
-                    if bytes != b"\r" && bytes != b"\n" && bytes != b"\x03" {
-                        tracing::info!(
-                            stage = "workspace_trust",
-                            "native terminal control refused"
-                        );
-                    }
-                    ensure!(
-                        bytes == b"\r" || bytes == b"\n" || bytes == b"\x03",
-                        "unexpected workspace trust dialog requires explicit controller choice"
-                    );
-                }
-                // V1 direct terminal control permits editing, menus and Ctrl-C
-                // while busy; composer readiness gates automated nudges only.
-                InteractiveViewport::Ready | InteractiveViewport::Waiting => {}
-            }
-        }
+        ensure!(running(), "native terminal safety stop fenced");
+        self.check_input(effect)?;
         self.terminal.submit(effect, clock).inspect_err(|_| {
             tracing::info!(stage = "guardian_submit", "native terminal control refused");
         })
@@ -254,58 +254,7 @@ impl InputPipeline {
         );
         let registration = output.control_registration()?;
         let http = output.control_transport()?;
-        let (terminal, root) = {
-            let owner = lock(&self.owned)?;
-            host.entry.current(&owner)?;
-            let a = owner
-                .journal
-                .state()
-                .attempts
-                .get(&host.entry.id)
-                .context("native control attempt absent")?;
-            ensure!(
-                a.reservation
-                    .offer
-                    .offered
-                    .offer
-                    .manifest
-                    .terminal
-                    .input_enabled,
-                "native control requires original input-enabled profile"
-            );
-            let history = a
-                .native_host
-                .as_ref()
-                .context("native control history absent")?;
-            ensure!(
-                registration.terminal == history.intent.terminal
-                    && output.terminal() == &registration.terminal,
-                "native control terminal/Started mismatch"
-            );
-            let physical = lock(&host.entry.physical)?;
-            ensure!(
-                matches!(physical.outcome, Outcome::Running) && physical.stopped.is_none(),
-                "native control host is not Running"
-            );
-            let terminal = physical
-                .handle
-                .as_ref()
-                .context("native control physical handle absent")?
-                .bind_terminal(&registration.terminal)?;
-            let identity = &owner.journal.state().identity;
-            let root = host
-                .entry
-                .profile
-                .as_ref()
-                .context("native control profile absent")?
-                .root()
-                .path()
-                .join(format!(
-                    "terminal-control-{}-{}",
-                    identity.node_id, identity.boot_id
-                ));
-            (terminal, root)
-        };
+        let (terminal, root) = host.control_binding(output, &registration)?;
         let local = Arc::new(GuardedTerminal {
             entry: Arc::downgrade(&host.entry),
             journal: Arc::downgrade(&self.owned),
@@ -363,5 +312,63 @@ impl InputPipeline {
             owner: control,
             host: local,
         })
+    }
+}
+impl LocalPhaseHost {
+    fn control_binding(
+        &self,
+        output: &PhaseOutputRelay,
+        registration: &Register,
+    ) -> Result<(TerminalHandle, PathBuf)> {
+        let owner = lock(&self.owner)?;
+        self.entry.current(&owner)?;
+        let a = owner
+            .journal
+            .state()
+            .attempts
+            .get(&self.entry.id)
+            .context("native control attempt absent")?;
+        ensure!(
+            a.reservation
+                .offer
+                .offered
+                .offer
+                .manifest
+                .terminal
+                .input_enabled,
+            "native control requires original input-enabled profile"
+        );
+        let history = a
+            .native_host
+            .as_ref()
+            .context("native control history absent")?;
+        ensure!(
+            registration.terminal == history.intent.terminal
+                && output.terminal() == &registration.terminal,
+            "native control terminal/Started mismatch"
+        );
+        let physical = lock(&self.entry.physical)?;
+        ensure!(
+            matches!(physical.outcome, Outcome::Running) && physical.stopped.is_none(),
+            "native control host is not Running"
+        );
+        let terminal = physical
+            .handle
+            .as_ref()
+            .context("native control physical handle absent")?
+            .bind_terminal(&registration.terminal)?;
+        let identity = &owner.journal.state().identity;
+        let root = self
+            .entry
+            .profile
+            .as_ref()
+            .context("native control profile absent")?
+            .root()
+            .path()
+            .join(format!(
+                "terminal-control-{}-{}",
+                identity.node_id, identity.boot_id
+            ));
+        Ok((terminal, root))
     }
 }
