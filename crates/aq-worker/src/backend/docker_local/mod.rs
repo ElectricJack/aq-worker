@@ -33,6 +33,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use transport::CallError;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -57,12 +58,6 @@ pub fn require_confinement(mode: ConfinementMode) -> Result<(), BackendError> {
     }
 }
 
-#[derive(Debug)]
-enum CallError {
-    Timeout,
-    Transport,
-    TooLarge,
-}
 impl From<CallError> for BackendError {
     fn from(error: CallError) -> Self {
         BackendError::Uncertain(match error {
@@ -157,14 +152,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             body,
             max_response_bytes,
         };
-        match tokio::time::timeout(timeout, self.transport.send(request)).await {
-            Err(_) => Err(CallError::Timeout),
-            Ok(Err(error)) if error.kind == TransportErrorKind::TooLarge => {
-                Err(CallError::TooLarge)
-            }
-            Ok(Err(_)) => Err(CallError::Transport),
-            Ok(Ok(response)) => Ok(response),
-        }
+        transport::call(&self.transport, request, timeout).await
     }
 
     /// GET returning parsed JSON; anything but 200 is uncertainty.
@@ -471,32 +459,55 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         if !self.observe(sandbox).await?.container {
             return Err(BackendError::NotFound);
         }
-        let request = format!(
-            "/containers/{}/archive?path={}",
+        let path = format!(
+            "{API_VERSION}/containers/{}/archive?path={}",
             sandbox.backend_id,
             encode(path)
         );
-        let response = match self
-            .call(
-                DockerMethod::Get,
-                &request,
-                None,
-                Zeroizing::default(),
-                max_bytes,
-                self.api_timeout().max(Duration::from_secs(60)),
-            )
-            .await
-        {
-            Err(CallError::TooLarge) => {
-                return Err(BackendError::InvalidRequest("archive exceeds read cap"));
-            }
-            other => other?,
-        };
-        match response.status {
-            200 => Ok(response.body.to_vec()),
-            404 => Err(BackendError::NotFound),
-            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        self.download_archive(path, max_bytes)
+            .await?
+            .ok_or(BackendError::NotFound)
+    }
+
+    pub async fn stopped_work_tree(
+        &self,
+        sandbox: &SandboxIdentity,
+        max: u64,
+    ) -> Result<Vec<tar::TreeEntry>, BackendError> {
+        let observed = self.observe(sandbox).await?;
+        if observed.entry.state != SandboxState::Stopped {
+            return Err(BackendError::InvalidState);
         }
+        let id = &sandbox.backend_id;
+        let path = transport::workspace_archive_path(
+            API_VERSION,
+            id,
+            &volume_name(id),
+            observed.container,
+        );
+        let raw = self
+            .download_archive(path, max.saturating_mul(2).try_into().unwrap_or(usize::MAX))
+            .await?
+            .ok_or(BackendError::NotFound)?;
+        let after = self.observe(sandbox).await?;
+        if after.entry.state != SandboxState::Stopped || after.container != observed.container {
+            return Err(BackendError::InvalidState);
+        }
+        aq_sandbox_archive::tar::read_workspace_tree(&raw, max, observed.container)
+            .map_err(|error| BackendError::InvalidRequest(error.0))
+    }
+
+    async fn download_archive(
+        &self,
+        path: String,
+        max: usize,
+    ) -> Result<Option<Vec<u8>>, BackendError> {
+        transport::archive(&self.transport, path, max, self.api_timeout())
+            .await
+            .map_err(|error| match error {
+                CallError::TooLarge => BackendError::InvalidRequest("archive exceeds read cap"),
+                other => other.into(),
+            })
     }
 
     /// Sets the size of a running sandbox's terminal (`runner_tty`).

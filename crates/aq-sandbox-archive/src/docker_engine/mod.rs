@@ -10,7 +10,7 @@ pub use socket::*;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
-use std::{fmt, future::Future, path::PathBuf};
+use std::{fmt, future::Future, path::PathBuf, time::Duration};
 use zeroize::Zeroizing;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,6 +72,58 @@ pub trait DockerTransport: Send + Sync + 'static {
         &self,
         request: DockerRequest,
     ) -> impl Future<Output = Result<DockerResponse, TransportError>> + Send;
+}
+
+#[derive(Debug)]
+pub enum CallError {
+    Timeout,
+    Transport,
+    TooLarge,
+}
+
+/// Apply a deadline independently of the response byte cap on the request.
+pub async fn call(
+    transport: &impl DockerTransport,
+    request: DockerRequest,
+    timeout: Duration,
+) -> Result<DockerResponse, CallError> {
+    match tokio::time::timeout(timeout, transport.send(request)).await {
+        Err(_) => Err(CallError::Timeout),
+        Ok(Err(error)) if error.kind == TransportErrorKind::TooLarge => Err(CallError::TooLarge),
+        Ok(Err(_)) => Err(CallError::Transport),
+        Ok(Ok(response)) => Ok(response),
+    }
+}
+
+/// Uses the daemon API for the stopped container or the volume it left behind.
+pub fn workspace_archive_path(api: &str, id: &str, work_volume: &str, container: bool) -> String {
+    if container {
+        format!("{api}/containers/{id}/archive?path=%2Faq%2Fwork")
+    } else {
+        format!("/v4.0.0/libpod/volumes/{work_volume}/export")
+    }
+}
+
+/// The caller verifies sandbox identity before choosing a container or volume path.
+pub async fn archive(
+    transport: &impl DockerTransport,
+    path: String,
+    max_response_bytes: usize,
+    timeout: Duration,
+) -> Result<Option<Vec<u8>>, CallError> {
+    let request = DockerRequest {
+        method: DockerMethod::Get,
+        path,
+        content_type: None,
+        body: Zeroizing::default(),
+        max_response_bytes,
+    };
+    let response = call(transport, request, timeout.max(Duration::from_secs(60))).await?;
+    match response.status {
+        200 => Ok(Some(response.body)),
+        404 => Ok(None),
+        _ => Err(CallError::Transport),
+    }
 }
 
 /// One HTTP/1.1 connection per request over the dedicated daemon's Unix socket.

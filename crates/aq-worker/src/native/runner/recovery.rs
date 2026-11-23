@@ -3,10 +3,7 @@ use super::codex::ExecutorConfig;
 use super::*;
 use crate::backend::{
     SandboxIdentity, SandboxState,
-    docker_local::{
-        DockerLocalBackend,
-        tar::{self, TreeEntry},
-    },
+    docker_local::{DockerLocalBackend, tar::TreeEntry},
 };
 use crate::native::journal::{Attempt, RecoveryHold};
 use crate::sandbox_driver as driver;
@@ -220,11 +217,9 @@ pub async fn salvage_interrupted(
             DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
         let sandboxes = stopped_sandboxes(&mut backend, worker.node_id, attempt).await?;
         let max = settings.host.max_workspace_bytes;
-        let bound = usize::try_from(max)?.saturating_mul(2);
-        let archive =
-            async |s: &SandboxIdentity| Ok(backend.get_archive(s, "/aq/work", bound).await?);
+        let archive = async |s: &SandboxIdentity| Ok(backend.stopped_work_tree(s, max).await?);
         let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
-        match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, max, archive)).await? {
+        match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, archive)).await? {
             Ok(claim) => Some(claim),
             Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
         }
@@ -267,8 +262,7 @@ async fn salvage_claim(
     h: &crate::native::result::history::ResultHistory,
     (reason, proof): (aq_protocol::HandoffReason, Option<&Option<String>>),
     sandboxes: &[SandboxIdentity],
-    max_workspace_bytes: u64,
-    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<u8>>,
+    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<TreeEntry>>,
 ) -> Result<Result<local::Submission, &'static str>> {
     let [sandbox] = sandboxes else {
         return Ok(Err(if sandboxes.is_empty() {
@@ -277,7 +271,7 @@ async fn salvage_claim(
             "sandbox_ambiguous"
         }));
     };
-    let entries = tar::read_tree(&archive(sandbox).await?, max_workspace_bytes)?;
+    let entries = archive(sandbox).await?;
     let secret = |b: &[u8]| {
         aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
     };
