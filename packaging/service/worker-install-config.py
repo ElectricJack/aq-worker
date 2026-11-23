@@ -9,6 +9,7 @@ import uuid
 import os
 import re
 import subprocess
+import urllib.error
 import urllib.request
 import json
 from pathlib import Path
@@ -220,7 +221,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError("The worker endpoint must not redirect login delivery.")
 
 
-def worker_request(config, body, slot=1, endpoint="/v1/worker/logins"):
+def worker_request(config, body, slot=1, endpoint="/v1/worker/logins", timeout=12):
     marker = json.loads((config / "hosted-install.json").read_text())
     origin = marker["origin"]
     if not re.fullmatch(r"https://[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?", origin):
@@ -231,13 +232,44 @@ def worker_request(config, body, slot=1, endpoint="/v1/worker/logins"):
     headers = {"Authorization": "Bearer " + enrollment["credential"], "Content-Type": "application/json"}
     if enrollment.get("cf_client_id") and enrollment.get("cf_client_secret"):
         headers.update({"CF-Access-Client-Id": enrollment["cf_client_id"], "CF-Access-Client-Secret": enrollment["cf_client_secret"]})
-    request = urllib.request.Request(origin + endpoint, data=json.dumps(body).encode(), headers=headers)
-    with urllib.request.build_opener(NoRedirect()).open(request, timeout=12) as response:
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(origin + endpoint, data=data, headers=headers)
+    with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
         payload = response.read(262145)
         if len(payload) > 262144:
             raise ValueError("Login delivery exceeded its size limit.")
         return json.loads(payload)
 
+
+
+def inventory_status(config):
+    return worker_request(config, None, endpoint="/v1/worker/profiled/inventory-status", timeout=5)
+
+
+def wait_for_inventory(config, since):
+    import time
+
+    deadline = time.monotonic() + 45
+    reason = "AQ has not accepted a fresh capability report since startup."
+    while time.monotonic() < deadline:
+        try:
+            status = inventory_status(config)
+            now = status["server_time_ms"]
+            accepted = status.get("accepted")
+            if accepted and since <= accepted["recorded_at_ms"] <= now < accepted["expires_at_ms"]:
+                return
+            refusal = status.get("rejection")
+            if refusal and refusal["observed_at_ms"] >= since:
+                stage = refusal["stage"].replace("_", " ")
+                reason = f'AQ rejected inventory at {stage} (HTTP {refusal["status"]}, {refusal["code"]}, request {refusal["request_id"]}).'
+        except urllib.error.HTTPError as error:
+            reason = f"AQ inventory status returned HTTP {error.code}."
+            if error.code in (401, 403, 404, 405):
+                break
+        except OSError:
+            reason = "Could not reach AQ inventory status."
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
+    raise ValueError(reason)
 
 
 def login_request(config, body, slot=1):
@@ -852,6 +884,10 @@ def main():
     elif mode == "configure":
         config, origin, podman, slots, digest, *claude_token = args
         configure(package, Path(config), origin, Path(podman), int(slots), digest, *map(Path, claude_token[:1]))
+    elif mode == "inventory-clock":
+        print(inventory_status(Path(args[0]))["server_time_ms"])
+    elif mode == "wait-inventory":
+        wait_for_inventory(Path(args[0]), int(args[1]))
     elif mode == "preflight":
         sandbox_preflight(package, Path(args[0]), Path(args[1]))
     elif mode == "upgrade-controls":
