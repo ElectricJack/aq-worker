@@ -58,17 +58,40 @@ pub struct HostPlan {
     pub admitted_boot_ms: u64,
     pub deadline_boot_ms: u64,
 }
+type PlanValidation = std::result::Result<(), ContractError>;
+
+fn require(ok: bool, reason: &'static str) -> PlanValidation {
+    if ok {
+        Ok(())
+    } else {
+        Err(ContractError::Invalid(reason))
+    }
+}
+
 impl Validate for HostPlan {
-    fn validate(&self) -> std::result::Result<(), ContractError> {
-        let require = |ok, why| {
-            if ok {
-                Ok(())
-            } else {
-                Err(ContractError::Invalid(why))
-            }
-        };
+    fn validate(&self) -> PlanValidation {
         self.session.validate()?;
         require(self.host_plan_version == 1, "host plan version")?;
+        self.validate_subject()?;
+        self.validate_pins()?;
+        self.validate_harness()?;
+        self.validate_resources()?;
+        self.validate_terminal()?;
+        require(
+            self.startup.bytes > 0 && self.startup.bytes <= 1_048_576,
+            "host startup bounds",
+        )?;
+        require(
+            serde_json::to_vec(self)
+                .map_err(|e| ContractError::Json(e.to_string()))?
+                .len()
+                <= 65_536,
+            "host plan bounds",
+        )
+    }
+}
+impl HostPlan {
+    fn validate_subject(&self) -> PlanValidation {
         let HostSubject::CentralConversation {
             actor_id,
             conversation_id,
@@ -81,7 +104,9 @@ impl Validate for HostPlan {
         require(
             matches!(self.session, SessionIdentity::Central { .. }),
             "central subject session",
-        )?;
+        )
+    }
+    fn validate_pins(&self) -> PlanValidation {
         for pin in [
             &self.policy,
             &self.execution,
@@ -99,7 +124,9 @@ impl Validate for HostPlan {
                 && !self.input.host_operation_id.is_nil()
                 && self.input.dispatch_id != self.input.host_operation_id,
             "host input operation identities",
-        )?;
+        )
+    }
+    fn validate_harness(&self) -> PlanValidation {
         self.harness.harness.validate()?;
         self.harness.cli_version.validate()?;
         require_capabilities(
@@ -119,7 +146,9 @@ impl Validate for HostPlan {
         require(
             declared(NATIVE_CONFINEMENT_CAPABILITY) != declared(CONTAINER_CONFINEMENT_CAPABILITY),
             "exactly one host confinement mode",
-        )?;
+        )
+    }
+    fn validate_resources(&self) -> PlanValidation {
         require(
             !self.machine_boot_id.is_nil()
                 && self.deadline_boot_ms > self.admitted_boot_ms
@@ -133,34 +162,20 @@ impl Validate for HostPlan {
                 && r.process_limit > 0
                 && r.stop_grace_ms <= r.wall_time_ms,
             "host resource bounds",
-        )?;
+        )
+    }
+    fn validate_terminal(&self) -> PlanValidation {
         let t = &self.terminal;
         require(
             !t.input_enabled
-                && t.max_input_bytes > 0
-                && t.max_input_bytes <= 4096
-                && t.max_pending_input_bytes >= t.max_input_bytes
-                && t.max_pending_input_bytes <= 32768
-                && t.max_frame_bytes > 0
-                && t.max_frame_bytes <= 65536
-                && t.replay_bytes >= t.max_frame_bytes
-                && t.replay_bytes <= 1048576,
+                && (1..=4096).contains(&t.max_input_bytes)
+                && (t.max_input_bytes..=32768).contains(&t.max_pending_input_bytes)
+                && (1..=65536).contains(&t.max_frame_bytes)
+                && (t.max_frame_bytes..=1048576).contains(&t.replay_bytes),
             "host terminal bounds; live input unqualified",
-        )?;
-        require(
-            self.startup.bytes > 0 && self.startup.bytes <= 1_048_576,
-            "host startup bounds",
-        )?;
-        require(
-            serde_json::to_vec(self)
-                .map_err(|e| ContractError::Json(e.to_string()))?
-                .len()
-                <= 65_536,
-            "host plan bounds",
         )
     }
-}
-impl HostPlan {
+
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         ensure!(bytes.len() <= 65_536, "host plan bounds");
         let plan: Self = serde_json::from_slice(bytes)?;
@@ -269,23 +284,37 @@ pub(crate) enum Adapter<'a> {
     Task(&'a dyn HarnessAdapter),
     Plan(&'a dyn HostAdapter),
 }
-impl Adapter<'_> {
-    pub(crate) fn prepare(&self, doc: &LaunchDocument, workspace: &Path) -> Result<AdapterLaunch> {
-        match (self, doc) {
-            (Self::Task(a), LaunchDocument::Task(m)) => a.prepare(m, workspace),
-            (Self::Plan(a), LaunchDocument::Plan(p)) => a.prepare(p, workspace),
+impl<'a> Adapter<'a> {
+    pub(crate) fn bind(self, document: &'a LaunchDocument) -> Result<BoundAdapter<'a>> {
+        match (self, document) {
+            (Self::Task(adapter), LaunchDocument::Task(manifest)) => {
+                Ok(BoundAdapter::Task(adapter, manifest))
+            }
+            (Self::Plan(adapter), LaunchDocument::Plan(plan)) => {
+                Ok(BoundAdapter::Plan(adapter, plan))
+            }
             _ => bail!("host adapter contract mismatch"),
         }
     }
-    pub(crate) fn private_input(
-        &self,
-        doc: &LaunchDocument,
-        workspace: &Path,
-    ) -> Result<Option<PrivateLaunchInput>> {
-        match (self, doc) {
-            (Self::Task(a), LaunchDocument::Task(m)) => a.private_input(m, workspace),
-            (Self::Plan(_), LaunchDocument::Plan(_)) => Ok(None),
-            _ => bail!("host adapter contract mismatch"),
+}
+
+pub(crate) enum BoundAdapter<'a> {
+    Task(&'a dyn HarnessAdapter, &'a LaunchManifest),
+    Plan(&'a dyn HostAdapter, &'a HostPlan),
+}
+
+impl BoundAdapter<'_> {
+    pub(crate) fn prepare(&self, workspace: &Path) -> Result<AdapterLaunch> {
+        match self {
+            Self::Task(adapter, manifest) => adapter.prepare(manifest, workspace),
+            Self::Plan(adapter, plan) => adapter.prepare(plan, workspace),
+        }
+    }
+
+    pub(crate) fn private_input(&self, workspace: &Path) -> Result<Option<PrivateLaunchInput>> {
+        match self {
+            Self::Task(adapter, manifest) => adapter.private_input(manifest, workspace),
+            Self::Plan(_, _) => Ok(None),
         }
     }
 }

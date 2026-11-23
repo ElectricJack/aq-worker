@@ -628,7 +628,8 @@ impl SessionHost {
                 "credential profile unavailable"
             );
         }
-        let prepared = adapter.prepare(&manifest, &local.workspace)?;
+        let adapter = adapter.bind(&manifest)?;
+        let prepared = adapter.prepare(&local.workspace)?;
         ensure!(
             prepared.manifest_digest == digest
                 && prepared.adapter == manifest.harness().adapter
@@ -647,7 +648,7 @@ impl SessionHost {
             );
         }
         prepared.command.validate()?;
-        let private_input = adapter.private_input(&manifest, &local.workspace)?;
+        let private_input = adapter.private_input(&local.workspace)?;
         ensure!(
             local.context_material.len() <= 128,
             "context material bounds"
