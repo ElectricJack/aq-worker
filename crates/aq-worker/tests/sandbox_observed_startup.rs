@@ -74,10 +74,8 @@ fn artifact(id: &str, bytes: &[u8]) -> ArtifactRef {
         digest: Digest::of(bytes),
     }
 }
-#[tokio::test]
-async fn observed_sandbox_checks_manifest_and_shared_permit_before_launch() {
+fn startup_fixture() -> (support::Fixture, ArtifactRef, RunnerHttp, RunnerHttp) {
     let mut f = support::Fixture::new(false, 5000);
-    let payload = b"literal startup";
     let mut descriptor = artifact("descriptor", b"fixture descriptor");
     descriptor.id = Text::new(format!(
         "aq.startup-delivery/{}",
@@ -91,18 +89,23 @@ async fn observed_sandbox_checks_manifest_and_shared_permit_before_launch() {
     files
         .write_secret("permit.json", &serde_json::to_vec(&f.permit).unwrap())
         .unwrap();
-    let http = RunnerHttp::for_execution(
-        "http://127.0.0.1:1",
-        &files.root().join("permit.json"),
-        &f.frozen,
-    )
-    .unwrap();
-    let other = RunnerHttp::for_execution(
-        "http://127.0.0.1:1",
-        &files.root().join("permit.json"),
-        &f.frozen,
-    )
-    .unwrap();
+    let authority = || {
+        RunnerHttp::for_execution(
+            "http://127.0.0.1:1",
+            &files.root().join("permit.json"),
+            &f.frozen,
+        )
+        .unwrap()
+    };
+    let http = authority();
+    let other = authority();
+    (f, descriptor, http, other)
+}
+
+#[tokio::test]
+async fn observed_sandbox_checks_manifest_and_shared_permit_before_launch() {
+    let (f, descriptor, http, other) = startup_fixture();
+    let payload = b"literal startup";
     let program = std::fs::canonicalize("/usr/bin/true").unwrap();
     let executable = artifact("true", &std::fs::read(&program).unwrap());
     let renderer = artifact("renderer", b"fixture");
