@@ -283,6 +283,11 @@ async fn salvage_claim(
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
+    if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope)
+        && !secret(original.conclusion.as_str().as_bytes())
+    {
+        return Ok(Ok(original));
+    }
     let conclusion = local::Conclusion::new(salvage_note(reason, &changed, proof))?;
     let input = local::SubmissionInput {
         schema_version: 1,

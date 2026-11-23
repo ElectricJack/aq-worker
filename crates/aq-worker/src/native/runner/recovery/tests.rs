@@ -563,6 +563,24 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
 }
 
 #[tokio::test]
+async fn salvage_preserves_an_exact_pending_submission_as_a_failed_result() {
+    let (dir, mut h, a) = salvage_fixture();
+    let (_channel, original) = crate::native::result::tests::pending_submission(&mut h);
+    let saved = claim(&h, &[("notes.txt", b"saved")]).await.unwrap();
+    assert_eq!(saved, original);
+    assert_eq!(
+        std::fs::read(dir.path().join("notes.txt")).unwrap(),
+        b"saved"
+    );
+    salvage_history(&a, &mut h, Some(saved), 5).unwrap();
+    assert_eq!(h.claim.as_ref().unwrap().submission().unwrap(), original);
+    assert!(matches!(
+        h.stop.as_ref().unwrap().outcome,
+        aq_admission::transport::ProcessOutcome::Failed
+    ));
+}
+
+#[tokio::test]
 async fn salvage_reports_failed_result_with_saved_workspace() {
     let (dir, mut h, a) = salvage_fixture();
     // Histories written before W4 serialize (and digest) exactly as before.
