@@ -387,6 +387,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "aq-handoff-note",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "libc",
  "serde",
  "serde_json",

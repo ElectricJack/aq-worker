@@ -33,3 +33,28 @@ fn template_cli_build_and_scan_use_embedded_tools() {
         .unwrap();
     assert!(status.success());
 }
+
+#[test]
+fn environment_recipe_parser_cases_pass() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = Command::new("python3")
+        .arg(root.join("scripts/tests/test_environment_recipe.py"))
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .status()
+        .expect("Python 3 required for environment recipe tests");
+    assert!(status.success(), "environment recipe cases");
+}
+
+#[cfg(feature = "project_environments")]
+#[test]
+fn environment_build_and_try_cli_use_embedded_tools() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let status = Command::new("python3")
+        .arg(root.join("scripts/tests/test_environment_recipe.py"))
+        .arg("JobTests.test_cli_runs_jobs_through_the_worker_binary")
+        .env("AQ_TEMPLATE_BINARY", env!("CARGO_BIN_EXE_aq-worker"))
+        .env("PYTHONDONTWRITEBYTECODE", "1")
+        .status()
+        .expect("Python 3 required for environment job tests");
+    assert!(status.success(), "environment job CLI cases");
+}

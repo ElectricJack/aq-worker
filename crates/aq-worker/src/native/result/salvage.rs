@@ -125,7 +125,6 @@ pub async fn finish_salvage(
         roots: roots.0,
         git,
     };
-    #[cfg(feature = "delivery_playbook")]
     if super::source::push(&owner).await? {
         return super::report::record_report(&owner, client).await;
     }

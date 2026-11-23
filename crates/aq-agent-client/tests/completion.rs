@@ -74,6 +74,11 @@ impl Fixture {
         )
         .unwrap();
     }
+    fn release_owner(&mut self) {
+        let owner = self.owner.take().unwrap();
+        // A concurrent CLI test can briefly inherit the open description before exec.
+        fs2::FileExt::unlock(&owner).unwrap();
+    }
     fn presence(&self, presence: Presence) {
         self.write(wire::PRESENCE_FILE, &wire::encode(&presence).unwrap());
     }
@@ -137,7 +142,7 @@ fn one_original_outbox_reopens_and_conflicting_conclusion_never_replaces_it() {
 #[test]
 fn missing_owner_original_execution_expiry_and_changed_boot_refuse_new_publication() {
     let mut f = Fixture::new();
-    drop(f.owner.take());
+    f.release_owner();
     assert_eq!(f.client().submit(f.input()).unwrap().exit_code, 13);
     assert!(!f.path().exists());
     let f = Fixture::new();
@@ -196,7 +201,7 @@ fn acknowledgment_pins_foreign_bytes_and_owner_loss_cannot_become_live_acceptanc
     f.publish_ack(&foreign);
     assert!(f.client().status().is_err());
     f.publish_ack(&ack);
-    drop(f.owner.take());
+    f.release_owner();
     let recovered = f.client().status().unwrap();
     assert_eq!(recovered.exit_code, 13);
     assert_eq!(recovered.value["phase"]["kind"], "needs_reconciliation");

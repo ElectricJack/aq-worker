@@ -70,9 +70,8 @@ async fn actual_native_pipeline_journals_every_external_intent_and_keeps_lost_im
         1
     );
 }
-#[cfg(feature = "delivery_playbook")]
-#[path = "../../../tests/support/delivery_playbook.rs"]
-mod delivery_playbook;
+#[path = "../../../tests/support/node_git_playbook.rs"]
+mod node_git_playbook;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn historical_receipts_cannot_bypass_fresh_retention_or_head_checks() {
     let export = synthetic();
@@ -564,6 +563,20 @@ async fn source_file_sync_and_cursor_commit_faults_reopen_old_or_matching_new_hi
         }
     }
 }
+async fn snapshot_retrying_overload(pipeline: &InputPipeline) -> State {
+    let retry = async {
+        loop {
+            match pipeline.snapshot().await {
+                Err(e) if e.to_string().contains("storage lane overloaded") => {}
+                result => break result.unwrap(),
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), retry)
+        .await
+        .unwrap()
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pending_range() {
     let export = synthetic();
@@ -580,12 +593,9 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
         tokio::spawn(async move { pipeline.hydrate_source(id, preparation, spec, local).await });
     let before = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let s: State =
-                serde_json::from_slice::<Snapshot>(&fs::read(h.root.join("journal.json")).unwrap())
-                    .unwrap()
-                    .state;
             if h.range_entered.load(Ordering::SeqCst) {
-                break s;
+                let bytes = fs::read(h.root.join("journal.json")).unwrap();
+                break serde_json::from_slice::<Snapshot>(&bytes).unwrap().state;
             }
             tokio::time::sleep(std::time::Duration::from_millis(5)).await
         }
@@ -615,19 +625,7 @@ async fn held_source_read_allows_control_and_async_cancellation_retains_exact_pe
     drop(control);
     task.abort();
     assert!(matches!(task.await, Err(e) if e.is_cancelled()));
-    let after = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            match h.pipeline().snapshot().await {
-                Ok(state) => break state,
-                Err(error) if error.to_string().contains("storage lane overloaded") => {
-                    tokio::time::sleep(std::time::Duration::from_millis(5)).await
-                }
-                Err(error) => panic!("unexpected retained owner error: {error}"),
-            }
-        }
-    })
-    .await
-    .unwrap();
+    let after = snapshot_retrying_overload(h.pipeline()).await;
     assert_eq!(after.attempts.len(), 1);
     let s = after.attempts[&h.id].source.as_ref().unwrap();
     assert_eq!(s.pending.as_ref().unwrap().operation_id, pending);
@@ -1440,7 +1438,7 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     let manifest = export.manifest.clone();
     let h = Inputs::new_collect(export).await;
     let git = GitPeer::new(h.root.clone(), manifest);
-    let state = h.pipeline().snapshot().await.unwrap();
+    let state = snapshot_retrying_overload(h.pipeline()).await;
     let a = &state.attempts[&h.id];
     assert!(a.phase_acceptance.is_none() && a.refresh_acceptance.is_none());
     let (_config_root, mut config) = crate::native::runner::tests::config();
@@ -1464,7 +1462,7 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     .await
     .unwrap();
     h.pipeline().check_phase_execution(&grant).await.unwrap();
-    let state = h.pipeline().snapshot().await.unwrap();
+    let state = snapshot_retrying_overload(h.pipeline()).await;
     assert!(state.attempts[&h.id].phase_execution.is_some());
     assert!(state.attempts[&h.id].native_host.is_none());
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);

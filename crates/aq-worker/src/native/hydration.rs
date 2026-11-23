@@ -13,7 +13,7 @@ pub struct HydratedWorkspace {
     binding: aq_session_protocol::LaunchBinding,
     observed_ns: u64,
     deadline_ns: u64,
-    /// None for a worktree of the node's repository (`delivery_playbook`).
+    /// None for a worktree of the node's repository.
     _stage_owner: Option<Arc<files::Staging>>,
     git: GitClient,
 }
@@ -130,7 +130,6 @@ impl InputPipeline {
             .preparation
             .deadline_ns()
             .min(preparation.deadline_ns());
-        #[cfg(feature = "delivery_playbook")]
         let grant = if let Some(node) = &git.node {
             let remaining = deadline
                 .checked_sub(boot_ns()?)
@@ -151,7 +150,6 @@ impl InputPipeline {
             owner.journal.source_manifest(id, m, maximum_range)
         })
         .await?;
-        #[cfg(feature = "delivery_playbook")]
         if let (Some(node), Some(grant)) = (&git.node, grant) {
             ensure!(
                 plan.ranges == 0

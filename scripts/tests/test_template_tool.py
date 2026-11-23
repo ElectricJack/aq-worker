@@ -130,6 +130,16 @@ class TemplateTests(unittest.TestCase):
             manifest.unlink()
             self.assertNotEqual(check(), 0)
 
+    def test_task_identifier_is_not_a_provider_key(self):
+        scanner = load('credential_scan')
+        self.assertFalse(scanner.secret_shaped(b'task-0123456789abcdefghijklmnop'))
+
+    def test_provider_key_after_a_separator_still_refuses(self):
+        scanner = load('credential_scan')
+        for prefix in (b'', b' ', b'=', b'"', b':', b'\n'):
+            with self.subTest(prefix=prefix):
+                self.assertTrue(scanner.secret_shaped(prefix + b'sk-0123456789abcdefghijklmnop'))
+
     def test_credential_scan_fails_build_with_auth_json(self):
         scanner = load('credential_scan')
         with tempfile.TemporaryDirectory() as directory:
@@ -270,16 +280,16 @@ class TemplateTests(unittest.TestCase):
                 self.assertFalse(scanner.secret_shaped('nested-docker' + label + neighbor))
         metadata = label + 'struct SandboxIdentity'
         for value in [metadata + ' sk-proj-' + 'x' * 40,
-                      label + 'sk-proj-' + 'x' * 40,
+                      label + ' sk-proj-' + 'x' * 40,
                       label + 'ghp_' + 'x' * 36,
                       label + 'AKIA' + 'X' * 16,
-                      label + 'sk-' + label + 'sk-ant-' + 'x' * 40,
+                      label + ' sk-' + label + ' sk-ant-' + 'x' * 40,
                       'TOKEN=' + metadata,
                       'https://' + metadata.replace(' ', '-') + ':password@example.com',
                       'sk-during-attemptbackend_idstruct' + 'x' * 40,
-                      'persistent-xsk-during-attempt' + 'x' * 40,
-                      'persistent-disk-during_attempt' + 'x' * 40,
-                      'persistent-disk-during-attemp' + 'x' * 40]:
+                      'persistent-x sk-during-attempt' + 'x' * 40,
+                      'persistent-di sk-during_attempt' + 'x' * 40,
+                      'persistent-di sk-during-attemp' + 'x' * 40]:
             with self.subTest(value=value[:48]):
                 self.assertTrue(scanner.secret_shaped(value))
 
@@ -292,11 +302,11 @@ class TemplateTests(unittest.TestCase):
                          'aq.template-digest', 'x' * 40, '']:
             with self.subTest(neighbor=neighbor[:24]):
                 self.assertFalse(scanner.secret_shaped('aq.hard-deadline-ms' + label + neighbor))
-        for value in [label + 'sk-proj-' + 'x' * 40,
+        for value in [label + ' sk-proj-' + 'x' * 40,
                       label + 'ghp_' + 'x' * 36,
-                      label + 'sk-' + label + 'sk-ant-' + 'x' * 40,
-                      'xx.disk-limit-bytes' + 'x' * 40,
-                      'aq.disk-limit_bytes' + 'x' * 40,
+                      label + ' sk-' + label + ' sk-ant-' + 'x' * 40,
+                      'xx.di sk-limit-bytes' + 'x' * 40,
+                      'aq.di sk-limit_bytes' + 'x' * 40,
                       'sk-limit-bytes' + 'x' * 40]:
             with self.subTest(value=value[:48]):
                 self.assertTrue(scanner.secret_shaped(value))
@@ -387,6 +397,29 @@ class TemplateTests(unittest.TestCase):
         self.assertLess(rendered.index(env), rendered.index('COPY --from='))
         universal = {**cfg, 'universal_image': 'codex-universal@sha256:' + 'c' * 64}
         self.assertEqual(tool.dockerfile(recipe(), universal['universal_image'], universal).count(env), 1)
+
+    def test_dockerfile_disables_node_compile_cache_before_install_steps(self):
+        tool = load('template_tool')
+        cfg = config()
+        text = tool.dockerfile(recipe(), cfg['os_image'], cfg)
+        self.assertEqual(text.count('ENV NODE_DISABLE_COMPILE_CACHE=1\n'), 1)
+        self.assertLess(text.index('ENV NODE_DISABLE_COMPILE_CACHE=1'), text.index('RUN ["sh"'))
+        universal = {**cfg, 'universal_image': 'codex-universal@sha256:' + 'c' * 64}
+        text = tool.dockerfile(recipe(), universal['universal_image'], universal)
+        self.assertLess(text.index('ENV NODE_DISABLE_COMPILE_CACHE=1'), text.index('RUN apt-get'))
+
+    def test_parsed_recipe_parent_is_the_configured_base_template(self):
+        tool = load('template_tool')
+        base = 'registry.example/aq/base@sha256:' + 'd' * 64
+        cfg = tool.validate_config({**config(), 'base_template': base})
+        parsed = {'name': 'web', 'default': True, 'provides': [], 'install_steps': [['true']],
+                  'checks': [], 'warm': [], 'sha256': 'e' * 64}
+        self.assertEqual(tool.parent_image(parsed, cfg), base)
+        with self.assertRaises(ValueError):
+            tool.parent_image(parsed, config())
+        with self.assertRaises(ValueError):
+            tool.validate_config({**config(), 'base_template': 'aq-base:latest'})
+
 
 class BuildTests(unittest.TestCase):
     def setup_build(self, root, credential=False):

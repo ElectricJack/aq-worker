@@ -8,10 +8,13 @@
 pub mod config;
 pub mod policy;
 pub mod tar;
-pub mod transport;
+pub use aq_sandbox_archive::docker_engine as transport;
 
 pub use config::*;
-pub use transport::*;
+pub use transport::{
+    DockerMethod, DockerRequest, DockerResponse, DockerTransport, TransportError,
+    TransportErrorKind, UnixSocketTransport,
+};
 
 use crate::backend::{
     BackendDiskUsage, BackendError, BackendKind, Capability, ConfinementMode, Confirmation,
@@ -116,7 +119,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
                 "sandbox daemon storage shares the root filesystem; set shared_root_fs to override",
             ));
         }
-        if backend.config.hard_disk_limit && !backing_filesystem_is_xfs(&info) {
+        if backend.config.hard_disk_limit && !transport::backing_filesystem_is_xfs(&info) {
             return Err(BackendError::InvalidRequest(
                 "hard disk limit requires XFS (prjquota) sandbox storage",
             ));
@@ -183,54 +186,10 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     }
 }
 
-/// SBX10: per-sandbox CPU, memory and PID limits must be enforced. A daemon
-/// without a cgroup driver (e.g. `docker:dind-rootless`) or on cgroup v1 (no
-/// rootless delegation) accepts `NanoCpus`/`Memory`/`PidsLimit` and silently
-/// drops them, so it is refused rather than launching unlimited sandboxes. A
-/// missing field is treated as unenforced.
+pub use transport::storage_shares_root;
+
 pub fn require_enforced_limits(info: &Value) -> Result<(), BackendError> {
-    let field = |name: &str| info.get(name).and_then(Value::as_str);
-    match field("CgroupDriver") {
-        None | Some("") | Some("none") => {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon reports no cgroup driver; resource limits would be silently dropped",
-            ));
-        }
-        Some(_) => {}
-    }
-    if field("CgroupVersion") != Some("2") {
-        return Err(BackendError::InvalidRequest(
-            "sandbox daemon must use cgroup v2; resource limits would be silently dropped",
-        ));
-    }
-    Ok(())
-}
-
-/// SBX20 admission: the daemon's storage root (graphroot) must be on a
-/// filesystem distinct from `/`, compared by `st_dev`. A missing or
-/// unreadable root cannot be proven distinct and counts as shared.
-pub fn storage_shares_root(info: &Value) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    let root = info
-        .get("DockerRootDir")
-        .or_else(|| info.pointer("/Store/GraphRoot"))
-        .or_else(|| info.pointer("/store/graphRoot"))
-        .and_then(Value::as_str)
-        .filter(|root| root.starts_with('/'));
-    let Some(root) = root else { return true };
-    match (std::fs::metadata(root), std::fs::metadata("/")) {
-        (Ok(storage), Ok(host)) => storage.dev() == host.dev(),
-        _ => true,
-    }
-}
-
-/// `DriverStatus` is a list of `[key, value]` pairs.
-fn backing_filesystem_is_xfs(info: &Value) -> bool {
-    info["DriverStatus"].as_array().is_some_and(|pairs| {
-        pairs.iter().any(|pair| {
-            pair[0].as_str() == Some("Backing Filesystem") && pair[1].as_str() == Some("xfs")
-        })
-    })
+    transport::require_enforced_limits(info).map_err(BackendError::InvalidRequest)
 }
 
 fn parse_json(body: &[u8]) -> Result<serde_json::Value, BackendError> {

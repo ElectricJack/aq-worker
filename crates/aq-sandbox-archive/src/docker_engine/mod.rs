@@ -1,5 +1,12 @@
+//! Bounded Docker-compatible Engine requests for a node-owned Unix socket.
 //! Minimal Docker Engine API transport. The backend owns timeouts; transports
 //! only move bytes and never put request bodies in errors.
+
+mod info;
+mod socket;
+pub use info::*;
+pub use socket::*;
+
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
@@ -128,4 +135,17 @@ impl DockerTransport for UnixSocketTransport {
             .to_vec();
         Ok(DockerResponse { status, body })
     }
+}
+
+/// Percent-encodes everything except RFC 3986 unreserved characters.
+pub fn encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
 }
