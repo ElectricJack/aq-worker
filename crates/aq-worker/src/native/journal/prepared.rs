@@ -30,16 +30,14 @@ pub(super) fn validate(
     inputs::validate_capture(
         a,
         &p.preparation,
-        r.journal_revision,
-        p.prepared_at_ns,
+        inputs::Creation::new(r.journal_revision, p.prepared_at_ns),
         revision,
     )?;
     let plan = &p.preparation.delivery.original;
+    let original = &a.reservation.offer.offered.offer;
     ensure!(
-        r.identity == *identity
-            && r.binding == a.reservation.offer.offered.offer.binding
-            && r.guardian_id == plan.guardian_id
-            && r.launch_id == plan.launch_id
+        (&r.identity, &r.binding) == (identity, &original.binding)
+            && (r.guardian_id, r.launch_id) == (plan.guardian_id, plan.launch_id)
             && same(&r.reservation, &plan.reservation)?
             && r.journal_revision
                 > a.acceptance
@@ -58,11 +56,16 @@ pub(super) fn validate(
         same(&r.artifacts, &expected)?,
         "prepared artifact set changed"
     );
-    ensure!(
-        r.materials.len() == plan.materials.len(),
-        "prepared material count"
-    );
-    for (receipt, lease) in r.materials.iter().zip(&plan.materials) {
+    verify_material_receipts(a, &r.materials, &plan.materials)
+}
+
+fn verify_material_receipts(
+    a: &Attempt,
+    receipts: &[MaterialReceipt],
+    leases: &[aq_admission::MaterialLease],
+) -> Result<()> {
+    ensure!(receipts.len() == leases.len(), "prepared material count");
+    for (receipt, lease) in receipts.iter().zip(leases) {
         receipt.validate_against(lease, receipt.received_at_ms)?;
         let retained = a
             .material_downloads
@@ -166,7 +169,7 @@ impl Journal {
                 .context("prepare observation absent")?,
         };
         let mut next = self.next()?;
-        next.attempts.get_mut(&id).unwrap().prepared = Some(intent);
+        next.attempt_mut(id)?.prepared = Some(intent);
         self.persist(next)?;
         self.check_preparation(id, observed)?;
         Ok(request)
