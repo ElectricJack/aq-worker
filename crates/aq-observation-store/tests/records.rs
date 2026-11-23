@@ -31,50 +31,9 @@ fn scoped_public_record_cursor_cas_and_provenance_use_no_private_database() {
         )
         .unwrap();
     assert!(first.facts_added > 0);
-    let snapshot = store.snapshot().unwrap();
-    assert!(
-        store
-            .ingest_record(
-                Uuid::from_u128(8),
-                None,
-                Text::new("foreign-cursor").unwrap(),
-                bytes.clone(),
-                101
-            )
-            .is_err()
-    );
-    assert_eq!(store.snapshot().unwrap(), snapshot);
-    assert_eq!(
-        store
-            .ingest_record(
-                Uuid::from_u128(8),
-                Some("page1"),
-                Text::new("page2").unwrap(),
-                bytes,
-                101
-            )
-            .unwrap()
-            .facts_added,
-        0
-    );
+    assert_cursor_compare_and_swap(&store, bytes);
     let frozen = store.prepare().unwrap().unwrap();
-    let Message::Batch(batch) = &frozen.body.message else {
-        panic!()
-    };
-    assert!(batch.events.iter().all(|e| e.body.provenance.source_kind
-        == SourceKind::StructuredProviderEvent
-        && matches!(&e.body.provenance.cursor,SourceCursor::Record{id}if id.as_str()=="msg_a")));
-    assert!(
-        batch
-            .events
-            .iter()
-            .filter_map(|e| if let ObservationKind::Usage { usage } = &e.body.kind {
-                Some(&usage.cost)
-            } else {
-                None
-            })
-            .all(|c| matches!(c, Cost::Unknown { .. }))
-    );
+    assert_public_provenance(&frozen);
     store
         .ingest_record(
             Uuid::from_u128(8),
@@ -107,4 +66,53 @@ fn scoped_public_record_cursor_cas_and_provenance_use_no_private_database() {
         |e| matches!(&e.body.kind,ObservationKind::Usage{usage}if usage.correction_of.is_some())
     ));
     store.audit().unwrap();
+}
+
+fn assert_public_provenance(packet: &Packet) {
+    let Message::Batch(batch) = &packet.body.message else {
+        panic!()
+    };
+    assert!(batch.events.iter().all(|e| e.body.provenance.source_kind
+        == SourceKind::StructuredProviderEvent
+        && matches!(&e.body.provenance.cursor,SourceCursor::Record{id}if id.as_str()=="msg_a")));
+    assert!(
+        batch
+            .events
+            .iter()
+            .filter_map(|e| if let ObservationKind::Usage { usage } = &e.body.kind {
+                Some(&usage.cost)
+            } else {
+                None
+            })
+            .all(|c| matches!(c, Cost::Unknown { .. }))
+    );
+}
+
+fn assert_cursor_compare_and_swap(store: &Store, bytes: Vec<u8>) {
+    let snapshot = store.snapshot().unwrap();
+    assert!(
+        store
+            .ingest_record(
+                Uuid::from_u128(8),
+                None,
+                Text::new("foreign-cursor").unwrap(),
+                bytes.clone(),
+                101
+            )
+            .is_err()
+    );
+    assert_eq!(store.snapshot().unwrap(), snapshot);
+    assert_eq!(
+        store
+            .ingest_record(
+                Uuid::from_u128(8),
+                Some("page1"),
+                Text::new("page2").unwrap(),
+                bytes,
+                101
+            )
+            .unwrap()
+            .facts_added,
+        0
+    );
 }

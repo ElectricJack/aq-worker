@@ -3,7 +3,7 @@ use anyhow::{Result, ensure};
 use redb::{BackendError, StorageBackend};
 use serde::{Deserialize, Serialize};
 use std::{
-    fs::File,
+    fs::{File, Metadata},
     io,
     ops::Bound,
     os::{
@@ -57,9 +57,9 @@ impl Monitor {
         if !after {
             c.stats.operations += 1;
         }
-        if let Some(f) = c.fault
-            && f.operation == c.stats.operations
-            && f.after == after
+        if let Some(f) = c
+            .fault
+            .filter(|f| (f.operation, f.after) == (c.stats.operations, after))
         {
             match f.action {
                 Action::Error => return Err(io::Error::other("prototype injected IO fault")),
@@ -80,53 +80,62 @@ impl IdentityGuard {
     pub fn check(&self) -> io::Result<()> {
         let held = self.file.metadata()?;
         let directory = self.directory.metadata()?;
-        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        let result = unsafe {
-            libc::fstatat(
-                self.directory.as_raw_fd(),
-                c"store.redb".as_ptr(),
-                stat.as_mut_ptr(),
-                libc::AT_SYMLINK_NOFOLLOW,
-            )
-        };
-        if result != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let entry = unsafe { stat.assume_init() };
-        if !held.is_file()
-            || held.nlink() != 1
-            || held.uid() != unsafe { libc::geteuid() }
-            || held.mode() & 0o077 != 0
-            || entry.st_mode & libc::S_IFMT != libc::S_IFREG
-            || entry.st_dev != held.dev()
-            || entry.st_ino != held.ino()
-            || entry.st_nlink != 1
-            || entry.st_uid != held.uid()
-            || entry.st_mode & 0o077 != 0
-        {
+        let entry = database_entry(&self.directory)?;
+        if !private_file(&held) || !matches_file(&entry, &held) {
             return Err(io::Error::other(
                 "held database basename/inode changed; refuse unreachable writes",
             ));
         }
-        if !directory.is_dir()
-            || directory.nlink() == 0
-            || directory.uid() != held.uid()
-            || directory.mode() & 0o077 != 0
-        {
+        if !private_directory(&directory, held.uid()) || directory.nlink() == 0 {
             return Err(io::Error::other("held private directory changed"));
         }
         if let Some(root) = &self.root {
-            let named = std::fs::symlink_metadata(root)?;
-            if !named.is_dir()
-                || named.dev() != directory.dev()
-                || named.ino() != directory.ino()
-                || std::fs::canonicalize(root)? != *root
-            {
-                return Err(io::Error::other("private root basename/inode changed"));
-            }
+            verify_root_identity(root, &directory)?;
         }
         Ok(())
     }
+}
+fn database_entry(directory: &File) -> io::Result<libc::stat> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = unsafe {
+        libc::fstatat(
+            directory.as_raw_fd(),
+            c"store.redb".as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(unsafe { stat.assume_init() })
+}
+
+fn private_file(file: &Metadata) -> bool {
+    file.is_file()
+        && file.nlink() == 1
+        && file.uid() == unsafe { libc::geteuid() }
+        && file.mode() & 0o077 == 0
+}
+
+// The basename and held descriptor must still refer to the same private file.
+fn matches_file(entry: &libc::stat, held: &Metadata) -> bool {
+    let same_inode = (entry.st_dev, entry.st_ino) == (held.dev(), held.ino());
+    let is_private = entry.st_mode & 0o077 == 0 && entry.st_uid == held.uid();
+    let regular_single_link = entry.st_mode & libc::S_IFMT == libc::S_IFREG && entry.st_nlink == 1;
+    same_inode && is_private && regular_single_link
+}
+fn private_directory(directory: &Metadata, uid: u32) -> bool {
+    directory.is_dir() && directory.uid() == uid && directory.mode() & 0o077 == 0
+}
+fn verify_root_identity(root: &Path, directory: &Metadata) -> io::Result<()> {
+    let named = std::fs::symlink_metadata(root)?;
+    let same_directory =
+        named.is_dir() && (named.dev(), named.ino()) == (directory.dev(), directory.ino());
+    if !same_directory || std::fs::canonicalize(root)? != root {
+        return Err(io::Error::other("private root basename/inode changed"));
+    }
+    Ok(())
 }
 #[derive(Debug)]
 pub struct CappedFile {
@@ -139,9 +148,7 @@ impl CappedFile {
     pub fn open(directory: &File, create: bool, limit: u64, monitor: Monitor) -> Result<Self> {
         let directory_meta = directory.metadata()?;
         ensure!(
-            directory_meta.is_dir()
-                && directory_meta.uid() == unsafe { libc::geteuid() }
-                && directory_meta.mode() & 0o077 == 0,
+            private_directory(&directory_meta, unsafe { libc::geteuid() }),
             "private backend directory required"
         );
         let name = c"store.redb";
@@ -161,11 +168,7 @@ impl CappedFile {
         let file = unsafe { File::from_raw_fd(fd) };
         let m = file.metadata()?;
         ensure!(
-            m.is_file()
-                && m.uid() == unsafe { libc::geteuid() }
-                && m.mode() & 0o077 == 0
-                && m.nlink() == 1
-                && m.len() <= limit,
+            private_file(&m) && m.len() <= limit,
             "private capped database file refused"
         );
         // redb4.4.0's pinned format has a512-byte super-header. Its stable
@@ -328,13 +331,7 @@ pub fn private_root(root: &Path, create: bool) -> Result<(File, File)> {
     }
     let owner = unsafe { File::from_raw_fd(fd) };
     let m = owner.metadata()?;
-    ensure!(
-        m.is_file()
-            && m.nlink() == 1
-            && m.uid() == unsafe { libc::geteuid() }
-            && m.mode() & 0o077 == 0,
-        "private owner lock refused"
-    );
+    ensure!(private_file(&m), "private owner lock refused");
     fs2::FileExt::try_lock_exclusive(&owner)?;
     directory.sync_all()?;
     Ok((directory, owner))
@@ -378,11 +375,7 @@ fn verify_format(directory: &File) -> Result<()> {
     let file = unsafe { File::from_raw_fd(fd) };
     let m = file.metadata()?;
     ensure!(
-        m.is_file()
-            && m.nlink() == 1
-            && m.uid() == unsafe { libc::geteuid() }
-            && m.mode() & 0o077 == 0
-            && m.len() <= 256,
+        private_file(&m) && m.len() <= 256,
         "private format marker refused"
     );
     let mut bytes = vec![];

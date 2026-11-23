@@ -17,11 +17,7 @@ impl Store {
     pub fn release_source(&self, id: Uuid) -> Result<bool> {
         let tx = self.begin()?;
         let mut meta = read_meta(&tx)?;
-        let mut pending = false;
-        for row in tx.open_table(OUTBOX)?.iter()? {
-            let event: ObservationRecord = decode(row?.1.value())?;
-            pending |= event.body.provenance.source_id == id;
-        }
+        let pending = has_queued_events(&tx, id)?;
         let prefix = id.as_bytes().as_slice();
         let row = if pending {
             None
@@ -57,4 +53,13 @@ impl Store {
         self.commit(tx)?;
         Ok(true)
     }
+}
+
+fn has_queued_events(tx: &redb::WriteTransaction, id: Uuid) -> Result<bool> {
+    let mut pending = false;
+    for row in tx.open_table(OUTBOX)?.iter()? {
+        let event: ObservationRecord = decode(row?.1.value())?;
+        pending |= event.body.provenance.source_id == id;
+    }
+    Ok(pending)
 }
