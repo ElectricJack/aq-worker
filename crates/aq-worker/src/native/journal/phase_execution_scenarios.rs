@@ -264,6 +264,7 @@ async fn phase_execution_unpolled_and_cancelled_futures_preserve_exclusive_bundl
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_execution_write_cuts_reopen_history_only_and_preserve_all_holds() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for fault in [
         WriteFault::BeforeWrite,
         WriteFault::AfterFileSync,
@@ -407,6 +408,7 @@ async fn phase_and_legacy_resource_maps_share_admission_and_keep_first_exclusive
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_execution_history_reopen_refuses_changed_runtime_request_and_sender_cap() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for kind in 0..3 {
         let export = synthetic();
         let manifest = export.manifest.clone();
@@ -455,6 +457,7 @@ async fn phase_execution_history_reopen_refuses_changed_runtime_request_and_send
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn phase_execution_foreign_actual_observation_cannot_rebind_prepared_owner_and_retry_keeps_first_bundle()
  {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let h = Inputs::new_phase(export).await;
@@ -495,6 +498,7 @@ async fn phase_execution_foreign_actual_observation_cannot_rebind_prepared_owner
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_request_retains_prepared_owners_before_http_and_on_unknown_outcome() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let export = synthetic();
     let manifest = export.manifest.clone();
     let mut h = Inputs::new_phase(export).await;

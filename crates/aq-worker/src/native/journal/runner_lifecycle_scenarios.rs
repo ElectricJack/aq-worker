@@ -303,7 +303,11 @@ async fn unconfirmed_sandbox_stop_withholds_the_stopped_report() {
         .await
         .unwrap()
         .unwrap();
-    assert!(format!("{:#}", result.unwrap_err()).contains("sandbox stop uncertain"));
+    let error = result.unwrap_err();
+    assert!(
+        format!("{error:#}").contains("sandbox stop uncertain"),
+        "{error:#}"
+    );
     let state = h.pipeline().snapshot().await.unwrap();
     let native = state.attempts[&h.id].native_host.as_ref().unwrap();
     assert!(
