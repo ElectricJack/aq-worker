@@ -158,52 +158,14 @@ fn smart_http(root: PathBuf, seen: Arc<Mutex<Vec<String>>>, drop_push: Arc<Atomi
                         uri: axum::http::Uri,
                         h: HeaderMap,
                         body: Bytes| async move {
-        let text = |name: &str| {
-            let value = h.get(name).and_then(|v| v.to_str().ok());
-            value.unwrap_or_default().to_string()
-        };
         seen.lock().unwrap().push(format!(
             "{method} {rest}{} {} {}",
             uri.query().map(|q| format!("?{q}")).unwrap_or_default(),
-            text("authorization"),
-            text(transport::ATTEMPT_HEADER)
+            header_text(&h, "authorization"),
+            header_text(&h, transport::ATTEMPT_HEADER)
         ));
-        let mut child = Command::new(GIT)
-            .arg("http-backend")
-            .env("GIT_PROJECT_ROOT", &root)
-            .env("GIT_HTTP_EXPORT_ALL", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("PATH_INFO", format!("/remote.git/{rest}"))
-            .env("REQUEST_METHOD", method.as_str())
-            .env("QUERY_STRING", uri.query().unwrap_or_default())
-            .env("CONTENT_TYPE", text("content-type"))
-            .env("CONTENT_LENGTH", body.len().to_string())
-            .env("HTTP_CONTENT_ENCODING", text("content-encoding"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdin = child.stdin.take().unwrap();
-        let writer = std::thread::spawn(move || {
-            let _ = std::io::Write::write_all(&mut stdin, &body);
-        });
-        let out = child.wait_with_output().unwrap();
-        writer.join().unwrap();
-        let cut = out
-            .stdout
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .unwrap();
-        let mut response = axum::http::Response::builder();
-        for line in std::str::from_utf8(&out.stdout[..cut]).unwrap().lines() {
-            let (name, value) = line.split_once(": ").unwrap();
-            response = if name == "Status" {
-                response.status(value[..3].parse::<u16>().unwrap())
-            } else {
-                response.header(name, value)
-            };
-        }
-        let body = out.stdout[cut + 4..].to_vec();
+        let output = git_http_backend(&root, &method, &rest, &uri, &h, body);
+        let (response, body) = cgi_response(&output);
         if rest == "git-receive-pack" && drop_push.swap(false, Ordering::SeqCst) {
             // Applied, but the connection ends before the client reads its status.
             let cut: std::io::Result<Bytes> = Err(std::io::ErrorKind::ConnectionReset.into());
@@ -215,6 +177,65 @@ fn smart_http(root: PathBuf, seen: Arc<Mutex<Vec<String>>>, drop_push: Arc<Atomi
         response.body(axum::body::Body::from(body)).unwrap()
     };
     Router::new().route("/v1/git/{repository}/{*rest}", any(handler))
+}
+
+fn header_text(headers: &HeaderMap, name: &str) -> String {
+    headers
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn git_http_backend(
+    root: &Path,
+    method: &axum::http::Method,
+    rest: &str,
+    uri: &axum::http::Uri,
+    headers: &HeaderMap,
+    body: Bytes,
+) -> Vec<u8> {
+    let mut child = Command::new(GIT)
+        .arg("http-backend")
+        .env("GIT_PROJECT_ROOT", root)
+        .env("GIT_HTTP_EXPORT_ALL", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("PATH_INFO", format!("/remote.git/{rest}"))
+        .env("REQUEST_METHOD", method.as_str())
+        .env("QUERY_STRING", uri.query().unwrap_or_default())
+        .env("CONTENT_TYPE", header_text(headers, "content-type"))
+        .env("CONTENT_LENGTH", body.len().to_string())
+        .env(
+            "HTTP_CONTENT_ENCODING",
+            header_text(headers, "content-encoding"),
+        )
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    // Feed stdin while wait_with_output drains stdout: either pipe can fill.
+    let writer = std::thread::spawn(move || {
+        let _ = std::io::Write::write_all(&mut stdin, &body);
+    });
+    let out = child.wait_with_output().unwrap();
+    writer.join().unwrap();
+    out.stdout
+}
+
+fn cgi_response(output: &[u8]) -> (axum::http::response::Builder, Vec<u8>) {
+    let cut = output.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let mut response = axum::http::Response::builder();
+    for line in std::str::from_utf8(&output[..cut]).unwrap().lines() {
+        let (name, value) = line.split_once(": ").unwrap();
+        response = if name == "Status" {
+            response.status(value[..3].parse::<u16>().unwrap())
+        } else {
+            response.header(name, value)
+        };
+    }
+    let body = output[cut + 4..].to_vec();
+    (response, body)
 }
 
 pub fn config(root: &Path) -> Config {
@@ -252,4 +273,30 @@ pub fn remote(central: &Central) -> Remote {
 pub fn at(root: &Path, attempt: u128) -> PathBuf {
     root.join("slot/worktrees")
         .join(Uuid::from_u128(attempt).to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cgi_response_preserves_status_headers_and_binary_body() {
+        let body = b"\0\xffgit\r\n\r\npack";
+        for (status_header, status) in [("Status: 409 Conflict\r\n", 409), ("", 200)] {
+            let output = [
+                status_header.as_bytes(),
+                b"Content-Type: application/x-git-receive-pack-result\r\n\r\n",
+                body,
+            ]
+            .concat();
+            let (response, decoded) = cgi_response(&output);
+            let response = response.body(decoded).unwrap();
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()["content-type"],
+                "application/x-git-receive-pack-result"
+            );
+            assert_eq!(response.body(), body);
+        }
+    }
 }

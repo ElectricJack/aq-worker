@@ -47,6 +47,20 @@ pub enum WriteBack {
     Superseded(i64),
 }
 
+impl WriteBack {
+    fn from_response(status: u16, outcome: Value) -> Result<Self> {
+        match (
+            status,
+            outcome["accepted"].as_bool(),
+            outcome["version"].as_i64(),
+        ) {
+            (200, Some(true), Some(version)) => Ok(Self::Accepted(version)),
+            (409, Some(false), Some(version)) => Ok(Self::Superseded(version)),
+            _ => anyhow::bail!("login write-back refused (status {status})"),
+        }
+    }
+}
+
 /// `last_refresh` and the account fingerprint of a ChatGPT `auth.json`.
 fn stamp(auth: &[u8]) -> Result<(Option<DateTime<Utc>>, Uuid)> {
     let login: Value = serde_json::from_slice(auth).context("Codex login JSON")?;
@@ -95,6 +109,22 @@ impl LoginLease {
                 && at.is_some_and(|at| self.last_refresh.is_none_or(|old| at > old))
         })
     }
+
+    fn refresh_header(&self, digest: Value) -> Result<String> {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        let refresh = serde_json::json!({
+            "schema_version": 1,
+            "operation_id": Uuid::new_v4(),
+            "identity": self.identity,
+            "binding": self.binding,
+            "lease_id": self.lease_id,
+            "base_version": self.base_version,
+            "content_digest": digest,
+        });
+        let refresh = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&refresh)?);
+        ensure!(refresh.len() <= 8192, "login write-back header size");
+        Ok(refresh)
+    }
 }
 impl NodeLink {
     /// C5b write-back under the node credential: `bytes` as version
@@ -106,19 +136,8 @@ impl NodeLink {
         bytes: &[u8],
         digest: Value,
     ) -> Result<WriteBack> {
-        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
         use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
-        let refresh = serde_json::json!({
-            "schema_version": 1,
-            "operation_id": Uuid::new_v4(),
-            "identity": lease.identity,
-            "binding": lease.binding,
-            "lease_id": lease.lease_id,
-            "base_version": lease.base_version,
-            "content_digest": digest,
-        });
-        let refresh = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&refresh)?);
-        ensure!(refresh.len() <= 8192, "login write-back header size");
+        let refresh = lease.refresh_header(digest)?;
         let (origin, credential, access) = self.parts();
         let upstream = crate::forward::Upstream::new(
             origin,
@@ -145,15 +164,7 @@ impl NodeLink {
             .map_err(|_| anyhow::anyhow!("login write-back unavailable; disposition unknown"))?;
         let status = response.status().as_u16();
         let outcome: Value = serde_json::from_slice(&response.bytes().await?).unwrap_or_default();
-        match (
-            status,
-            outcome["accepted"].as_bool(),
-            outcome["version"].as_i64(),
-        ) {
-            (200, Some(true), Some(version)) => Ok(WriteBack::Accepted(version)),
-            (409, Some(false), Some(version)) => Ok(WriteBack::Superseded(version)),
-            _ => anyhow::bail!("login write-back refused (status {status})"),
-        }
+        WriteBack::from_response(status, outcome)
     }
 }
 
