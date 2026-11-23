@@ -125,6 +125,16 @@ fn soon() -> Instant {
     Instant::now() + Duration::from_secs(5)
 }
 
+async fn finish_login(
+    login: SubscriptionLogin,
+    service: &mut FakeServer,
+    d: &Dirs,
+) -> WriteBackReceipt {
+    login
+        .finish(service, &d.journal, &d.files, soon())
+        .await
+        .unwrap()
+}
 #[tokio::test]
 async fn expired_subscription_login_fails_fast_with_credential_reason() {
     use HarnessExit::AuthenticationFailed as Auth;
@@ -139,20 +149,27 @@ async fn expired_subscription_login_fails_fast_with_credential_reason() {
     let AttemptOutcome::Failed(failure) = outcome else {
         panic!("expected a login failure, got {outcome:?}");
     };
+    check_expired_login(failure, &harness, &service);
+    let receipt = finish_login(login, &mut service, &d).await;
+    assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
+    assert!(service.uploads.is_empty());
+
+    check_authentication_relaunches().await;
+}
+fn check_expired_login(failure: LoginFailure, harness: &FakeHarness, service: &FakeServer) {
     assert_eq!(failure, LoginFailure::CREDENTIAL_INVALID);
     assert_eq!(
         serde_json::to_value(failure).unwrap(),
         json!({"reason":"credential_invalid","retryable":false})
     );
-    assert_eq!(harness.seen.len(), 1, "no relaunch without a newer login");
-    assert_eq!(service.fetches, 2, "install fetch plus one newest recheck");
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
-    assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
-    assert!(service.uploads.is_empty());
-
+    assert_eq!(
+        (harness.seen.len(), service.fetches),
+        (1, 2),
+        "one launch, install fetch and newest recheck"
+    );
+}
+async fn check_authentication_relaunches() {
+    use HarnessExit::AuthenticationFailed as Auth;
     // A newer version earns exactly one relaunch; a second 401 is final.
     let mut service = server(vec![
         issued(LoginKind::ClaudeOauthToken, 3, b"sk-expired"),
@@ -216,6 +233,16 @@ async fn codex_attempt(
     login
 }
 
+fn check_teardown(d: &Dirs, receipt: &WriteBackReceipt) {
+    assert!(!receipt.retained && !d.home.exists(), "login home wiped");
+    assert!(!d.files.root().join("refreshed-login.json").exists());
+}
+fn check_journal_redacts(d: &Dirs, values: &[&str]) {
+    let raw = std::fs::read_to_string(d.journal.join("login-writeback.json")).unwrap();
+    for v in values {
+        assert!(!raw.contains(v));
+    }
+}
 #[tokio::test]
 async fn refreshed_login_written_back_before_teardown() {
     let d = dirs();
@@ -230,27 +257,25 @@ async fn refreshed_login_written_back_before_teardown() {
         replayed: false,
     }));
     let login = codex_attempt(&d, &mut service, refresh_to(refreshed.clone())).await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(
         service.uploads,
         vec![(LEASE, 7, refreshed.clone()), (LEASE, 7, refreshed.clone())],
         "N+1 based on N, retried past a transient failure"
     );
-    assert_eq!(receipt.outcome, ReceiptOutcome::Accepted);
-    assert_eq!(receipt.version, Some(8));
-    assert_eq!(receipt.base_version, 7);
-    assert_eq!(receipt.content_digest, Some(Digest::of(&refreshed)));
-    assert!(!receipt.retained);
-    assert!(!d.home.exists(), "login home wiped");
-    assert!(!d.files.root().join("refreshed-login.json").exists());
+    assert_eq!(
+        (receipt.outcome, receipt.version),
+        (ReceiptOutcome::Accepted, Some(8))
+    );
+    assert_eq!(
+        (receipt.base_version, &receipt.content_digest),
+        (7, &Some(Digest::of(&refreshed)))
+    );
+    check_teardown(&d, &receipt);
     let journal = journaled(&d);
     assert_eq!(journal["outcome"], "accepted");
     assert_eq!(journal["version"], 8);
-    let raw = std::fs::read_to_string(d.journal.join("login-writeback.json")).unwrap();
-    assert!(!raw.contains("refresh-v8") && !raw.contains("offline-access"));
+    check_journal_redacts(&d, &["refresh-v8", "offline-access"]);
 }
 
 #[tokio::test]
@@ -259,20 +284,14 @@ async fn unchanged_or_stale_login_is_not_uploaded() {
     let original = codex_login("refresh-v7", "2026-11-01T00:00:00Z");
     let mut service = server(vec![issued(LoginKind::CodexChatgptAuth, 7, &original)]);
     let login = codex_attempt(&d, &mut service, None).await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
     // Different bytes but no newer last_refresh: not a refresh.
     let d = dirs();
     let mut service = server(vec![issued(LoginKind::CodexChatgptAuth, 7, &original)]);
     let stale = codex_login("refresh-other", "2026-10-01T00:00:00Z");
     let login = codex_attempt(&d, &mut service, refresh_to(stale)).await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
     assert!(service.uploads.is_empty() && !d.home.exists());
 }
@@ -288,10 +307,7 @@ async fn invalid_refreshed_login_is_not_uploaded() {
         refresh_to(b"{\"auth_mode\":\"chatgpt\"".to_vec()),
     )
     .await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
     assert!(service.uploads.is_empty() && !d.home.exists());
 }
@@ -309,10 +325,7 @@ async fn reconcile_refuses_symlinked_login_and_still_wipes() {
         std::os::unix::fs::symlink(&target, home.join("auth.json")).unwrap();
     });
     let login = codex_attempt(&d, &mut service, Some(swap)).await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
     assert!(service.uploads.is_empty() && !d.home.exists() && decoy.exists());
 }
@@ -327,15 +340,13 @@ async fn superseded_write_back_discards_refreshed_login() {
         .push_back(Ok(WriteBack::Superseded { version: 9 }));
     let refreshed = codex_login("refresh-v8", "2026-11-04T12:00:00Z");
     let login = codex_attempt(&d, &mut service, refresh_to(refreshed)).await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
-    assert_eq!(receipt.outcome, ReceiptOutcome::Superseded);
-    assert_eq!(receipt.version, Some(9));
+    let receipt = finish_login(login, &mut service, &d).await;
+    assert_eq!(
+        (receipt.outcome, receipt.version),
+        (ReceiptOutcome::Superseded, Some(9))
+    );
     assert_eq!(service.uploads.len(), 1, "a newer version wins; no retry");
-    assert!(!receipt.retained && !d.home.exists());
-    assert!(!d.files.root().join("refreshed-login.json").exists());
+    check_teardown(&d, &receipt);
 }
 
 #[tokio::test]
@@ -369,18 +380,17 @@ fn login_debug_redacts_material() {
     assert!(!format!("{login:?}").contains("sk-secret-token"));
 }
 
-#[tokio::test]
-async fn runner_write_back_speaks_c5b_contract() {
-    use axum::{
-        Router,
-        body::Bytes,
-        extract::State,
-        http::{HeaderMap, StatusCode, Uri},
-        routing::any,
-    };
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-    use std::sync::{Arc, Mutex};
-    type Seen = Arc<Mutex<Vec<(String, HeaderMap, Vec<u8>)>>>;
+use axum::{
+    Router,
+    body::Bytes,
+    extract::State,
+    http::{HeaderMap, StatusCode, Uri},
+    routing::any,
+};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use std::sync::{Arc, Mutex};
+type Seen = std::sync::Arc<std::sync::Mutex<Vec<(String, HeaderMap, Vec<u8>)>>>;
+async fn writeback_peer() -> (String, Seen, tokio::task::JoinHandle<()>) {
     let replies: Replies = Arc::new(Mutex::new(
         [
             (200, r#"{"accepted":true,"version":8,"replayed":false}"#),
@@ -412,62 +422,70 @@ async fn runner_write_back_speaks_c5b_contract() {
         .fallback(any(record))
         .with_state((seen.clone(), replies));
     let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    (origin, seen, task)
+}
+fn recorded_refresh(first: &(String, HeaderMap, Vec<u8>), body: &[u8]) -> Value {
+    let (path, headers, sent) = first;
+    assert_eq!(
+        (path.as_str(), headers["content-type"].to_str().unwrap()),
+        (
+            "/v1/worker/profiled/material/refresh",
+            "application/octet-stream"
+        )
+    );
+    assert_eq!(
+        headers["authorization"],
+        "Bearer fixture_only_not_a_real_secret_00000000"
+    );
+    assert_eq!(sent, body);
+    serde_json::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(headers["aq-material-refresh"].as_bytes())
+            .unwrap(),
+    )
+    .unwrap()
+}
+#[tokio::test]
+async fn runner_write_back_speaks_c5b_contract() {
+    let (origin, seen, task) = writeback_peer().await;
     let (_dir, http, permit) = super::auth_tests::client(&origin, false);
     let body = codex_login("refresh-v8", "2026-11-04T12:00:00Z");
-    assert_eq!(
-        http.refresh_login(LEASE, 7, &body).await.unwrap(),
+    for expected in [
         WriteBack::Accepted {
             version: 8,
-            replayed: false
-        }
-    );
-    assert_eq!(
-        http.refresh_login(LEASE, 7, &body).await.unwrap(),
-        WriteBack::Superseded { version: 9 }
-    );
-    assert_eq!(
-        http.refresh_login(LEASE, 7, &body).await.unwrap(),
-        WriteBack::NotRenewable
-    );
+            replayed: false,
+        },
+        WriteBack::Superseded { version: 9 },
+        WriteBack::NotRenewable,
+    ] {
+        assert_eq!(http.refresh_login(LEASE, 7, &body).await.unwrap(), expected);
+    }
     assert!(
         http.refresh_login(LEASE, 7, &body).await.is_err(),
         "5xx is transient"
     );
     assert!(!http.authority_lost(), "CAS answers are not authority loss");
     task.abort();
-    let seen = seen.lock().unwrap();
-    let (path, headers, sent) = &seen[0];
-    assert_eq!(path, "/v1/worker/profiled/material/refresh");
-    assert_eq!(headers["content-type"], "application/octet-stream");
+    let refresh = recorded_refresh(&seen.lock().unwrap()[0], &body);
+    let expected = json!({
+        "schema_version":1,
+        "lease_id":LEASE,
+        "base_version":7,
+        "content_digest":Digest::of(&body),
+        "binding":http.launch_binding(),
+    });
+    for (key, value) in expected.as_object().unwrap() {
+        assert_eq!(&refresh[key], value, "refresh field {key}");
+    }
     assert_eq!(
-        headers["authorization"],
-        "Bearer fixture_only_not_a_real_secret_00000000"
-    );
-    assert_eq!(sent, &body);
-    let refresh: Value = serde_json::from_slice(
-        &URL_SAFE_NO_PAD
-            .decode(headers["aq-material-refresh"].as_bytes())
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(refresh["schema_version"], 1);
-    assert_eq!(refresh["lease_id"], LEASE.to_string());
-    assert_eq!(refresh["base_version"], 7);
-    assert_eq!(
-        refresh["content_digest"],
-        serde_json::to_value(Digest::of(&body)).unwrap()
-    );
-    assert_eq!(
-        refresh["identity"]["node_id"],
-        serde_json::to_value(permit.binding.node.node_id).unwrap()
-    );
-    assert_eq!(
-        refresh["identity"]["boot_id"],
-        serde_json::to_value(permit.binding.node.boot_id).unwrap()
-    );
-    assert_eq!(
-        refresh["binding"],
-        serde_json::to_value(http.launch_binding()).unwrap()
+        (
+            &refresh["identity"]["node_id"],
+            &refresh["identity"]["boot_id"]
+        ),
+        (
+            &json!(permit.binding.node.node_id),
+            &json!(permit.binding.node.boot_id)
+        )
     );
     let keys: Vec<_> = refresh.as_object().unwrap().keys().cloned().collect();
     assert_eq!(keys.len(), 7, "exactly MaterialRefresh's fields: {keys:?}");
@@ -521,10 +539,7 @@ async fn gemini_refreshed_creds_written_back_and_only_login_files_wiped() {
         replayed: false,
     }));
     let login = gemini_attempt(&d, &mut service, gemini_refresh_to(refreshed.clone())).await;
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(service.uploads, vec![(LEASE, 3, refreshed.clone())]);
     assert_eq!(receipt.outcome, ReceiptOutcome::Accepted);
     assert_eq!(journaled(&d)["kind"], "gemini_oauth_creds");
@@ -535,8 +550,7 @@ async fn gemini_refreshed_creds_written_back_and_only_login_files_wiped() {
         state.join("tmp/w/chats/session.jsonl").exists(),
         "recording kept for the reader"
     );
-    let raw = std::fs::read_to_string(d.journal.join("login-writeback.json")).unwrap();
-    assert!(!raw.contains("g-refresh-3") && !raw.contains("offline-gemini-access"));
+    check_journal_redacts(&d, &["g-refresh-3", "offline-gemini-access"]);
 }
 
 #[tokio::test]
@@ -552,10 +566,7 @@ async fn gemini_equal_older_or_invalid_creds_are_not_uploaded() {
         let d = dirs();
         let mut service = server(vec![issued(LoginKind::GeminiOauthCreds, 3, &original)]);
         let login = gemini_attempt(&d, &mut service, rewrite).await;
-        let receipt = login
-            .finish(&mut service, &d.journal, &d.files, soon())
-            .await
-            .unwrap();
+        let receipt = finish_login(login, &mut service, &d).await;
         assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
         assert!(service.uploads.is_empty());
         assert!(!d.home.join(".gemini").join(GEMINI_OAUTH_FILE).exists());
@@ -624,20 +635,21 @@ async fn opencode_refreshed_login_written_back_and_only_the_login_wiped() {
     }));
     let login = opencode_attempt(&d, &mut service, refresh_to(refreshed.clone())).await;
     std::fs::write(d.home.join("opencode.db"), b"session store").unwrap();
-    let receipt = login
-        .finish(&mut service, &d.journal, &d.files, soon())
-        .await
-        .unwrap();
+    let receipt = finish_login(login, &mut service, &d).await;
     assert_eq!(service.uploads, vec![(LEASE, 7, refreshed.clone())]);
-    assert_eq!(receipt.outcome, ReceiptOutcome::Accepted);
-    assert_eq!(receipt.version, Some(8));
-    assert!(!d.home.join("auth.json").exists(), "login wiped");
-    assert!(
-        d.home.join("opencode.db").exists(),
-        "transcript store left for the reader"
+    assert_eq!(
+        (receipt.outcome, receipt.version),
+        (ReceiptOutcome::Accepted, Some(8))
     );
-    let raw = std::fs::read_to_string(d.journal.join("login-writeback.json")).unwrap();
-    assert!(!raw.contains("refresh-v8") && !raw.contains("offline-access"));
+    assert_eq!(
+        (
+            d.home.join("auth.json").exists(),
+            d.home.join("opencode.db").exists()
+        ),
+        (false, true),
+        "login wiped and transcript store retained"
+    );
+    check_journal_redacts(&d, &["refresh-v8", "offline-access"]);
 }
 
 #[tokio::test]
@@ -657,10 +669,7 @@ async fn opencode_unchanged_stale_or_foreign_login_is_not_uploaded() {
         let original = opencode_login("refresh-v7", 1_793_000_000_000);
         let mut service = server(vec![issued(LoginKind::OpenCodeChatgptAuth, 7, &original)]);
         let login = opencode_attempt(&d, &mut service, rewrite).await;
-        let receipt = login
-            .finish(&mut service, &d.journal, &d.files, soon())
-            .await
-            .unwrap();
+        let receipt = finish_login(login, &mut service, &d).await;
         assert_eq!(receipt.outcome, ReceiptOutcome::NotUploaded);
         assert!(service.uploads.is_empty() && !d.home.join("auth.json").exists());
     }

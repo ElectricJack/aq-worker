@@ -1,6 +1,10 @@
 use super::*;
 use aq_admission_sandbox::sandbox::{HarnessVersion, Money, TemplateAdvertisement};
 use aq_session_protocol::{ArtifactRef, Digest, LaunchManifest, SessionIdentity, Text};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::{
     fs,
     os::unix::fs::{PermissionsExt, symlink},
@@ -365,17 +369,27 @@ async fn unavailable_provider_refuses_before_backend_effects() {
     );
 }
 
-#[tokio::test]
-async fn unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shutdown() {
+fn unavailable(
+    root: &std::path::Path,
+) -> anyhow::Result<Controller<FakeBackend, super::UnavailableProvider>> {
+    Controller::open(
+        root,
+        Uuid::from_u128(1),
+        config(),
+        FakeBackend::default(),
+        super::UnavailableProvider,
+    )
+}
+async fn heartbeat_peer(
+    stop: tokio::sync::watch::Sender<bool>,
+) -> (
+    crate::client::Client,
+    Arc<AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
     use axum::{Json, Router, routing::post};
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
     let heartbeats = Arc::new(AtomicUsize::new(0));
     let counter = heartbeats.clone();
-    let (tx, rx) = tokio::sync::watch::channel(false);
-    let stop = tx.clone();
     let app = Router::new()
         .route(
             "/v1/worker/probe",
@@ -411,16 +425,15 @@ async fn unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shu
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
+    (client, heartbeats, server)
+}
+#[tokio::test]
+async fn unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shutdown() {
+    let (tx, rx) = tokio::sync::watch::channel(false);
+    let (client, heartbeats, server) = heartbeat_peer(tx).await;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("node");
-    let mut c = Controller::open(
-        &root,
-        Uuid::from_u128(1),
-        config(),
-        FakeBackend::default(),
-        super::UnavailableProvider,
-    )
-    .unwrap();
+    let mut c = unavailable(&root).unwrap();
     let mut shutdown = rx.clone();
     let heartbeat = crate::client::run_loop(&client, async move {
         while !*shutdown.borrow() {
@@ -437,16 +450,7 @@ async fn unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shu
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {},
         }
         // The registration refusal does not release the lock while heartbeat runs.
-        assert!(
-            Controller::open(
-                &root,
-                Uuid::from_u128(1),
-                config(),
-                FakeBackend::default(),
-                super::UnavailableProvider
-            )
-            .is_err()
-        );
+        assert!(unavailable(&root).is_err());
         tokio::time::timeout(std::time::Duration::from_secs(5), service)
             .await
             .unwrap()
@@ -473,14 +477,7 @@ async fn unavailable_provider_keeps_real_foundation_heartbeat_and_root_until_shu
 #[tokio::test]
 async fn unavailable_provider_preserves_terminal_heartbeat_error() {
     let dir = tempfile::tempdir().unwrap();
-    let mut c = Controller::open(
-        &dir.path().join("node"),
-        Uuid::from_u128(1),
-        config(),
-        FakeBackend::default(),
-        super::UnavailableProvider,
-    )
-    .unwrap();
+    let mut c = unavailable(&dir.path().join("node")).unwrap();
     let (_tx, rx) = tokio::sync::watch::channel(false);
     let error = c
         .run_with_heartbeat(rx, async {
