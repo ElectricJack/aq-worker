@@ -149,16 +149,16 @@ pub(super) async fn run<S: LoginService, T: RunnerTransport>(
     let root = journal.directory.join("hosts");
     let launched = harness
         .startup
-        .launch(
-            &root,
-            site.frozen,
-            initial,
-            site.local,
-            &mut journal,
-            harness.agent,
-            driver.shutdown.clone(),
-            login_env,
-        )
+        .launch(startup::Launch {
+            root: &root,
+            frozen: site.frozen,
+            permit: initial,
+            local: site.local,
+            journal: &mut journal,
+            agent: harness.agent,
+            shutdown: driver.shutdown.clone(),
+            login: login_env,
+        })
         .await;
     let (handle, output_runtime) = match launched {
         Ok(launched) => launched,

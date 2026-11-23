@@ -121,10 +121,12 @@ impl Renewal<'_> {
             delivery,
             &self.request,
             nonce,
-            sent,
-            received,
-            self.deadline,
-            self.hard,
+            transport::RenewalWindow {
+                sent,
+                received,
+                prior: self.deadline,
+                hard: self.hard,
+            },
         )
         .map_err(|_| "invalid renewal")?;
         let renewed =
