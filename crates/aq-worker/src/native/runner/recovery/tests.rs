@@ -225,7 +225,7 @@ fn only_an_attempt_before_prepare_settles_as_never_started() {
 }
 
 #[tokio::test]
-async fn unconfirmed_prepare_rechecks_until_the_original_closure_is_confirmed() {
+async fn unconfirmed_prepare_rechecks_until_the_exact_closure_or_lapsed_grant_release() {
     use aq_admission::{
         ArtifactRef, Digest, SessionIdentity, Text,
         control::{ControlReply, CurrentAuthority, LaunchOwner, ReconcilePage, Versions},
@@ -286,7 +286,7 @@ async fn unconfirmed_prepare_rechecks_until_the_original_closure_is_confirmed() 
                             0,
                         ),
                         1 => (CurrentPhase::NeverGranted { closure }, 0),
-                        _ => (
+                        2 => (
                             CurrentPhase::StopRequired {
                                 owner: Some(LaunchOwner {
                                     reservation_id,
@@ -296,6 +296,24 @@ async fn unconfirmed_prepare_rechecks_until_the_original_closure_is_confirmed() 
                                 last_grant_id: Some(Uuid::new_v4()),
                                 execution_deadline_ms: Some(10_000),
                                 reason: FailureCode::RecoveryRequired,
+                            },
+                            1,
+                        ),
+                        index => (
+                            CurrentPhase::Released {
+                                release: ArtifactRef {
+                                    id: Text::new(format!(
+                                        "aq.granted-never-started/{}",
+                                        if index == 3 {
+                                            Uuid::new_v4()
+                                        } else {
+                                            binding.attempt_id
+                                        }
+                                    ))
+                                    .unwrap(),
+                                    version: Text::new("1").unwrap(),
+                                    digest: Digest::of(b"released after lapse"),
+                                },
                             },
                             1,
                         ),
@@ -340,11 +358,19 @@ async fn unconfirmed_prepare_rechecks_until_the_original_closure_is_confirmed() 
     let issued = reconcile_prepared(&client, &state, &attempt)
         .await
         .unwrap_err();
+    assert!(issued.downcast_ref::<RecoveryHold>().is_none());
+    let wrong = reconcile_prepared(&client, &state, &attempt)
+        .await
+        .unwrap_err();
     assert_eq!(
-        issued.downcast_ref::<RecoveryHold>().map(|h| h.0),
-        Some("prepared_grant_issued")
+        wrong.downcast_ref::<RecoveryHold>().map(|h| h.0),
+        Some("prepare_history_conflict")
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        reconcile_prepared(&client, &state, &attempt).await.unwrap(),
+        ReconcileDisposition::NeverExecuted
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 5);
     server.abort();
 }
 #[tokio::test]

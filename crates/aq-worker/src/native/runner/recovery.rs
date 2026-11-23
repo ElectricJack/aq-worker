@@ -377,17 +377,27 @@ async fn reconcile_prepared(
                     "closed preparation confirmed by server; ready to archive the slot");
                 Ok(ReconcileDisposition::NeverExecuted)
             }
-            _ if authority.versions.grant_revision > 0 => Err(RecoveryHold(
-                "prepared_grant_issued",
-                anyhow::anyhow!("server issued a grant absent from this journal; launch disposition requires reconciliation"),
+            CurrentPhase::Released { release }
+                if authority.versions.grant_revision > 0
+                    && release.version.as_str() == "1"
+                    && release.id.as_str() == format!("aq.granted-never-started/{}", reservation.offer.offered.offer.binding.attempt_id) =>
+            {
+                tracing::info!(attempt = %authority.binding.attempt_id, receipt = %release.id.as_str(),
+                    "server settled the undelivered launch grant; ready to archive the slot");
+                Ok(ReconcileDisposition::NeverExecuted)
+            }
+            CurrentPhase::Released { .. } | CurrentPhase::Stopped { .. }
+            | CurrentPhase::Granted { started_operation_id: Some(_), .. } => Err(RecoveryHold(
+                "prepare_history_conflict",
+                anyhow::anyhow!("server history cannot establish that the launch missing from this journal never started"),
             ).into()),
-            _ => anyhow::bail!("waiting for the server's durable never-granted closure"),
+            _ => anyhow::bail!("waiting for AQ to settle this preparation or its undelivered grant"),
         },
         [ReconcileEntry::Refused { code: FailureCode::UnknownOrNotOwned, .. }] => Err(RecoveryHold(
             "prepare_reconciliation_scope_refused",
             anyhow::anyhow!("the server could not identify this preparation in the worker's scope"),
         ).into()),
-        _ => anyhow::bail!("waiting for the server's durable never-granted closure"),
+        _ => anyhow::bail!("waiting for AQ to settle this preparation or its undelivered grant"),
     }
 }
 /// A Frozen-phase launch whose host never recorded Running or a terminal.
