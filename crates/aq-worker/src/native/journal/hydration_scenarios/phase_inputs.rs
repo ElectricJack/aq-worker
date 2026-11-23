@@ -398,11 +398,12 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
         serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();
     config.maximum_preparation_ms = 30000;
     config.renderer = a.reservation.offer.startup.renderer_qualification.clone();
-    let grant = crate::native::runner::test_collect(
-        h.pipeline(),
-        &h.inventory().await,
-        &config,
-        h.id,
+    let grant = crate::native::runner::TestPreparation {
+        pipeline: h.pipeline(),
+        inventory: &h.inventory().await,
+        config: &config,
+    }
+    .collect(
         &a.reservation.offer,
         a.reservation.deadline_ns,
         git.client.clone(),
