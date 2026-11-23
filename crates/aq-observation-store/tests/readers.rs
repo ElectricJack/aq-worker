@@ -311,7 +311,7 @@ fn finish_history(store: &Store, cursor: u64) {
         source_id: Uuid::from_u128(8),
         binding: support::binding(),
         generation: 2,
-        cursor: cursor,
+        cursor,
         checkpoint: checkpoint("synthetic-authenticated-native-history-end"),
     };
     let verified = aq_observation_store::VerifiedHistoryBoundary::verify(boundary, &Owner).unwrap();
