@@ -100,6 +100,19 @@ fn private_dir(path: &Path) -> Result<()> {
         .create(path)
         .with_context(|| format!("create {}", path.display()))
 }
+fn wipe_materials(current: &Path) -> Result<()> {
+    let Ok(materials) = std::fs::read_dir(current.join("materials")) else {
+        return Ok(());
+    };
+    for entry in materials.flatten() {
+        match std::fs::remove_file(entry.path().join("material.bin")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => bail!("wipe material in {}: {e}", entry.path().display()),
+        }
+    }
+    Ok(())
+}
 impl Layout {
     pub fn for_profile(profile: &str) -> Result<Self> {
         ensure!(valid_profile(profile), "invalid profile name");
@@ -307,15 +320,7 @@ impl Layout {
             self.remove_slot_runtime(slot)?;
             return Ok(None);
         }
-        if let Ok(materials) = std::fs::read_dir(current.join("materials")) {
-            for entry in materials.flatten() {
-                match std::fs::remove_file(entry.path().join("material.bin")) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => bail!("wipe material in {}: {e}", entry.path().display()),
-                }
-            }
-        }
+        wipe_materials(&current)?;
         let archive = self.archive_dir(slot);
         private_dir(&archive)?;
         let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
@@ -508,6 +513,7 @@ mod tests {
         let l = layout(dir.path());
         let current = l.fresh_current(2).unwrap();
         std::fs::create_dir_all(current.join("materials/m1")).unwrap();
+        std::fs::create_dir_all(current.join("materials/missing")).unwrap();
         std::fs::write(current.join("materials/m1/material.bin"), b"login").unwrap();
         std::fs::write(current.join("journal"), b"j").unwrap();
         let kept = l.archive_current(2, false).unwrap().unwrap();
@@ -517,6 +523,21 @@ mod tests {
         let empty = l.archive_current(2, true).unwrap().unwrap();
         assert!(empty.join("EMPTY").exists());
         assert_eq!(l.archive_current(2, true).unwrap(), None);
+    }
+    #[test]
+    fn archive_stops_before_rename_when_material_wipe_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let l = layout(dir.path());
+        let current = l.fresh_current(1).unwrap();
+        // A directory at the material path makes remove_file fail even when running as root.
+        std::fs::create_dir_all(current.join("materials/m1/material.bin")).unwrap();
+
+        let error = l.archive_current(1, true).unwrap_err();
+
+        assert!(error.to_string().contains("wipe material in"));
+        assert!(current.join("materials/m1/material.bin").is_dir());
+        assert!(l.slot_runtime(1).is_dir());
+        assert!(!l.archive_dir(1).exists());
     }
     #[test]
     fn prune_deletes_only_empty_archives() {
