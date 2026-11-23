@@ -119,54 +119,19 @@ impl Socket {
                 libc::MSG_DONTWAIT | libc::MSG_CMSG_CLOEXEC,
             )
         };
-        // Own every received descriptor before rejecting malformed ancillary data.
-        let mut fds = Vec::new();
-        let mut credentials = None;
-        let mut valid = true;
-        unsafe {
-            let mut c = libc::CMSG_FIRSTHDR(&message);
-            while !c.is_null() {
-                let length = (*c).cmsg_len;
-                if (*c).cmsg_level == libc::SOL_SOCKET
-                    && (*c).cmsg_type == libc::SCM_RIGHTS
-                    && length >= libc::CMSG_LEN(0) as usize
-                {
-                    let body = length - libc::CMSG_LEN(0) as usize;
-                    valid &= body == size_of::<RawFd>();
-                    for index in 0..body / size_of::<RawFd>() {
-                        let fd = std::ptr::read_unaligned(
-                            libc::CMSG_DATA(c)
-                                .add(index * size_of::<RawFd>())
-                                .cast::<RawFd>(),
-                        );
-                        if fd >= 0 {
-                            fds.push(OwnedFd::from_raw_fd(fd));
-                        } else {
-                            valid = false;
-                        }
-                    }
-                } else if (*c).cmsg_level == libc::SOL_SOCKET
-                    && (*c).cmsg_type == libc::SCM_CREDENTIALS
-                    && length == libc::CMSG_LEN(size_of::<libc::ucred>() as _) as usize
-                    && credentials.is_none()
-                {
-                    credentials = Some(std::ptr::read_unaligned(
-                        libc::CMSG_DATA(c).cast::<libc::ucred>(),
-                    ));
-                } else {
-                    valid = false;
-                }
-                c = libc::CMSG_NXTHDR(&message, c);
-            }
-        }
+        // SAFETY: recvmsg populated the aligned control buffer above. This call
+        // takes ownership of every received descriptor before validating the packet.
+        let mut ancillary = unsafe { Ancillary::receive(&message) };
         ensure!(
             count > 0
                 && message.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) == 0
-                && valid
-                && fds.len() <= 1,
+                && !ancillary.invalid
+                && ancillary.fds.len() <= 1,
             "capsule closed/malformed packet"
         );
-        let credentials = credentials.context("capsule packet lacks post-send credentials")?;
+        let credentials = ancillary
+            .credentials
+            .context("capsule packet lacks post-send credentials")?;
         // An ancestor sender is deliberately invisible as PID0 inside a private
         // PID namespace. Only the trusted pre-exec Release stage permits that.
         ensure!(
@@ -178,8 +143,103 @@ impl Socket {
         bytes.truncate(count as usize);
         Ok(Packet {
             value: serde_json::from_slice(&bytes)?,
-            fd: fds.pop(),
+            fd: ancillary.fds.pop(),
             credentials,
         })
+    }
+}
+
+#[derive(Default)]
+struct Ancillary {
+    fds: Vec<OwnedFd>,
+    credentials: Option<libc::ucred>,
+    invalid: bool,
+}
+
+impl Ancillary {
+    /// The message must own an aligned, accessible recvmsg control buffer.
+    /// Each SCM_RIGHTS descriptor must be consumed exactly once.
+    unsafe fn receive(message: &libc::msghdr) -> Self {
+        let mut data = Self::default();
+        unsafe {
+            let mut header = libc::CMSG_FIRSTHDR(message);
+            while let Some(control) = header.as_ref() {
+                if control.cmsg_level == libc::SOL_SOCKET {
+                    data.read_socket_control(control);
+                } else {
+                    data.invalid = true;
+                }
+                header = libc::CMSG_NXTHDR(message, header);
+            }
+        }
+        data
+    }
+
+    unsafe fn read_socket_control(&mut self, header: &libc::cmsghdr) {
+        unsafe {
+            match header.cmsg_type {
+                libc::SCM_RIGHTS if header.cmsg_len >= libc::CMSG_LEN(0) as usize => {
+                    self.take_rights(header);
+                }
+                libc::SCM_CREDENTIALS
+                    if header.cmsg_len
+                        == libc::CMSG_LEN(size_of::<libc::ucred>() as _) as usize
+                        && self.credentials.is_none() =>
+                {
+                    self.credentials = Some(std::ptr::read_unaligned(
+                        libc::CMSG_DATA(header).cast::<libc::ucred>(),
+                    ));
+                }
+                _ => self.invalid = true,
+            }
+        }
+    }
+
+    unsafe fn take_rights(&mut self, header: &libc::cmsghdr) {
+        unsafe {
+            let bytes = header.cmsg_len - libc::CMSG_LEN(0) as usize;
+            self.invalid |= bytes != size_of::<RawFd>();
+            for index in 0..bytes / size_of::<RawFd>() {
+                let value = libc::CMSG_DATA(header)
+                    .add(index * size_of::<RawFd>())
+                    .cast::<RawFd>();
+                let fd = std::ptr::read_unaligned(value);
+                if fd >= 0 {
+                    self.fds.push(OwnedFd::from_raw_fd(fd));
+                } else {
+                    self.invalid = true;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfers_optional_file_and_reports_the_sending_process() {
+        let (tx, rx) = Socket::pair().unwrap();
+        let file = tempfile::tempfile().unwrap();
+        let until = ownership::raw_boot_ms() + 2_000;
+        for with_file in [false, true] {
+            tx.send(&43u64, with_file.then_some(file.as_raw_fd()), until)
+                .unwrap();
+            let packet: Packet<u64> = rx.recv(until).unwrap();
+            assert_eq!(
+                (packet.value, packet.credentials.pid),
+                (43, std::process::id() as i32)
+            );
+            assert_eq!(packet.fd.is_some(), with_file);
+            if let Some(fd) = packet.fd {
+                let received = File::from(fd).metadata().unwrap();
+                let expected = file.metadata().unwrap();
+                assert_eq!(
+                    (received.dev(), received.ino()),
+                    (expected.dev(), expected.ino())
+                );
+            }
+        }
     }
 }
