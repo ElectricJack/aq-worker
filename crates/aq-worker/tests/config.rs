@@ -1,3 +1,7 @@
+#[path = "config/executor.rs"]
+mod executor;
+#[path = "config/native.rs"]
+mod native;
 #[path = "config/negotiation.rs"]
 mod negotiation;
 
