@@ -429,3 +429,6 @@ async fn runner_needs_no_node_credential() {
 mod channel;
 #[path = "sandbox_runner/login.rs"]
 mod login;
+
+#[path = "sandbox_runner/subscription_login.rs"]
+mod subscription_login;
