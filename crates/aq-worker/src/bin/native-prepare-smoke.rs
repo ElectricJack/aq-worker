@@ -632,7 +632,7 @@ async fn run(stage: &mut &'static str) -> Result<()> {
                     let output_result = if $phase.relay_output {
                         match &launched {
                             NativeHostLaunchResult::Running(host) => {
-                                output::$output(&pipeline, host, &config.worker, id, &mut input, stage)
+                                output::OutputProbe { pipeline: &pipeline, host, config: &config.worker, id }.$output(&mut input, stage)
                                     .await
                                     .map(Some)
                             }
