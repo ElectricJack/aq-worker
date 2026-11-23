@@ -1415,6 +1415,7 @@ async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_p
 }
 #[tokio::test]
 async fn native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence(){
+    let _clock=crate::native::http::test_clock::TestClock::new();
     let export=synthetic();let manifest=export.manifest.clone();let h=Inputs::new_result(export).await;
     fs::set_permissions(h._dir.path(),fs::Permissions::from_mode(0o700)).unwrap();
     let git=GitPeer::new(h.root.clone(),manifest);let grant=collect_result_fixture(&h,&git).await;
