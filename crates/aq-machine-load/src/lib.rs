@@ -117,11 +117,16 @@ impl MachineConfig {
             std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         let cfg: Self =
             serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
-            (5..=300).contains(&cfg.interval_secs),
+            (5..=300).contains(&self.interval_secs),
             "interval_secs must be 5..=300"
         );
-        if let Some(k) = &cfg.key {
+        if let Some(k) = &self.key {
             let ok = (1..=63).contains(&k.len())
                 && k.bytes()
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
@@ -131,13 +136,13 @@ impl MachineConfig {
                 "machine key must be 1-63 characters of [a-z0-9-] starting with [a-z0-9]"
             );
         }
-        if let Some(l) = &cfg.label {
+        if let Some(l) = &self.label {
             anyhow::ensure!(
                 (1..=64).contains(&l.chars().count()) && !l.chars().any(char::is_control),
                 "machine label must be 1-64 characters without control characters"
             );
         }
-        Ok(cfg)
+        Ok(())
     }
 }
 
@@ -228,26 +233,36 @@ impl Sampler {
             disk_free_bytes: disk.map(|d| d.1),
         };
         if let Some(file) = &self.config.host_load_file {
-            match read_host_load(file, now_ms) {
-                HostLoad::Fresh(h) if h.memory_total_bytes > 0 && h.logical_cpus > 0 => {
-                    report.source = LoadSource::WindowsHost;
-                    report.host_probe = HostProbe::Fresh;
-                    report.logical_cpus = h.logical_cpus;
-                    report.cpu_busy_bps = h.cpu_busy_bps;
-                    report.memory_total_bytes = h.memory_total_bytes;
-                    report.memory_used_bytes = h.memory_used_bytes;
-                    if let (Some(t), Some(f)) = (h.disk_total_bytes, h.disk_free_bytes)
-                        && f <= t
-                    {
-                        report.disk_total_bytes = Some(t);
-                        report.disk_free_bytes = Some(f);
-                    }
-                }
-                HostLoad::Stale => report.host_probe = HostProbe::Stale,
-                _ => report.host_probe = HostProbe::Missing,
-            }
+            report.apply_host_load(read_host_load(file, now_ms));
         }
         Ok(report)
+    }
+}
+
+impl MachineReport {
+    fn apply_host_load(&mut self, load: HostLoad) {
+        match load {
+            HostLoad::Fresh(host) if host.memory_total_bytes > 0 && host.logical_cpus > 0 => {
+                self.apply_host_sample(host);
+            }
+            HostLoad::Stale => self.host_probe = HostProbe::Stale,
+            _ => self.host_probe = HostProbe::Missing,
+        }
+    }
+
+    fn apply_host_sample(&mut self, host: HostSample) {
+        self.source = LoadSource::WindowsHost;
+        self.host_probe = HostProbe::Fresh;
+        self.logical_cpus = host.logical_cpus;
+        self.cpu_busy_bps = host.cpu_busy_bps;
+        self.memory_total_bytes = host.memory_total_bytes;
+        self.memory_used_bytes = host.memory_used_bytes;
+        if let (Some(total), Some(free)) = (host.disk_total_bytes, host.disk_free_bytes)
+            && free <= total
+        {
+            self.disk_total_bytes = Some(total);
+            self.disk_free_bytes = Some(free);
+        }
     }
 }
 
