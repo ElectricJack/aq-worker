@@ -617,19 +617,19 @@ impl RunnerHttp {
     }
     fn status(&self, response: &reqwest::Response) -> Result<()> {
         let status = response.status();
+        if status.is_success() {
+            return Ok(());
+        }
         // A server error/rate limit is availability loss; explicit route refusals
         // (including redirects) revoke all channels immediately. Never forward.
-        if !status.is_success() {
-            if !status.is_server_error()
-                && status != StatusCode::TOO_MANY_REQUESTS
-                && status != StatusCode::REQUEST_TIMEOUT
-            {
-                self.lose_authority();
-                return Err(RunnerRefused(status).into());
-            }
+        if status.is_server_error()
+            || status == StatusCode::TOO_MANY_REQUESTS
+            || status == StatusCode::REQUEST_TIMEOUT
+        {
             anyhow::bail!("runner server unavailable");
         }
-        Ok(())
+        self.lose_authority();
+        Err(RunnerRefused(status).into())
     }
     async fn read(&self, mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>> {
         ensure!(
@@ -758,40 +758,39 @@ impl RunnerHttp {
 }
 fn check_body(value: &Value, binding: &PermitBinding, session: Option<Uuid>) -> Result<()> {
     match value {
-        Value::Array(values) => {
-            for v in values {
-                check_body(v, binding, session)?;
-            }
-        }
-        Value::Object(values) => {
-            for (key, v) in values {
-                let expected = match key.as_str() {
-                    "attempt_id" => Some(binding.attempt_id),
-                    "node_id" => Some(binding.node.node_id),
-                    "boot_id" => Some(binding.node.boot_id),
-                    "sandbox_id" => Some(binding.sandbox_id),
-                    "channel_id" => Some(binding.channel_id),
-                    "session_id" => Some(session.ok_or_else(|| {
-                        anyhow::anyhow!("runner session requires execution grant")
-                    })?),
-                    _ => None,
-                };
-                if let Some(id) = expected {
-                    ensure!(
-                        v.as_str().and_then(|s| Uuid::parse_str(s).ok()) == Some(id),
-                        "runner body identity mismatch"
-                    );
-                }
-                if matches!(key.as_str(), "assignment_generation" | "grant_generation") {
-                    ensure!(
-                        v.as_u64() == Some(binding.grant_generation),
-                        "runner body generation mismatch"
-                    );
-                }
-                check_body(v, binding, session)?;
-            }
-        }
-        _ => {}
+        Value::Array(values) => values
+            .iter()
+            .try_for_each(|v| check_body(v, binding, session)),
+        Value::Object(values) => values.iter().try_for_each(|(key, v)| {
+            check_field(key, v, binding, session)?;
+            check_body(v, binding, session)
+        }),
+        _ => Ok(()),
     }
+}
+
+fn check_field(key: &str, v: &Value, binding: &PermitBinding, session: Option<Uuid>) -> Result<()> {
+    let expected = match key {
+        "attempt_id" => binding.attempt_id,
+        "node_id" => binding.node.node_id,
+        "boot_id" => binding.node.boot_id,
+        "sandbox_id" => binding.sandbox_id,
+        "channel_id" => binding.channel_id,
+        "session_id" => {
+            session.ok_or_else(|| anyhow::anyhow!("runner session requires execution grant"))?
+        }
+        "assignment_generation" | "grant_generation" => {
+            ensure!(
+                v.as_u64() == Some(binding.grant_generation),
+                "runner body generation mismatch"
+            );
+            return Ok(());
+        }
+        _ => return Ok(()),
+    };
+    ensure!(
+        v.as_str().and_then(|s| Uuid::parse_str(s).ok()) == Some(expected),
+        "runner body identity mismatch"
+    );
     Ok(())
 }

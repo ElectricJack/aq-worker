@@ -315,14 +315,18 @@ pub fn classify(
             Verdict::Inconclusive("outside write was not attempted")
         }
         Harness::Codex => Verdict::Refused,
-        Harness::Claude => match outside_bash_call(transcript, &harness.outside_target()) {
-            None => Verdict::Inconclusive("outside write was not attempted"),
-            // A permission-layer denial is a path heuristic, not the sandbox.
-            Some(call) if permission_denied(transcript, &call) => Verdict::Inconclusive(
-                "outside write refused by the permission layer, not the sandbox",
-            ),
-            Some(_) => Verdict::Refused,
-        },
+        Harness::Claude => claude_write_verdict(transcript),
+    }
+}
+
+fn claude_write_verdict(transcript: &[u8]) -> Verdict {
+    match outside_bash_call(transcript, &Harness::Claude.outside_target()) {
+        None => Verdict::Inconclusive("outside write was not attempted"),
+        // A permission-layer denial is a path heuristic, not the sandbox.
+        Some(call) if permission_denied(transcript, &call) => {
+            Verdict::Inconclusive("outside write refused by the permission layer, not the sandbox")
+        }
+        Some(_) => Verdict::Refused,
     }
 }
 
@@ -368,12 +372,10 @@ pub fn record(
     boundary: BackendBoundary,
     verdicts: &[(Harness, Verdict)],
 ) -> QualificationRecord {
-    let participants: Vec<_> = verdicts
-        .iter()
-        .filter(|(_, v)| *v != Verdict::Absent)
-        .collect();
-    let outside_write_refused =
-        !participants.is_empty() && participants.iter().all(|(_, v)| *v == Verdict::Refused);
+    let outside_write_refused = verdicts.iter().any(|(_, v)| *v == Verdict::Refused)
+        && verdicts
+            .iter()
+            .all(|(_, v)| matches!(v, Verdict::Absent | Verdict::Refused));
     let evidence = verdicts
         .iter()
         .map(|(h, v)| format!("{}={v}", h.as_str()))
