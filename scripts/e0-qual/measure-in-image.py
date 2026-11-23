@@ -43,28 +43,68 @@ def adversarial_payload():
     return "".join(rng.choice(alphabet) for _ in range(PAYLOAD_BYTES))
 
 
+def json_lines(text):
+    for line in text.splitlines():
+        try:
+            yield json.loads(line)
+        except ValueError:
+            continue
+
+
+def update_rollout(facts, item):
+    payload = item.get("payload") if isinstance(item, dict) else None
+    if not isinstance(payload, dict):
+        return
+    if item.get("type") == "turn_context":
+        facts["models"].add(payload.get("model"))
+        facts["efforts"].add(payload.get("effort") or payload.get("reasoning_effort"))
+    info = payload.get("info")
+    if payload.get("type") == "token_count" and isinstance(info, dict):
+        update_token_counts(facts, info)
+
+
+def update_token_counts(facts, info):
+    if isinstance(info.get("model_context_window"), int):
+        facts["model_context_windows"].add(info["model_context_window"])
+    last = info.get("last_token_usage") or {}
+    if isinstance(last.get("input_tokens"), int):
+        facts["last_input_tokens"] = last["input_tokens"]
+
+
 def rollout_facts(before):
     facts = dict(model_context_windows=set(), models=set(), efforts=set(), last_input_tokens=None)
     for path in sorted(set((HOME / "sessions").rglob("*.jsonl")) - before):
-        for line in path.read_text(errors="replace").splitlines():
-            try:
-                item = json.loads(line)
-            except ValueError:
-                continue
-            payload = item.get("payload") if isinstance(item, dict) else None
-            if not isinstance(payload, dict):
-                continue
-            if item.get("type") == "turn_context":
-                facts["models"].add(payload.get("model"))
-                facts["efforts"].add(payload.get("effort") or payload.get("reasoning_effort"))
-            if payload.get("type") == "token_count" and isinstance(payload.get("info"), dict):
-                info = payload["info"]
-                if isinstance(info.get("model_context_window"), int):
-                    facts["model_context_windows"].add(info["model_context_window"])
-                last = info.get("last_token_usage") or {}
-                if isinstance(last.get("input_tokens"), int):
-                    facts["last_input_tokens"] = last["input_tokens"]
+        for item in json_lines(path.read_text(errors="replace")):
+            update_rollout(facts, item)
     return {k: sorted(v, key=str) if isinstance(v, set) else v for k, v in facts.items()}
+
+
+def agent_text(event, previous):
+    item = event.get("item") or {}
+    if item.get("type") == "agent_message":
+        return (item.get("text") or "")[:64]
+    return previous
+
+
+def event_error(event):
+    detail = event.get("message") or (event.get("error") or {}).get("message") or ""
+    return str(detail)[:300]
+
+
+def completion_facts(output):
+    kinds = set()
+    usage = message = None
+    errors = []
+    for event in json_lines(output):
+        kind = event.get("type")
+        kinds.add(kind)
+        if kind == "turn.completed":
+            usage = event.get("usage")
+        elif kind == "item.completed":
+            message = agent_text(event, message)
+        elif kind in ("error", "turn.failed"):
+            errors.append(event_error(event))
+    return sorted(kinds), usage, message, errors
 
 
 def call(name, payload):
@@ -81,25 +121,11 @@ def call(name, payload):
          "-c", 'cli_auth_credentials_store="file"', "-"],
         input=prompt_bytes, capture_output=True, timeout=600)
     finished = time.time_ns() // 1000000
-    events, usage, message, errors = [], None, None, []
-    for line in result.stdout.decode(errors="replace").splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        kind = event.get("type")
-        events.append(kind)
-        if kind == "turn.completed":
-            usage = event.get("usage")
-        if kind == "item.completed" and (event.get("item") or {}).get("type") == "agent_message":
-            message = (event["item"].get("text") or "")[:64]
-        if kind in ("error", "turn.failed"):
-            detail = event.get("message") or (event.get("error") or {}).get("message") or ""
-            errors.append(str(detail)[:300])
+    events, usage, message, errors = completion_facts(result.stdout.decode(errors="replace"))
     return dict(call=name, exit_code=result.returncode, started_at_ms=started, finished_at_ms=finished,
                 prompt_utf8_bytes=len(prompt_bytes), prompt_sha256=hashlib.sha256(prompt_bytes).hexdigest(),
                 payload_utf8_bytes=0 if payload is None else len(payload.encode()),
-                usage=usage, agent_message=message, errors=errors, event_types=sorted(set(events)),
+                usage=usage, agent_message=message, errors=errors, event_types=events,
                 rollout=rollout_facts(sessions))
 
 
