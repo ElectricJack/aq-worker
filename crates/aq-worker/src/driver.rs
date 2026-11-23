@@ -6,6 +6,7 @@ use crate::{
     execution_client::{ExecutionClient, RemoteError},
     journal::{Journal, Limits},
     runtime::Runtime,
+    source_driver::SourceTransfer,
 };
 use anyhow::{Context, Result, bail, ensure};
 use aq_worker_protocol::*;
@@ -98,6 +99,13 @@ pub async fn run_execution(
         .filter(|s| s.transfer)
         .map(|_| crate::transfer_client::TransferClient::from_config(config, 2))
         .transpose()?;
+    let source_transfer = git
+        .zip(transfer.as_ref())
+        .map(|(git, transport)| SourceTransfer {
+            git,
+            control: &client,
+            transport,
+        });
     let mut registration = RegisterRequest {
         identity: identity.clone(),
         operation_id: Uuid::new_v4(),
@@ -144,7 +152,7 @@ pub async fn run_execution(
                     serde_json::json!({"event":"source_pending","attempt_id":id,"recovered":true})
                 );
             }
-            if let Some(transport) = &transfer {
+            if let Some(transfer) = &source_transfer {
                 let pending: Vec<_> = runtime
                     .journal
                     .state()
@@ -160,8 +168,7 @@ pub async fn run_execution(
                     .map(|(id, _)| *id)
                     .collect();
                 for id in pending {
-                    crate::source_driver::upload_source(&mut runtime, &client, transport, id, git)
-                        .await?;
+                    transfer.upload_source(&mut runtime, id).await?;
                 }
             }
         }
@@ -310,20 +317,7 @@ pub async fn run_execution(
             runtime.clock.now_ms() < idle_deadline,
             "execution idle timeout"
         );
-        let inventory_sequence = runtime.journal.transaction(|s| {
-            s.inventory_sequence = s
-                .inventory_sequence
-                .checked_add(1)
-                .context("inventory overflow")?;
-            Ok(s.inventory_sequence)
-        })?;
-        let poll = PollRequest {
-            identity: identity.clone(),
-            operation_id: Uuid::new_v4(),
-            inventory_sequence,
-            available: runtime.journal.available()?,
-            max_items: MAX_BATCH as u32,
-        };
+        let poll = availability_poll(identity.clone(), &mut runtime)?;
         let response = match client.poll(&poll).await {
             Ok(r) => r,
             Err(e) if retryable(&e) => {
@@ -436,17 +430,10 @@ pub async fn run_execution(
             let ack = client.observe(&observation).await?;
             runtime.acknowledge_observation(attempt_id, &ack)?;
             if source.is_some() {
-                if let (Some(transport), Some(git), Some(binding)) = (&transfer, git, source)
-                    && git.base_available(binding).is_err()
+                if let (Some(transfer), Some(binding)) = (&source_transfer, source)
+                    && transfer.git.base_available(binding).is_err()
                 {
-                    crate::source_driver::download_base(
-                        &mut runtime,
-                        &client,
-                        transport,
-                        attempt_id,
-                        git,
-                    )
-                    .await?;
+                    transfer.download_base(&mut runtime, attempt_id).await?;
                 }
                 runtime.prepare_source(attempt_id, git.context("source service absent")?)?;
             }
@@ -471,15 +458,8 @@ pub async fn run_execution(
                     "{}",
                     serde_json::json!({"event":"source_pending","attempt_id":attempt_id,"artifact_id":exported["artifact_handle"],"protected_usage":runtime.journal.protected_usage()?,"pending_bytes":runtime.journal.state().attempts[&attempt_id].pending_bytes})
                 );
-                if let Some(transport) = &transfer {
-                    crate::source_driver::upload_source(
-                        &mut runtime,
-                        &client,
-                        transport,
-                        attempt_id,
-                        git,
-                    )
-                    .await?;
+                if let Some(transfer) = &source_transfer {
+                    transfer.upload_source(&mut runtime, attempt_id).await?;
                     report = runtime.journal.state().attempts[&attempt_id]
                         .report
                         .clone()
@@ -566,6 +546,26 @@ async fn deliver_stopped_observation<C: Clock>(
     }
 }
 
+fn availability_poll(
+    identity: NodeIdentity,
+    runtime: &mut Runtime<BootClock>,
+) -> Result<PollRequest> {
+    let inventory_sequence = runtime.journal.transaction(|s| {
+        s.inventory_sequence = s
+            .inventory_sequence
+            .checked_add(1)
+            .context("inventory overflow")?;
+        Ok(s.inventory_sequence)
+    })?;
+    Ok(PollRequest {
+        identity,
+        operation_id: Uuid::new_v4(),
+        inventory_sequence,
+        available: runtime.journal.available()?,
+        max_items: MAX_BATCH as u32,
+    })
+}
+
 async fn control_fixture(
     runtime: &mut Runtime<BootClock>,
     client: &ExecutionClient,
@@ -601,20 +601,7 @@ async fn control_fixture(
         let deadline = record.grant_deadline_ms.context("missing grant deadline")?;
         let timeout = Duration::from_millis(deadline.saturating_sub(now).clamp(1, 500));
         if now >= next_poll {
-            let sequence = runtime.journal.transaction(|s| {
-                s.inventory_sequence = s
-                    .inventory_sequence
-                    .checked_add(1)
-                    .context("inventory overflow")?;
-                Ok(s.inventory_sequence)
-            })?;
-            let request = PollRequest {
-                identity: runtime.journal.state().identity.clone(),
-                operation_id: Uuid::new_v4(),
-                inventory_sequence: sequence,
-                available: runtime.journal.available()?,
-                max_items: MAX_BATCH as u32,
-            };
+            let request = availability_poll(runtime.journal.state().identity.clone(), runtime)?;
             match tokio::time::timeout(timeout, client.poll(&request)).await {
                 Ok(Ok(response)) => {
                     for directive in response.directives {

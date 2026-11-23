@@ -82,42 +82,100 @@ impl SourceState {
         }
     }
 }
+fn validate_git_paths(socket: &Path, root: &Path) -> Result<PathBuf> {
+    ensure!(
+        socket.is_absolute() && root.is_absolute(),
+        "aq-git paths must be absolute"
+    );
+    let root = std::fs::canonicalize(root)?;
+    ensure!(
+        !std::fs::symlink_metadata(socket)?.file_type().is_symlink(),
+        "aq-git socket symlink refused"
+    );
+    use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+    let meta = std::fs::metadata(socket)?;
+    ensure!(
+        meta.file_type().is_socket()
+            && meta.uid() == unsafe { libc::geteuid() }
+            && meta.permissions().mode() & 0o077 == 0,
+        "untrusted aq-git socket"
+    );
+    let root_metadata = std::fs::metadata(&root)?;
+    ensure!(
+        root_metadata.uid() == unsafe { libc::geteuid() }
+            && root_metadata.permissions().mode() & 0o077 == 0,
+        "aq-git root must be private"
+    );
+    Ok(root)
+}
+
+fn exchange(socket: &Path, request: &Value) -> Result<Value> {
+    let mut stream =
+        UnixStream::connect(socket).context("aq-git unavailable; retain operation identity")?;
+    stream.set_read_timeout(Some(Duration::from_secs(30)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(10)))?;
+    let bytes = serde_json::to_vec(request)?;
+    ensure!(bytes.len() <= 1024 * 1024, "aq-git request too large");
+    stream.write_all(&bytes)?;
+    stream.write_all(b"\n")?;
+    use std::io::Read;
+    let mut frame = Vec::new();
+    BufReader::new(stream)
+        .take(MAX_REPLY + 1)
+        .read_until(b'\n', &mut frame)?;
+    ensure!(
+        frame.len() as u64 <= MAX_REPLY && frame.last() == Some(&b'\n'),
+        "invalid/oversized aq-git reply; outcome unknown"
+    );
+    let response: Value = serde_json::from_slice(&frame)?;
+    ensure!(
+        response["protocol_version"] == 1 && response["request_id"] == request["request_id"],
+        "aq-git reply binding/version mismatch; outcome unknown"
+    );
+    if let Some(id) = response.get("operation_id") {
+        ensure!(
+            Some(id) == request.get("operation_id"),
+            "aq-git operation reply mismatch"
+        );
+    }
+    ensure!(
+        response["ok"].as_bool().is_some()
+            && response.get("result").is_some() != response.get("error").is_some(),
+        "contradictory aq-git reply"
+    );
+    if response["ok"] == true && request.get("operation_id").is_some() {
+        ensure!(
+            response.get("operation_id") == request.get("operation_id"),
+            "successful aq-git mutation lacks matching operation identity"
+        );
+    }
+    ensure!(
+        response["ok"] == true,
+        "aq-git refused: {} {}",
+        response["error"]["code"],
+        response["error"]["message"]
+    );
+    response
+        .get("result")
+        .cloned()
+        .context("missing aq-git result")
+}
+
 impl GitClient {
     /// Operator-owned runtime paths only. A caller cannot select a socket per assignment.
     pub fn new(socket: &Path, root: &Path) -> Result<Self> {
-        ensure!(
-            socket.is_absolute() && root.is_absolute(),
-            "aq-git paths must be absolute"
-        );
-        let root = std::fs::canonicalize(root)?;
-        ensure!(
-            !std::fs::symlink_metadata(socket)?.file_type().is_symlink(),
-            "aq-git socket symlink refused"
-        );
-        use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-        let meta = std::fs::metadata(socket)?;
-        ensure!(
-            meta.file_type().is_socket()
-                && meta.uid() == unsafe { libc::geteuid() }
-                && meta.permissions().mode() & 0o077 == 0,
-            "untrusted aq-git socket"
-        );
-        ensure!(
-            std::fs::metadata(&root)?.uid() == unsafe { libc::geteuid() }
-                && std::fs::metadata(&root)?.permissions().mode() & 0o077 == 0,
-            "aq-git root must be private"
-        );
-        let mut client = Self {
-            socket: socket.into(),
-            root,
-            maximum_source_disk_bytes: 0,
-            maximum_artifact_bytes: 0,
-            maximum_pool_bytes: 0,
-            native_inspection: false,
-            checkpoint_author: false,
-            node: None,
-        };
-        let capabilities=client.exchange(&json!({"protocol_version":1,"request_id":Uuid::new_v4().to_string(),"operation":"capabilities","params":{}}))?;
+        let root = validate_git_paths(socket, root)?;
+        let capabilities = exchange(
+            socket,
+            &json!({
+                "protocol_version": 1, "request_id": Uuid::new_v4().to_string(),
+                "operation": "capabilities", "params": {}
+            }),
+        )?;
+        Self::from_capabilities(socket, root, &capabilities)
+    }
+
+    fn from_capabilities(socket: &Path, root: PathBuf, capabilities: &Value) -> Result<Self> {
         ensure!(
             capabilities["protocol_version"] == 1
                 && capabilities["artifact_format_version"] == 1
@@ -127,8 +185,10 @@ impl GitClient {
         let operations = capabilities["operations"]
             .as_array()
             .context("missing aq-git operation capabilities")?;
+        let supports =
+            |required: &[&str]| required.iter().all(|op| operations.iter().any(|v| v == op));
         ensure!(
-            [
+            supports(&[
                 "repo.show",
                 "artifact.import",
                 "workspace.create",
@@ -137,29 +197,33 @@ impl GitClient {
                 "artifact.export",
                 "retention.release",
                 "repo.cache-evict"
-            ]
-            .iter()
-            .all(|op| operations.iter().any(|v| v == op)),
+            ]),
             "aq-git lacks required workspace operations"
         );
-        client.checkpoint_author = capabilities["git"]["checkpoint_author"] == true;
-        client.native_inspection = ["workspace.inspect", "retention.inspect"]
-            .iter()
-            .all(|op| operations.iter().any(|v| v == op));
+        let checkpoint_author = capabilities["git"]["checkpoint_author"] == true;
+        let native_inspection = supports(&["workspace.inspect", "retention.inspect"]);
         let expanded = capabilities["limits"]["artifact"]["max_expanded_bytes"]
             .as_u64()
             .context("aq-git must advertise expanded source bound")?;
         let bundle = capabilities["limits"]["artifact"]["max_bundle_bytes"]
             .as_u64()
             .context("aq-git must advertise bundle bound")?;
-        client.maximum_artifact_bytes = bundle
+        let maximum_artifact_bytes = bundle
             .checked_add(1024 * 1024)
             .context("artifact reservation overflow")?;
-        client.maximum_pool_bytes = expanded;
-        client.maximum_source_disk_bytes = expanded
-            .checked_add(client.maximum_artifact_bytes)
+        let maximum_source_disk_bytes = expanded
+            .checked_add(maximum_artifact_bytes)
             .context("source reservation overflow")?;
-        Ok(client)
+        Ok(Self {
+            socket: socket.into(),
+            root,
+            maximum_source_disk_bytes,
+            maximum_artifact_bytes,
+            maximum_pool_bytes: expanded,
+            native_inspection,
+            checkpoint_author,
+            node: None,
+        })
     }
     pub fn validate_storage_profile(&self, max_bundle: u64, max_expanded: u64) -> Result<()> {
         ensure!(
@@ -193,55 +257,7 @@ impl GitClient {
             .context("native source reservation overflow")
     }
     pub fn exchange(&self, request: &Value) -> Result<Value> {
-        let mut stream = UnixStream::connect(&self.socket)
-            .context("aq-git unavailable; retain operation identity")?;
-        stream.set_read_timeout(Some(Duration::from_secs(30)))?;
-        stream.set_write_timeout(Some(Duration::from_secs(10)))?;
-        let bytes = serde_json::to_vec(request)?;
-        ensure!(bytes.len() <= 1024 * 1024, "aq-git request too large");
-        stream.write_all(&bytes)?;
-        stream.write_all(b"\n")?;
-        use std::io::Read;
-        let mut frame = Vec::new();
-        BufReader::new(stream)
-            .take(MAX_REPLY + 1)
-            .read_until(b'\n', &mut frame)?;
-        ensure!(
-            frame.len() as u64 <= MAX_REPLY && frame.last() == Some(&b'\n'),
-            "invalid/oversized aq-git reply; outcome unknown"
-        );
-        let response: Value = serde_json::from_slice(&frame)?;
-        ensure!(
-            response["protocol_version"] == 1 && response["request_id"] == request["request_id"],
-            "aq-git reply binding/version mismatch; outcome unknown"
-        );
-        if let Some(id) = response.get("operation_id") {
-            ensure!(
-                Some(id) == request.get("operation_id"),
-                "aq-git operation reply mismatch"
-            );
-        }
-        ensure!(
-            response["ok"].as_bool().is_some()
-                && response.get("result").is_some() != response.get("error").is_some(),
-            "contradictory aq-git reply"
-        );
-        if response["ok"] == true && request.get("operation_id").is_some() {
-            ensure!(
-                response.get("operation_id") == request.get("operation_id"),
-                "successful aq-git mutation lacks matching operation identity"
-            );
-        }
-        ensure!(
-            response["ok"] == true,
-            "aq-git refused: {} {}",
-            response["error"]["code"],
-            response["error"]["message"]
-        );
-        response
-            .get("result")
-            .cloned()
-            .context("missing aq-git result")
+        exchange(&self.socket, request)
     }
     pub fn query(&self, b: &SourceBinding, operation: &str, params: Value) -> Result<Value> {
         ensure!(
@@ -299,6 +315,14 @@ impl GitClient {
 
 #[cfg(feature = "synthetic-runtime")]
 impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
+    fn source_attempt(&self, id: Uuid) -> Result<&crate::journal::AttemptRecord> {
+        self.journal
+            .state()
+            .attempts
+            .get(&id)
+            .context("unknown attempt")
+    }
+
     /// Admission uses exactly the ordinary capacity rules, after checking the local binding.
     /// No workspace allocation occurs until prepare_source, and eligibility creates none.
     pub fn reserve_source(
@@ -453,12 +477,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             !self.journal.state().reconciliation_required,
             "source preparation requires reconciled incarnation"
         );
-        let r = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let r = self.source_attempt(id)?;
         ensure!(
             r.source
                 .as_ref()
@@ -502,12 +521,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         Ok(workspace)
     }
     pub fn checkpoint_source(&mut self, id: Uuid, git: &GitClient) -> Result<Checkpoint> {
-        let r = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let r = self.source_attempt(id)?;
         ensure!(
             r.stop_certainty == aq_worker_protocol::StopCertainty::ConfirmedStopped
                 && r.stopped_proof
@@ -608,15 +622,10 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         )?;
         let manifest: GitManifest = serde_json::from_value(result["manifest"].clone())?;
         let handle: Uuid = serde_json::from_value(result["artifact_handle"].clone())?;
+        let source = self.journal.state().attempts[&id].source.as_ref().unwrap();
         ensure!(
             manifest.transfer_id == handle
-                && manifest.repository_id
-                    == self.journal.state().attempts[&id]
-                        .source
-                        .as_ref()
-                        .unwrap()
-                        .binding
-                        .repository_id,
+                && manifest.repository_id == source.binding.repository_id,
             "export manifest binding mismatch"
         );
         let directory = git.root.join("artifacts").join(handle.to_string());
@@ -629,10 +638,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             artifact_id: handle,
             digest: format!("{:x}", Sha256::digest(&manifest_bytes)),
             bytes,
-            central_receipt: self.journal.state().attempts[&id]
-                .source
-                .as_ref()
-                .and_then(|s| s.receipt.as_ref().map(|r| r.receipt_id.to_string())),
+            central_receipt: source.receipt.as_ref().map(|r| r.receipt_id.to_string()),
         };
         self.journal.transaction(|s| {
             let r = s.attempts.get_mut(&id).unwrap();
@@ -742,12 +748,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         })
     }
     pub fn retire_source(&mut self, id: Uuid, git: &GitClient) -> Result<()> {
-        let r = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let r = self.source_attempt(id)?;
         if r.stop_certainty == aq_worker_protocol::StopCertainty::NotStarted
             && r.launch_id.is_none()
             && !r.start_intent
@@ -772,14 +773,9 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
                 )?;
             }
             return self.journal.transaction(|s| {
-                s.attempts.get_mut(&id).unwrap().pending_bytes = 0;
-                s.attempts
-                    .get_mut(&id)
-                    .unwrap()
-                    .source
-                    .as_mut()
-                    .unwrap()
-                    .retired = true;
+                let record = s.attempts.get_mut(&id).unwrap();
+                record.pending_bytes = 0;
+                record.source.as_mut().unwrap().retired = true;
                 Ok(())
             });
         }
@@ -838,12 +834,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
             "source import requires reconciled incarnation"
         );
         ensure!(!artifact_handle.is_nil(), "nil base artifact");
-        let r = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let r = self.source_attempt(id)?;
         if let Some(download) = r.source.as_ref().and_then(|s| s.download.as_ref()) {
             ensure!(
                 download.manifest.artifact_id == artifact_handle && download.verified,
@@ -860,18 +851,9 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
                 && self.clock.now_ms() < r.grant_deadline_ms.context("grant missing")?,
             "base import requires live unstarted attempt"
         );
-        let binding = r
-            .source
-            .as_ref()
-            .context("source binding required")?
-            .binding
-            .clone();
-        if r.source
-            .as_ref()
-            .unwrap()
-            .imported_bases
-            .contains(&artifact_handle)
-        {
+        let source = r.source.as_ref().context("source binding required")?;
+        let binding = source.binding.clone();
+        if source.imported_bases.contains(&artifact_handle) {
             return Ok(());
         }
         let manifest_path = git
@@ -941,12 +923,7 @@ impl<C: crate::clock::Clock> crate::runtime::Runtime<C> {
         storage_generation: u64,
         git: &GitClient,
     ) -> Result<()> {
-        let r = self
-            .journal
-            .state()
-            .attempts
-            .get(&id)
-            .context("unknown attempt")?;
+        let r = self.source_attempt(id)?;
         let source = r.source.as_ref().context("source absent")?;
         let repo = source.binding.repository_id;
         ensure!(
@@ -1101,6 +1078,62 @@ pub struct GitService {
     child: std::process::Child,
     pub client: GitClient,
 }
+fn spawn_service(
+    executable: &Path,
+    git_executable: &Path,
+    root: &Path,
+    socket: &Path,
+) -> std::io::Result<std::process::Child> {
+    let mut command = std::process::Command::new(executable);
+    use std::os::unix::process::CommandExt;
+    let runtime_pid = std::process::id() as libc::pid_t;
+    unsafe {
+        command.pre_exec(move || {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::getppid() != runtime_pid {
+                libc::raise(libc::SIGTERM);
+            }
+            Ok(())
+        });
+    }
+    command
+        .arg("--state-dir")
+        .arg(root)
+        .arg("--listen")
+        .arg(socket)
+        .arg("--git-executable")
+        .arg(git_executable)
+        .arg("serve")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+}
+
+fn wait_for_service(
+    child: &mut std::process::Child,
+    socket: &Path,
+    root: &Path,
+) -> Result<GitClient> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        ensure!(
+            child.try_wait()?.is_none(),
+            "aq-git service failed startup; inspect fence/configuration"
+        );
+        if socket.exists() {
+            return GitClient::new(socket, root);
+        }
+        ensure!(
+            std::time::Instant::now() < deadline,
+            "aq-git service readiness deadline"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 impl GitService {
     pub fn start(executable: &Path, expected_sha256: &str, root: &Path) -> Result<Self> {
         Self::start_with_git(executable, expected_sha256, root, Path::new("/usr/bin/git"))
@@ -1140,50 +1173,8 @@ impl GitService {
             "aq-git root must be private"
         );
         let socket = root.join(format!("git-{}.sock", Uuid::new_v4()));
-        let mut command = std::process::Command::new(executable);
-        use std::os::unix::process::CommandExt;
-        let runtime_pid = std::process::id() as libc::pid_t;
-        unsafe {
-            command.pre_exec(move || {
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                if libc::getppid() != runtime_pid {
-                    libc::raise(libc::SIGTERM);
-                }
-                Ok(())
-            });
-        }
-        let mut child = command
-            .arg("--state-dir")
-            .arg(root)
-            .arg("--listen")
-            .arg(&socket)
-            .arg("--git-executable")
-            .arg(git_executable)
-            .arg("serve")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()?;
-        let ready = (|| -> Result<GitClient> {
-            let deadline = std::time::Instant::now() + Duration::from_secs(5);
-            loop {
-                ensure!(
-                    child.try_wait()?.is_none(),
-                    "aq-git service failed startup; inspect fence/configuration"
-                );
-                if socket.exists() {
-                    return GitClient::new(&socket, root);
-                }
-                ensure!(
-                    std::time::Instant::now() < deadline,
-                    "aq-git service readiness deadline"
-                );
-                std::thread::sleep(Duration::from_millis(5));
-            }
-        })();
-        match ready {
+        let mut child = spawn_service(&executable, git_executable, root, &socket)?;
+        match wait_for_service(&mut child, &socket, root) {
             Ok(client) => Ok(Self { child, client }),
             Err(e) => {
                 stop_service(&mut child);
