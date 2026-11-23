@@ -1,3 +1,6 @@
+#[path = "config/negotiation.rs"]
+mod negotiation;
+
 use std::os::unix::fs::PermissionsExt;
 
 use aq_worker::config::WorkerConfig;
