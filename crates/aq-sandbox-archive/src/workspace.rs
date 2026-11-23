@@ -66,11 +66,14 @@ pub fn collect_tree(root: &Path, max_bytes: u64) -> Result<Vec<TreeEntry>> {
     Ok(entries)
 }
 
+fn git_path(path: &str) -> bool {
+    path == ".git" || path.starts_with(".git/")
+}
+
 /// Make `root` (except `.git`) hold exactly `entries`. Writes never follow an
 /// existing symlink; removed paths are deleted. Returns the changed paths.
 pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
     let mut wanted = BTreeSet::new();
-    let git = |p: &str| p == ".git" || p.starts_with(".git/");
     for entry in entries {
         let rel = entry.path();
         ensure!(
@@ -79,7 +82,7 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
                 .all(|c| matches!(c, Component::Normal(_))),
             "copy-back path shape"
         );
-        if git(rel) {
+        if git_path(rel) {
             continue;
         }
         if let TreeEntry::Symlink { target, .. } = entry {
@@ -95,6 +98,11 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
         }
         wanted.insert(rel.to_owned());
     }
+    validate_parents(entries)?;
+    // From here the worktree changes: a failure leaves part of the tree behind.
+    apply_tree(root, entries, &wanted).context(CopyBackIncomplete)
+}
+fn validate_parents(entries: &[TreeEntry]) -> Result<()> {
     // No entry may sit below a path the archive itself makes a symlink: a
     // later write would otherwise go through that link.
     let links: BTreeSet<&str> = entries
@@ -103,24 +111,27 @@ pub fn sync_tree(root: &Path, entries: &[TreeEntry]) -> Result<Vec<String>> {
         .map(|e| e.path())
         .collect();
     for entry in entries {
-        let mut parent = Path::new(entry.path()).parent();
-        while let Some(p) = parent.filter(|p| !p.as_os_str().is_empty()) {
-            ensure!(
-                !links.contains(p.to_str().unwrap_or_default()),
-                "copy-back entry below a symlinked parent"
-            );
-            parent = p.parent();
-        }
+        let mut parents = Path::new(entry.path())
+            .ancestors()
+            .skip(1)
+            .take_while(|path| !path.as_os_str().is_empty());
+        ensure!(
+            parents.all(|path| !links.contains(path.to_str().unwrap_or_default())),
+            "copy-back entry below a symlinked parent"
+        );
     }
-    // From here the worktree changes: a failure leaves part of the tree behind.
-    apply_tree(root, entries, &wanted).context(CopyBackIncomplete)
+    Ok(())
 }
-fn apply_tree(
-    root: &Path,
-    entries: &[TreeEntry],
-    wanted: &BTreeSet<String>,
-) -> Result<Vec<String>> {
-    let (mut changed, git) = (Vec::new(), |p: &str| p == ".git" || p.starts_with(".git/"));
+
+fn remove_entry(path: &Path, meta: &std::fs::Metadata) -> std::io::Result<()> {
+    if meta.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
+
+fn remove_stale(root: &Path, wanted: &BTreeSet<String>) -> Result<Vec<String>> {
     // Remove what the sandbox no longer has (deepest first).
     let current = collect_tree(root, u64::MAX)?;
     let mut stale: Vec<_> = current
@@ -129,23 +140,26 @@ fn apply_tree(
         .filter(|p| !wanted.contains(p))
         .collect();
     stale.sort_by_key(|p| std::cmp::Reverse(p.len()));
-    for rel in stale {
-        let path = root.join(&rel);
-        let meta = std::fs::symlink_metadata(&path)?;
-        if meta.is_dir() {
-            std::fs::remove_dir_all(&path)?;
-        } else {
-            std::fs::remove_file(&path)?;
-        }
-        changed.push(rel);
+    for rel in &stale {
+        let path = root.join(rel);
+        remove_entry(&path, &std::fs::symlink_metadata(&path)?)?;
     }
+    Ok(stale)
+}
+
+fn apply_tree(
+    root: &Path,
+    entries: &[TreeEntry],
+    wanted: &BTreeSet<String>,
+) -> Result<Vec<String>> {
+    let mut changed = remove_stale(root, wanted)?;
     let current: BTreeMap<String, TreeEntry> = collect_tree(root, u64::MAX)?
         .into_iter()
         .map(|e| (e.path().to_owned(), e))
         .collect();
     for entry in entries {
         let rel = entry.path();
-        if git(rel) {
+        if git_path(rel) {
             continue;
         }
         let path = root.join(rel);
@@ -153,44 +167,45 @@ fn apply_tree(
         if existing == Some(entry) {
             continue;
         }
-        // Replace any differing kind; never write through a symlink.
-        if let Ok(meta) = std::fs::symlink_metadata(&path) {
-            let same_kind = matches!(
-                (entry, existing),
-                (TreeEntry::Dir { .. }, Some(TreeEntry::Dir { .. }))
-                    | (TreeEntry::File { .. }, Some(TreeEntry::File { .. }))
-            );
-            if !same_kind {
-                if meta.is_dir() {
-                    std::fs::remove_dir_all(&path)?;
-                } else {
-                    std::fs::remove_file(&path)?;
-                }
-            }
-        }
-        match entry {
-            TreeEntry::Dir { mode, .. } => {
-                std::fs::create_dir_all(&path)?;
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(*mode | 0o700))?;
-            }
-            TreeEntry::File { mode, data, .. } => {
-                let mut file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .custom_flags(libc::O_NOFOLLOW)
-                    .mode(*mode)
-                    .open(&path)?;
-                file.write_all(data)?;
-                std::fs::set_permissions(&path, std::fs::Permissions::from_mode(*mode | 0o600))?;
-            }
-            TreeEntry::Symlink { target, .. } => {
-                std::os::unix::fs::symlink(target, &path)?;
-            }
-        }
+        write_entry(&path, entry, existing)?;
         changed.push(rel.to_owned());
     }
     Ok(changed)
+}
+
+fn write_entry(path: &Path, entry: &TreeEntry, existing: Option<&TreeEntry>) -> Result<()> {
+    // Replace any differing kind; never write through a symlink.
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        let same_kind = matches!(
+            (entry, existing),
+            (TreeEntry::Dir { .. }, Some(TreeEntry::Dir { .. }))
+                | (TreeEntry::File { .. }, Some(TreeEntry::File { .. }))
+        );
+        if !same_kind {
+            remove_entry(path, &meta)?;
+        }
+    }
+    match entry {
+        TreeEntry::Dir { mode, .. } => {
+            std::fs::create_dir_all(path)?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*mode | 0o700))?;
+        }
+        TreeEntry::File { mode, data, .. } => {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .custom_flags(libc::O_NOFOLLOW)
+                .mode(*mode)
+                .open(path)?;
+            file.write_all(data)?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(*mode | 0o600))?;
+        }
+        TreeEntry::Symlink { target, .. } => {
+            std::os::unix::fs::symlink(target, path)?;
+        }
+    }
+    Ok(())
 }
 
 /// An entry's path and its content or link target.

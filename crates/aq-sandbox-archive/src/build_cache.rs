@@ -112,58 +112,66 @@ impl From<BuildCacheConfig> for Settings {
         config.0
     }
 }
+fn plain_absolute(path: &str) -> bool {
+    !path.contains([':', ',', '\n', '\0']) && path.strip_prefix('/').is_some_and(normal_relative)
+}
+
+fn normal_relative(path: &str) -> bool {
+    path.split('/').all(|part| !matches!(part, "" | "." | ".."))
+}
+impl CachePath {
+    fn validate_environment(&self) -> Result<()> {
+        if let Some(env) = &self.env {
+            ensure!(
+                !env.is_empty()
+                    && env
+                        .bytes()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+                    && !["PATH", "HOME"].contains(&env.as_str()),
+                "build cache environment name {env:?} refused"
+            );
+        }
+        Ok(())
+    }
+}
+impl ProjectCache {
+    fn validate_paths(&self) -> Result<()> {
+        let inside = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/"));
+        ensure!(!self.paths.is_empty(), "a project build cache needs a path");
+        for (i, path) in self.paths.iter().enumerate() {
+            let target = path.target.as_str();
+            ensure!(
+                plain_absolute(target) && target.matches('/').count() >= 2,
+                "build cache target {target:?} must be a plain absolute path below a top-level directory"
+            );
+            let others = self.paths[..i].iter().map(|p| p.target.as_str());
+            for other in RESERVED.into_iter().chain(others) {
+                ensure!(
+                    !inside(target, other) && !inside(other, target),
+                    "build cache target {target:?} overlaps {other:?}"
+                );
+            }
+            path.validate_environment()?;
+        }
+        for file in &self.toolchain_files {
+            ensure!(
+                normal_relative(file),
+                "toolchain file {file:?} must be a relative path"
+            );
+        }
+        Ok(())
+    }
+}
 impl TryFrom<Settings> for BuildCacheConfig {
     type Error = anyhow::Error;
     fn try_from(settings: Settings) -> Result<Self> {
-        // A bind is `source:target:options`; neither may hold a separator.
-        let plain = |text: &str| !text.contains([':', ',', '\n', '\0']);
-        let normal = |path: &str| {
-            path.starts_with('/')
-                && path[1..]
-                    .split('/')
-                    .all(|c| !c.is_empty() && c != "." && c != "..")
-        };
         let root = settings.root.to_str().context("build cache root UTF-8")?;
         ensure!(
-            normal(root) && plain(root),
+            plain_absolute(root),
             "build cache root must be a plain absolute path"
         );
-        let inside = |a: &str, b: &str| a == b || a.starts_with(&format!("{b}/"));
         for cache in settings.projects.values() {
-            ensure!(
-                !cache.paths.is_empty(),
-                "a project build cache needs a path"
-            );
-            for (i, path) in cache.paths.iter().enumerate() {
-                let target = path.target.as_str();
-                ensure!(
-                    normal(target) && plain(target) && target.matches('/').count() >= 2,
-                    "build cache target {target:?} must be a plain absolute path below a top-level directory"
-                );
-                let others = cache.paths[..i].iter().map(|p| p.target.as_str());
-                for other in RESERVED.into_iter().chain(others) {
-                    ensure!(
-                        !inside(target, other) && !inside(other, target),
-                        "build cache target {target:?} overlaps {other:?}"
-                    );
-                }
-                if let Some(env) = &path.env {
-                    ensure!(
-                        !env.is_empty()
-                            && env
-                                .bytes()
-                                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-                            && !["PATH", "HOME"].contains(&env.as_str()),
-                        "build cache environment name {env:?} refused"
-                    );
-                }
-            }
-            for file in &cache.toolchain_files {
-                ensure!(
-                    normal(&format!("/{file}")),
-                    "toolchain file {file:?} must be a relative path"
-                );
-            }
+            cache.validate_paths()?;
         }
         Ok(Self(settings))
     }
@@ -304,6 +312,22 @@ fn write_ledger(path: &Path, ledger: &Ledger) -> Result<()> {
     Ok(fs::rename(partial, path)?)
 }
 
+fn orphaned_overlay(slot: &Path) -> bool {
+    let overlaid = fs::read_to_string(slot.join("gen")).unwrap_or_default();
+    !overlaid.is_empty()
+        && !slot
+            .parent()
+            .is_some_and(|s| s.with_file_name("gen").join(overlaid).exists())
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct SlotUsage {
+    last: u64,
+    slot: PathBuf,
+    idle_bytes: Option<u64>,
+    bytes: u64,
+}
+
 impl SlotCache {
     /// `NAME=target` for every cache path that names a variable.
     pub fn environment(&self) -> impl Iterator<Item = (&str, &str)> {
@@ -376,22 +400,25 @@ impl SlotCache {
         })
     }
 
-    /// Deletes what the limits no longer allow. Never an in-use slot, the slot
-    /// being opened, a generation a slot overlays or one still being built.
-    fn sweep(&self, current: &Path, opening: &Path, now: u64) -> Result<()> {
-        let limits = &self.limits;
+    fn sweep_generations(&self, now: u64) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
         let (mut slots, mut generations) = (Vec::new(), Vec::new());
         for variant in subdirs(&self.dir)? {
             for generation in subdirs(&variant.join("gen"))? {
                 if sealed(&generation) {
                     remove(&generation.join("src"));
                     generations.push(generation);
-                } else if now.saturating_sub(created_ms(&generation)) > limits.warm_timeout_ms {
+                } else if now.saturating_sub(created_ms(&generation)) > self.limits.warm_timeout_ms
+                {
                     remove(&generation);
                 }
             }
             slots.extend(subdirs(&variant.join("slot"))?);
         }
+        Ok((slots, generations))
+    }
+
+    fn sweep_slots(&self, slots: Vec<PathBuf>, opening: &Path, now: u64) -> Vec<SlotUsage> {
+        let limits = &self.limits;
         // (last use, path, bytes) of every slot, oldest first; `None` bytes: in use.
         let mut used = Vec::new();
         for slot in slots {
@@ -399,36 +426,47 @@ impl SlotCache {
             let last = last.ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok());
             let last = last.map_or(0, |d| d.as_millis() as u64);
             let bytes = disk_bytes(&slot);
-            let idle = slot != opening && lock(&slot.join("lock"), false).is_ok();
-            let overlaid = fs::read_to_string(slot.join("gen")).unwrap_or_default();
-            let orphan = !overlaid.is_empty()
-                && !slot
-                    .parent()
-                    .is_some_and(|s| s.with_file_name("gen").join(&overlaid).exists());
-            if (idle || slot == opening)
-                && (orphan
-                    || bytes > limits.slot_max_bytes
-                    || now.saturating_sub(last) > limits.slot_max_age_ms)
-            {
+            // The caller holds the opening slot's lock; other slots must be idle.
+            let is_opening = slot == opening;
+            let available = is_opening || lock(&slot.join("lock"), false).is_ok();
+            let orphan = orphaned_overlay(&slot);
+            let stale = now.saturating_sub(last) > limits.slot_max_age_ms;
+            let expired = orphan || stale || bytes > limits.slot_max_bytes;
+            if expired && available {
                 remove(&slot);
             } else {
-                used.push((last, slot, idle.then_some(bytes), bytes));
+                used.push(SlotUsage {
+                    last,
+                    slot,
+                    idle_bytes: (available && !is_opening).then_some(bytes),
+                    bytes,
+                });
             }
         }
         used.sort();
+        used
+    }
+
+    /// Deletes what the limits no longer allow. Never an in-use slot, the slot
+    /// being opened, a generation a slot overlays or one still being built.
+    fn sweep(&self, current: &Path, opening: &Path, now: u64) -> Result<()> {
+        let limits = &self.limits;
+        let (slots, mut generations) = self.sweep_generations(now)?;
+        let mut used = self.sweep_slots(slots, opening, now);
         let size = |generations: &[PathBuf]| generations.iter().map(|g| disk_bytes(g)).sum::<u64>();
-        let mut total = size(&generations) + used.iter().map(|u| u.3).sum::<u64>();
-        used.retain(|(_, slot, idle, bytes)| {
-            let evict = total > limits.max_bytes && idle.is_some();
+        let mut total = size(&generations) + used.iter().map(|usage| usage.bytes).sum::<u64>();
+        used.retain(|usage| {
+            let evict = total > limits.max_bytes && usage.idle_bytes.is_some();
             if evict {
-                remove(slot);
-                total -= bytes;
+                remove(&usage.slot);
+                total -= usage.bytes;
             }
             !evict
         });
         let overlaid: BTreeSet<PathBuf> = used
             .iter()
-            .filter_map(|(_, slot, ..)| {
+            .filter_map(|usage| {
+                let slot = &usage.slot;
                 let generation = fs::read_to_string(slot.join("gen")).ok()?;
                 Some(slot.parent()?.with_file_name("gen").join(generation))
             })
@@ -438,15 +476,27 @@ impl SlotCache {
             .rfind(|g| sealed(g));
         generations.sort_by_key(|g| created_ms(g));
         for generation in generations {
-            if total > limits.max_bytes
-                && !overlaid.contains(&generation)
-                && Some(&generation) != newest.as_ref()
-            {
+            let retained = overlaid.contains(&generation) || Some(&generation) == newest.as_ref();
+            if total > limits.max_bytes && !retained {
                 total = total.saturating_sub(disk_bytes(&generation));
                 remove(&generation);
             }
         }
         Ok(())
+    }
+}
+
+struct GenerationSource<'a> {
+    entries: &'a [TreeEntry],
+    ledger: &'a Ledger,
+    tree: &'a str,
+}
+
+impl GenerationSource<'_> {
+    fn already_warming(&self, newest: &Path, now: u64, limits: &Limits) -> bool {
+        !sealed(newest)
+            || name(newest).ends_with(self.tree)
+            || now.saturating_sub(created_ms(newest)) < limits.refresh_interval_ms
     }
 }
 
@@ -564,9 +614,16 @@ impl Opened {
             ledger.insert(path.clone(), (sha, mtime));
         }
         write_ledger(&self.slot.join("ledger.json"), &ledger)?;
-        let warm = match self.fresh && !self.cache.cache.warm.is_empty() {
-            true => self.generation_for(entries, &ledger, &hex(tree)[..16], now)?,
-            false => None,
+        let warm = if self.fresh && !self.cache.cache.warm.is_empty() {
+            let hash = hex(tree);
+            let source = GenerationSource {
+                entries,
+                ledger: &ledger,
+                tree: &hash[..16],
+            };
+            self.generation_for(&source, now)?
+        } else {
+            None
         };
         let mtimes = ledger.into_iter().map(|(path, (_, m))| (path, m)).collect();
         Ok(Stamped { mtimes, warm })
@@ -574,29 +631,23 @@ impl Opened {
 
     /// A new generation directory for `tree`, unless one is being built, the
     /// newest is this tree, or the newest is younger than the refresh interval.
-    fn generation_for(
-        &self,
-        entries: &[TreeEntry],
-        ledger: &Ledger,
-        tree: &str,
-        now: u64,
-    ) -> Result<Option<WarmJob>> {
+    fn generation_for(&self, source: &GenerationSource<'_>, now: u64) -> Result<Option<WarmJob>> {
         let limits = &self.cache.limits;
         let _project = lock(&self.cache.dir.join("lock"), true)?;
         let generations = subdirs(&self.variant.join("gen"))?;
-        if let Some(newest) = generations.last()
-            && (!sealed(newest)
-                || name(newest).ends_with(tree)
-                || now.saturating_sub(created_ms(newest)) < limits.refresh_interval_ms)
+        if generations
+            .last()
+            .is_some_and(|path| source.already_warming(path, now, limits))
         {
             return Ok(None);
         }
+        let tree = source.tree;
         let id = format!("{now:013}-{tree}");
         let generation = self.variant.join("gen").join(&id);
         let src = generation.join("src");
         mkdir(&src)?;
         mkdir(&generation.join("done"))?;
-        for entry in entries {
+        for entry in source.entries {
             let path = src.join(entry.path());
             match entry {
                 TreeEntry::Dir { .. } => mkdir(&path)?,
@@ -610,7 +661,8 @@ impl Opened {
                 }
             }
         }
-        let base = ledger
+        let base = source
+            .ledger
             .iter()
             .map(|(p, (sha, _))| (p.clone(), (sha.clone(), 0)));
         write_ledger(&generation.join("ledger.json"), &base.collect())?;
