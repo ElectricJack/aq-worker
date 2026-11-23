@@ -3,10 +3,13 @@ mod fixture_responses_cli;
 mod host_terminal;
 mod manual;
 mod manual_stream;
+mod native_commands;
 mod native_diagnostics;
 #[cfg(feature = "test-support")]
 mod native_fixture;
 mod service;
+mod service_commands;
+mod worker_commands;
 use std::io::{BufRead, IsTerminal};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -47,19 +50,7 @@ enum Cmd {
     /// Enroll this machine. Secrets are read from a prompt or from stdin lines
     /// (code, then CF client id and secret with --cf-service-token, then the
     /// runner Access client id and secret with --runner-access-token).
-    Enroll {
-        #[arg(long)]
-        server: String,
-        /// Worker name (default: the hostname).
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long)]
-        cf_service_token: bool,
-        /// Also store this node's runner Access service token in
-        /// runner-access.json next to worker.toml. Never pass it as an argument.
-        #[arg(long)]
-        runner_access_token: bool,
-    },
+    Enroll(EnrollArgs),
     /// Own node identity, capacity and sandbox lifecycle until stopped.
     Run {
         /// Legacy B5b controller configuration (admission stays fenced).
@@ -96,79 +87,12 @@ enum Cmd {
     },
     /// Run the protocol-2 synthetic execution candidate (no real provider harness).
     #[cfg(feature = "synthetic-runtime")]
-    RunExecution {
-        #[arg(long)]
-        state_dir: PathBuf,
-        #[arg(long)]
-        fixture_agent: PathBuf,
-        #[arg(long, default_value_t = 1)]
-        max_agents: u32,
-        #[arg(long, default_value_t = 60)]
-        idle_timeout_secs: u64,
-        #[arg(long)]
-        exit_after_result: bool,
-        /// Configure the local source adapter with an immutable aq-git executable pin.
-        #[arg(long, requires_all=["aq_git_sha256","aq_git_state_dir"])]
-        aq_git_binary: Option<PathBuf>,
-        #[arg(long, requires = "aq_git_binary")]
-        aq_git_sha256: Option<String>,
-        #[arg(long, requires = "aq_git_binary")]
-        aq_git_state_dir: Option<PathBuf>,
-        /// Trusted Git executable used by aq-git.
-        #[arg(long, default_value = "/usr/bin/git")]
-        git_executable: PathBuf,
-        #[arg(long,default_value_t=64*1024*1024)]
-        source_max_bundle_bytes: u64,
-        #[arg(long,default_value_t=512*1024*1024)]
-        source_max_expanded_bytes: u64,
-        /// Enable resumable authenticated base downloads and source handoff.
-        #[arg(long, requires = "aq_git_binary")]
-        source_transfer: bool,
-        /// Fault injection for the deterministic integration fixture.
-        #[arg(long)]
-        drop_acceptance_response_once: bool,
-        /// Fault injection for the deterministic integration fixture.
-        #[arg(long)]
-        drop_report_response_once: bool,
-        /// Explicit deterministic local recovery test injection.
-        #[arg(long)]
-        fault_checkpoint: Option<String>,
-        #[arg(long, default_value = "crash")]
-        fault_action: String,
-    },
+    RunExecution(RunExecutionArgs),
     /// Execute one fresh native attempt using an installed qualified executor.
     /// Until a concrete production executor is installed, refuses before admission.
-    RunNative {
-        #[arg(long)]
-        native_config: PathBuf,
-        /// Explicit local qualification transport; requires a confined fixture and provider.
-        #[cfg(feature = "test-support")]
-        #[arg(long)]
-        development_loopback: bool,
-        #[cfg(feature = "test-support")]
-        #[arg(long, requires = "development_loopback")]
-        development_provider: Option<String>,
-        #[cfg(feature = "test-support")]
-        #[arg(long, requires = "development_loopback")]
-        fixture_preflight_gate: bool,
-        /// Once-only in-process fixture B1 ACK-loss reconciliation; preserves native failure.
-        #[cfg(feature = "test-support")]
-        #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
-        fixture_replay_lost_b1_ack: bool,
-    },
+    RunNative(RunNativeArgs),
     /// Consume a frozen local handoff with a runner-private delegated permit.
-    SandboxRun {
-        #[arg(long)]
-        manifest: PathBuf,
-        #[arg(long)]
-        state_dir: PathBuf,
-        /// Runner-private permit JSON delivered by the node controller.
-        #[arg(long)]
-        permit_file: PathBuf,
-        /// Coordinator or runner-owned AQ proxy origin; no node enrollment file.
-        #[arg(long)]
-        server_url: String,
-    },
+    SandboxRun(SandboxRunArgs),
     /// MS1: print the public Claude docker-local Definition bodies (JSON).
     #[command(hide = true)]
     Ms1Definitions,
@@ -216,6 +140,98 @@ enum Cmd {
     },
     /// Print the node id and server (never the credential).
     Status,
+}
+
+#[cfg(feature = "synthetic-runtime")]
+#[derive(clap::Args)]
+struct RunExecutionArgs {
+    #[arg(long)]
+    state_dir: PathBuf,
+    #[arg(long)]
+    fixture_agent: PathBuf,
+    #[arg(long, default_value_t = 1)]
+    max_agents: u32,
+    #[arg(long, default_value_t = 60)]
+    idle_timeout_secs: u64,
+    #[arg(long)]
+    exit_after_result: bool,
+    /// Configure the local source adapter with an immutable aq-git executable pin.
+    #[arg(long, requires_all=["aq_git_sha256","aq_git_state_dir"])]
+    aq_git_binary: Option<PathBuf>,
+    #[arg(long, requires = "aq_git_binary")]
+    aq_git_sha256: Option<String>,
+    #[arg(long, requires = "aq_git_binary")]
+    aq_git_state_dir: Option<PathBuf>,
+    /// Trusted Git executable used by aq-git.
+    #[arg(long, default_value = "/usr/bin/git")]
+    git_executable: PathBuf,
+    #[arg(long,default_value_t=64*1024*1024)]
+    source_max_bundle_bytes: u64,
+    #[arg(long,default_value_t=512*1024*1024)]
+    source_max_expanded_bytes: u64,
+    /// Enable resumable authenticated base downloads and source handoff.
+    #[arg(long, requires = "aq_git_binary")]
+    source_transfer: bool,
+    /// Fault injection for the deterministic integration fixture.
+    #[arg(long)]
+    drop_acceptance_response_once: bool,
+    /// Fault injection for the deterministic integration fixture.
+    #[arg(long)]
+    drop_report_response_once: bool,
+    /// Explicit deterministic local recovery test injection.
+    #[arg(long)]
+    fault_checkpoint: Option<String>,
+    #[arg(long, default_value = "crash")]
+    fault_action: String,
+}
+
+#[derive(clap::Args)]
+struct RunNativeArgs {
+    #[arg(long)]
+    native_config: PathBuf,
+    /// Explicit local qualification transport; requires a confined fixture and provider.
+    #[cfg(feature = "test-support")]
+    #[arg(long)]
+    development_loopback: bool,
+    #[cfg(feature = "test-support")]
+    #[arg(long, requires = "development_loopback")]
+    development_provider: Option<String>,
+    #[cfg(feature = "test-support")]
+    #[arg(long, requires = "development_loopback")]
+    fixture_preflight_gate: bool,
+    /// Once-only in-process fixture B1 ACK-loss reconciliation; preserves native failure.
+    #[cfg(feature = "test-support")]
+    #[arg(long, requires_all = ["development_loopback", "fixture_preflight_gate"])]
+    fixture_replay_lost_b1_ack: bool,
+}
+
+#[derive(clap::Args)]
+struct SandboxRunArgs {
+    #[arg(long)]
+    manifest: PathBuf,
+    #[arg(long)]
+    state_dir: PathBuf,
+    /// Runner-private permit JSON delivered by the node controller.
+    #[arg(long)]
+    permit_file: PathBuf,
+    /// Coordinator or runner-owned AQ proxy origin; no node enrollment file.
+    #[arg(long)]
+    server_url: String,
+}
+
+#[derive(clap::Args)]
+struct EnrollArgs {
+    #[arg(long)]
+    server: String,
+    /// Worker name (default: the hostname).
+    #[arg(long)]
+    name: Option<String>,
+    #[arg(long)]
+    cf_service_token: bool,
+    /// Also store this node's runner Access service token in
+    /// runner-access.json next to worker.toml. Never pass it as an argument.
+    #[arg(long)]
+    runner_access_token: bool,
 }
 
 #[derive(Subcommand)]
@@ -357,6 +373,17 @@ fn run_error(e: &anyhow::Error) -> (String, ExitCode) {
     )
 }
 
+fn shutdown_watch() -> (
+    tokio::task::JoinHandle<()>,
+    tokio::sync::watch::Receiver<bool>,
+) {
+    let (signal, receiver) = tokio::sync::watch::channel(false);
+    let watcher = tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = signal.send(true);
+    });
+    (watcher, receiver)
+}
 async fn shutdown_signal() {
     let ctrl_c = async {
         let _ = tokio::signal::ctrl_c().await;
@@ -420,7 +447,7 @@ async fn gemini_proxy_cli(
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let sandbox_agent = if matches!(&cli.command, Cmd::SandboxRun { .. }) {
+    let sandbox_agent = if matches!(&cli.command, Cmd::SandboxRun(_)) {
         match aq_session_host::users::bootstrap_sandbox_users() {
             Ok(agent) => Some(agent),
             Err(error) => return usage_err(error),
@@ -430,6 +457,16 @@ fn main() -> ExitCode {
     };
     run(cli, sandbox_agent)
 }
+fn command_exit<E, M: std::fmt::Display>(
+    result: Result<(), E>,
+    message: impl FnOnce(E) -> M,
+) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => usage_err(message(error)),
+    }
+}
+
 #[tokio::main]
 async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdentity>) -> ExitCode {
     tracing_subscriber::fmt()
@@ -439,604 +476,57 @@ async fn run(cli: Cli, sandbox_agent: Option<aq_session_host::users::AgentIdenti
         .init();
     let path = cli.config.unwrap_or_else(default_path);
     match cli.command {
-        Cmd::Template { command } => {
-            let args = match command {
-                TemplateCmd::Build {
-                    recipe,
-                    build_config,
-                    output,
-                } => vec![
-                    "build".into(),
-                    recipe.into_os_string(),
-                    "--build-config".into(),
-                    build_config.into_os_string(),
-                    "--output".into(),
-                    output.into_os_string(),
-                ],
-                TemplateCmd::Scan { archive } => vec!["scan".into(), archive.into_os_string()],
-                #[cfg(feature = "project_environments")]
-                TemplateCmd::EnvironmentBuild {
-                    job,
-                    repo,
-                    build_config,
-                    output,
-                } => vec![
-                    "environment-build".into(),
-                    "--job".into(),
-                    job.into_os_string(),
-                    "--repo".into(),
-                    repo.into_os_string(),
-                    "--build-config".into(),
-                    build_config.into_os_string(),
-                    "--output".into(),
-                    output.into_os_string(),
-                ],
-                #[cfg(feature = "project_environments")]
-                TemplateCmd::EnvironmentTry {
-                    job,
-                    repo,
-                    build_config,
-                } => vec![
-                    "environment-try".into(),
-                    "--job".into(),
-                    job.into_os_string(),
-                    "--repo".into(),
-                    repo.into_os_string(),
-                    "--build-config".into(),
-                    build_config.into_os_string(),
-                ],
-            };
-            match aq_worker::template::run(&args) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(_) => {
-                    usage_err("template operation refused; Python 3 and valid inputs required")
-                }
-            }
-        }
+        Cmd::Template { command } => worker_commands::template(command),
         #[cfg(feature = "synthetic-runtime")]
-        Cmd::RunExecution {
-            state_dir,
-            fixture_agent,
-            max_agents,
-            idle_timeout_secs,
-            exit_after_result,
-            drop_acceptance_response_once,
-            drop_report_response_once,
-            fault_checkpoint,
-            fault_action,
-            aq_git_binary,
-            aq_git_sha256,
-            aq_git_state_dir,
-            git_executable,
-            source_max_bundle_bytes,
-            source_max_expanded_bytes,
-            source_transfer,
-        } => {
-            let result = async {
-                if let Some(name) = fault_checkpoint {
-                    aq_worker::fault::configure(name, fault_action)?;
-                }
-                let cfg = WorkerConfig::load(&path)?;
-                aq_worker::driver::run_execution(
-                    &cfg,
-                    &state_dir,
-                    &fixture_agent,
-                    aq_worker::driver::DriverOptions {
-                        source: aq_git_binary.map(|binary| aq_worker::driver::SourceOptions {
-                            binary,
-                            binary_sha256: aq_git_sha256.unwrap(),
-                            state_dir: aq_git_state_dir.unwrap(),
-                            git_executable,
-                            max_bundle_bytes: source_max_bundle_bytes,
-                            max_expanded_bytes: source_max_expanded_bytes,
-                            transfer: source_transfer,
-                        }),
-                        max_agents,
-                        idle_timeout_secs,
-                        exit_after_result,
-                        drop_acceptance_response_once,
-                        drop_report_response_once,
-                    },
-                )
-                .await
-            }
-            .await;
-            match result {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => usage_err(format!("{e:#}")),
-            }
-        }
-        Cmd::SandboxRun {
-            manifest,
-            state_dir,
-            permit_file,
-            server_url,
-        } => {
-            let result = (|| -> anyhow::Result<()> {
-                let _agent = sandbox_agent
-                    .ok_or_else(|| anyhow::anyhow!("sandbox user bootstrap required"))?;
-                let frozen = aq_worker::native::runner::sandbox::FrozenLaunch::load(&manifest)?;
-                frozen.validate_local(&state_dir)?;
-                let _http = aq_worker::native::runner::sandbox::auth::RunnerHttp::for_execution(
-                    &server_url,
-                    &permit_file,
-                    &frozen,
-                )?;
-                anyhow::bail!(
-                    "sandbox runner B2 receipt codec is unavailable; permit transport validated, no launch attempted"
-                );
-            })();
-            match result {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => usage_err(e),
-            }
-        }
-        Cmd::Ms1Definitions => {
-            let recipe = aq_worker::native::adapter::claude::docker_local_recipe_artifact();
-            let codex = aq_codex_mapper::docker_local::recipe_artifact();
-            println!(
-                "{}",
-                serde_json::json!({
-                    "recipe": {
-                        "id": recipe.id.as_str(),
-                        "version": recipe.version.as_str(),
-                        "digest": recipe.digest.as_str(),
-                        "body": aq_worker::native::adapter::claude::docker_local_recipe_body(),
-                    },
-                    // Codex in the same docker-local sandbox (harness `codex`).
-                    "codex_recipe": {
-                        "id": codex.id.as_str(),
-                        "version": codex.version.as_str(),
-                        "digest": codex.digest.as_str(),
-                        "body": aq_codex_mapper::docker_local::recipe_body(),
-                    },
-                    "contract": aq_agent_result_local::artifact(),
-                    "startup": aq_agent_result_local::startup_artifact(),
-                })
-            );
-            ExitCode::SUCCESS
-        }
-        Cmd::SandboxHarness { driver_config } => {
-            match aq_worker::sandbox_driver::run(&driver_config).await {
-                Ok(0) => ExitCode::SUCCESS,
-                Ok(code) => ExitCode::from(u8::try_from(code).unwrap_or(1)),
-                Err(e) => {
-                    println!("aq-sandbox-harness: refused: {e:#}");
-                    ExitCode::from(2)
-                }
-            }
-        }
-        Cmd::CheckNative { native_config } => {
-            let disposition = "native configuration check refused";
-            let worker = match WorkerConfig::load(&path) {
-                Ok(worker) => worker,
-                Err(error) => return native_diagnostics::refuse(&error, None, disposition),
-            };
-            let result = (|| -> anyhow::Result<()> {
-                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
-                config.validate()?;
-                if claude_docker(&config) {
-                    let mut executor =
-                        aq_worker::native::runner::ClaudeDockerExecutor::configured(&worker)?;
-                    return aq_worker::native::runner::NativeExecutor::preflight(
-                        &mut executor,
-                        &config,
-                    );
-                }
-                let mut executor = configured_native_executor(&worker, &config)?
-                    .ok_or_else(|| anyhow::anyhow!("native executor is not configured"))?;
-                aq_worker::native::runner::NativeExecutor::preflight(&mut executor, &config)?;
-                Ok(())
-            })();
-            match result {
-                Ok(()) => {
-                    println!("Native configuration and installed executor are valid");
-                    ExitCode::SUCCESS
-                }
-                Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
-            }
-        }
+        Cmd::RunExecution(args) => worker_commands::execution(args, path).await,
+        Cmd::SandboxRun(args) => native_commands::sandbox(args, sandbox_agent),
+        Cmd::Ms1Definitions => native_commands::definitions(),
+        Cmd::SandboxHarness { driver_config } => native_commands::harness(driver_config).await,
+        Cmd::CheckNative { native_config } => native_commands::check(path, native_config),
         Cmd::ReleaseNativeSandbox {
             native_config,
             attempt_id,
             reason,
-        } => {
-            let result = async {
-                let worker = WorkerConfig::load(&path)?;
-                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
-                aq_worker::native::runner::release_preserved_sandbox(
-                    &config,
-                    worker.node_id,
-                    attempt_id,
-                    &reason,
-                )
-                .await
-            }
-            .await;
-            match result {
-                Ok(released) => {
-                    println!(
-                        "operator release: attempt {attempt_id} sandbox(es) {} destroyed; reason recorded as destroy evidence",
-                        released.join(", ")
-                    );
-                    ExitCode::SUCCESS
-                }
-                Err(error) => usage_err(format!("operator release refused: {error:#}")),
-            }
-        }
+        } => native_commands::release(path, native_config, attempt_id, reason).await,
         Cmd::ReconcileNative {
             native_config,
             attempt_id,
-        } => {
-            let result = async {
-                let worker = WorkerConfig::load(&path)?;
-                let config = aq_worker::native::runner::NativeConfig::load(&native_config)?;
-                aq_worker::native::runner::reconcile_native(&worker, &config, attempt_id).await
-            }
-            .await;
-            match result {
-                Ok(disposition) => {
-                    println!(
-                        "native reconciliation: {attempt_id} {disposition:?}; retained state preserved; server settlement/release is separate"
-                    );
-                    ExitCode::SUCCESS
-                }
-                Err(error) => usage_err(format!(
-                    "native reconciliation failed: {error:#}; preserve state and retry the same attempt"
-                )),
-            }
-        }
-        Cmd::RunNative {
-            native_config,
-            #[cfg(feature = "test-support")]
-            development_loopback,
-            #[cfg(feature = "test-support")]
-            development_provider,
-            #[cfg(feature = "test-support")]
-            fixture_preflight_gate,
-            #[cfg(feature = "test-support")]
-            fixture_replay_lost_b1_ack,
-        } => {
-            let disposition = "native execution unavailable or outcome unknown; preserve state for reconciliation";
-            let worker = match WorkerConfig::load(&path) {
-                Ok(worker) => worker,
-                Err(error) => return native_diagnostics::refuse(&error, None, disposition),
-            };
-            let result = async {
-                #[cfg(feature = "test-support")]
-                let fixture = native_fixture::Options::from_flags(
-                    development_loopback,
-                    development_provider,
-                    fixture_preflight_gate,
-                    fixture_replay_lost_b1_ack,
-                )?;
-                #[cfg(feature = "test-support")]
-                if fixture.is_some() {
-                    native_fixture::verify_environment()?;
-                }
-                let config = aq_worker::native::runner::NativeConfig::load(&native_config)
-                    .inspect_err(|_| {
-                        tracing::info!(stage = "native_config_load", "native execution refused");
-                    })?;
-                if claude_docker(&config) {
-                    let mut executor =
-                        aq_worker::native::runner::ClaudeDockerExecutor::configured(&worker)?;
-                    let (signal, shutdown) = tokio::sync::watch::channel(false);
-                    let watcher = tokio::spawn(async move {
-                        shutdown_signal().await;
-                        let _ = signal.send(true);
-                    });
-                    let result = aq_worker::native::runner::run_once(
-                        &worker,
-                        config,
-                        &mut executor,
-                        shutdown,
-                    )
-                    .await;
-                    watcher.abort();
-                    return result;
-                }
-                #[cfg(feature = "test-support")]
-                let executor = match &fixture {
-                    Some(options) => Some(options.executor(&worker)?),
-                    None => configured_native_executor(&worker, &config)?,
-                };
-                #[cfg(not(feature = "test-support"))]
-                let executor = configured_native_executor(&worker, &config)?;
-                let (signal, shutdown) = tokio::sync::watch::channel(false);
-                let watcher = tokio::spawn(async move {
-                    shutdown_signal().await;
-                    let _ = signal.send(true);
-                });
-                let result = if let Some(mut executor) = executor {
-                    #[cfg(feature = "test-support")]
-                    {
-                        match fixture {
-                            Some(options) => {
-                                let mut executor = native_fixture::FixtureExecutor::new(
-                                    executor,
-                                    options.gate,
-                                    options.replay_lost_b1_ack,
-                                );
-                                aq_worker::native::runner::run_once(
-                                    &worker,
-                                    config,
-                                    &mut executor,
-                                    shutdown,
-                                )
-                                .await
-                            }
-                            None => {
-                                aq_worker::native::runner::run_once(
-                                    &worker,
-                                    config,
-                                    &mut executor,
-                                    shutdown,
-                                )
-                                .await
-                            }
-                        }
-                    }
-                    #[cfg(not(feature = "test-support"))]
-                    {
-                        aq_worker::native::runner::run_once(
-                            &worker,
-                            config,
-                            &mut executor,
-                            shutdown,
-                        )
-                        .await
-                    }
-                } else {
-                    aq_worker::native::runner::run_once(
-                        &worker,
-                        config,
-                        &mut aq_worker::native::runner::UnavailableExecutor,
-                        shutdown,
-                    )
-                    .await
-                };
-                watcher.abort();
-                result
-            }
-            .await;
-            match result {
-                Ok(disposition) => {
-                    println!("native run: {disposition:?}; retained state preserved");
-                    ExitCode::SUCCESS
-                }
-                Err(error) => native_diagnostics::refuse(&error, Some(&worker), disposition),
-            }
-        }
+        } => native_commands::reconcile(path, native_config, attempt_id).await,
+        Cmd::RunNative(args) => native_commands::run(args, path).await,
         #[cfg(feature = "test-support")]
-        Cmd::FixtureResponses => match fixture_responses_cli::run() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(_) => usage_err("finite response fixture input refused"),
-        },
+        Cmd::FixtureResponses => command_exit(
+            fixture_responses_cli::run(),
+            |_| "finite response fixture input refused",
+        ),
         #[cfg(feature = "test-support")]
         Cmd::GeminiProxy {
             key_file,
             ready_file,
-        } => match gemini_proxy_cli(&key_file, &ready_file).await {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => usage_err(format!("gemini proxy refused: {e:#}")),
-        },
-        Cmd::Status => match WorkerConfig::load(&path) {
-            Ok(c) => {
-                println!("node id: {}", c.node_id);
-                println!("server:  {}", c.server_url);
-                ExitCode::SUCCESS
-            }
-            Err(e) => usage_err(format!("{e:#}")),
-        },
+        } => command_exit(gemini_proxy_cli(&key_file, &ready_file).await, |error| {
+            format!("gemini proxy refused: {error:#}")
+        }),
+        Cmd::Status => worker_commands::status(path),
         Cmd::BoatVmTimeBackfill {
             controller_config,
             facts,
-        } => {
-            let result: anyhow::Result<()> = async {
-                use aq_worker::backend::boat::{BoatBackend, BoatKey, VmTimeFact};
-                use std::io::Read;
-                let worker = WorkerConfig::load(&path)?;
-                let config = aq_worker::controller::RunConfig::load(&controller_config)?;
-                let boat = config
-                    .boat
-                    .ok_or_else(|| anyhow::anyhow!("backfill requires Boat backend"))?;
-                anyhow::ensure!(
-                    boat.node_id == worker.node_id,
-                    "boat node identity differs from enrollment"
-                );
-                let key = BoatKey::load(&boat.key_file)?;
-                let mut backend = BoatBackend::connect(boat, key)?
-                    .with_vm_time_client(Client::from_config(&worker)?);
-                let mut bytes = Vec::new();
-                std::fs::File::open(facts)?
-                    .take(1_048_577)
-                    .read_to_end(&mut bytes)?;
-                anyhow::ensure!(bytes.len() <= 1_048_576, "backfill file too large");
-                let facts: Vec<VmTimeFact> = serde_json::from_slice(&bytes)?;
-                for fact in facts {
-                    backend.backfill_vm_time(fact)?;
-                }
-                backend.replay_vm_time().await?;
-                anyhow::ensure!(
-                    backend.pending_vm_time_reports() == 0,
-                    "VM-time facts journaled but delivery pending; rerun to retry"
-                );
-                Ok(())
-            }
-            .await;
-            match result {
-                Ok(()) => {
-                    println!("Boat VM-time backfill recorded");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => usage_err(format!("{e:#}")),
-            }
-        }
-        Cmd::RunChecks { checks_config } => {
-            let result: anyhow::Result<()> = async {
-                let worker = WorkerConfig::load(&path)?;
-                let config = aq_worker::checks::ChecksConfig::load(&checks_config)?;
-                let (tx, rx) = tokio::sync::watch::channel(false);
-                let watcher = tokio::spawn(async move {
-                    shutdown_signal().await;
-                    let _ = tx.send(true);
-                });
-                let result = aq_worker::checks::run(&worker, config, rx).await;
-                watcher.abort();
-                result
-            }
-            .await;
-            match result {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    let (message, code) = run_error(&e);
-                    eprintln!("error: {message}");
-                    code
-                }
-            }
-        }
-        Cmd::Service { command } => match service::dispatch(command).await {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => usage_err(format!("{e:#}")),
-        },
-        Cmd::HostTerminalRelay { service_config } => {
-            match Box::pin(host_terminal::run(&service_config)).await {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(_) => usage_err("host terminal companion stopped"),
-            }
-        }
-        Cmd::TerminalRelay { service_config } => {
-            match Box::pin(manual_stream::run(&service_config)).await {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(_) => usage_err("terminal relay stopped"),
-            }
-        }
+        } => service_commands::backfill(path, controller_config, facts).await,
+        Cmd::RunChecks { checks_config } => service_commands::checks(path, checks_config).await,
+        Cmd::Service { command } => command_exit(service::dispatch(command).await, |error| {
+            format!("{error:#}")
+        }),
+        Cmd::HostTerminalRelay { service_config } => command_exit(
+            Box::pin(host_terminal::run(&service_config)).await,
+            |_| "host terminal companion stopped",
+        ),
+        Cmd::TerminalRelay { service_config } => command_exit(
+            Box::pin(manual_stream::run(&service_config)).await,
+            |_| "terminal relay stopped",
+        ),
         Cmd::Run {
-            service_config: Some(service_config),
-            ..
-        } => match service::run_service(&service_config).await {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                let (message, code) = run_error(&e);
-                eprintln!("error: {message}");
-                code
-            }
-        },
-        Cmd::Run {
-            controller_config: None,
-            ..
-        } => usage_err("pass --controller-config or --service-config"),
-        Cmd::Run {
-            controller_config: Some(controller_config),
-            ..
-        } => {
-            let result: anyhow::Result<()> = async {
-                use aq_worker::controller::{Controller, RunConfig, UnavailableProvider};
-                use aq_worker::backend::{SelectedBackend, boat::{BoatBackend, BoatKey}, docker_local::DockerLocalBackend};
-                let worker = WorkerConfig::load(&path)?;
-                let config = RunConfig::load(&controller_config)?;
-                let client = Client::from_config(&worker)?;
-                let backend = match (config.docker_local, config.boat) {
-                    (Some(docker), None) => SelectedBackend::Docker(Box::new(DockerLocalBackend::connect_unix(docker).await?)),
-                    (None, Some(boat)) => {
-                        anyhow::ensure!(boat.node_id == worker.node_id, "boat node identity differs from enrollment");
-                        let key = BoatKey::load(&boat.key_file)?;
-                        SelectedBackend::Boat(Box::new(BoatBackend::connect(boat, key)?.with_vm_time_client(client.clone())))
-                    }
-                    _ => anyhow::bail!("configure exactly one placement backend"),
-                };
-                let mut controller = Controller::open(&config.state_dir, worker.node_id, config.node, backend, UnavailableProvider)?;
-                let machine_reporting = aq_machine_load::sampler_from_file(&controller_config.with_file_name("machine.json"), config.state_dir.clone());
-                let machine_client = client.clone();
-                let (tx, rx) = tokio::sync::watch::channel(false);
-                let watcher = tokio::spawn(async move {
-                    shutdown_signal().await;
-                    let _ = tx.send(true);
-                });
-                let mut machine_shutdown = rx.clone();
-                let machine = machine_reporting.map(|(sampler, interval)| tokio::spawn(aq_machine_load::report_loop(sampler, interval,
-                    move |report| { let c = machine_client.clone(); async move {
-                        c.post::<_, serde_json::Value>("/v1/worker/machine", &report, true).await.map(|_| ()).map_err(|e| e.to_string()) } },
-                    async move { while !*machine_shutdown.borrow() { if machine_shutdown.changed().await.is_err() { break; } } })));
-                let mut heartbeat_shutdown = rx.clone();
-                tracing::info!(node_id = %controller.identity().node_id, boot_id = %controller.identity().boot_id, "node controller starting");
-                let result = controller.run_with_heartbeat(rx, run_loop(&client, async move {
-                        while !*heartbeat_shutdown.borrow() {
-                            if heartbeat_shutdown.changed().await.is_err() { break; }
-                        }
-                    })).await;
-                watcher.abort();
-                if let Some(machine) = machine { machine.abort(); }
-                result
-            }.await;
-            match result {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(e) => {
-                    let (message, code) = run_error(&e);
-                    eprintln!("error: {message}");
-                    code
-                }
-            }
-        }
-        Cmd::Enroll {
-            server,
-            name,
-            cf_service_token,
-            runner_access_token,
-        } => {
-            let Some(name) = name.or_else(hostname) else {
-                return usage_err("cannot determine hostname; pass --name");
-            };
-            let secrets = match read_secrets(cf_service_token, runner_access_token) {
-                Ok(s) => s,
-                Err(e) => return usage_err(format!("{e:#}")),
-            };
-            let (cf_id, cf_secret) = match secrets.cf {
-                Some((i, s)) => (Some(i), Some(s)),
-                None => (None, None),
-            };
-            let client = match Client::new(&server, None, cf_id.clone(), cf_secret.clone()) {
-                Ok(c) => c,
-                Err(e) => return usage_err(format!("{e:#}")),
-            };
-            let resp = client
-                .enroll(&EnrollRequest {
-                    code: secrets.code,
-                    name,
-                    worker_version: env!("AQ_WORKER_VERSION").to_string(),
-                    protocol_version: PROTOCOL_VERSION,
-                })
-                .await;
-            match resp {
-                Ok(r) => {
-                    let cfg = WorkerConfig {
-                        server_url: server,
-                        node_id: r.node_id,
-                        credential: r.credential,
-                        cf_client_id: cf_id,
-                        cf_client_secret: cf_secret,
-                    };
-                    if let Err(e) = cfg.save(&path) {
-                        return usage_err(format!("{e:#}"));
-                    }
-                    println!("enrolled as node {}", cfg.node_id);
-                    println!("config saved to {}", path.display());
-                    if let Some(runner) = secrets.runner {
-                        let runner_path = runner_access_path(&path);
-                        if let Err(e) = runner.save(&runner_path) {
-                            return usage_err(format!("{e:#}"));
-                        }
-                        println!("runner Access token saved to {}", runner_path.display());
-                    }
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    exit_for(&e)
-                }
-            }
-        }
+            controller_config,
+            service_config,
+        } => service_commands::run(path, controller_config, service_config).await,
+        Cmd::Enroll(args) => worker_commands::enroll(args, path).await,
     }
 }
 
@@ -1200,10 +690,10 @@ fn enroll_never_accepts_runner_token_in_argv() {
     let ok = Cli::try_parse_from(base.iter().chain(&["--runner-access-token"])).unwrap();
     assert!(matches!(
         ok.command,
-        Cmd::Enroll {
+        Cmd::Enroll(EnrollArgs {
             runner_access_token: true,
             ..
-        }
+        })
     ));
     assert!(Cli::try_parse_from(base.iter().chain(&["--runner-access-token=abc"])).is_err());
     assert!(Cli::try_parse_from(base.iter().chain(&["--runner-access-token", "abc"])).is_err());

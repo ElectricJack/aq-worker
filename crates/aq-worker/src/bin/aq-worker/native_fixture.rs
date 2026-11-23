@@ -221,12 +221,12 @@ mod tests {
         .unwrap();
         assert!(matches!(
             parsed.command,
-            crate::Cmd::RunNative {
+            crate::Cmd::RunNative(crate::RunNativeArgs {
                 development_loopback: true,
                 development_provider: Some(_),
                 fixture_preflight_gate: true,
                 ..
-            }
+            })
         ));
     }
     #[test]
@@ -248,10 +248,10 @@ mod tests {
         let parsed = crate::Cli::try_parse_from(args).unwrap();
         assert!(matches!(
             parsed.command,
-            crate::Cmd::RunNative {
+            crate::Cmd::RunNative(crate::RunNativeArgs {
                 fixture_replay_lost_b1_ack: true,
                 ..
-            }
+            })
         ));
         assert!(Options::from_flags(false, None, false, true).is_err());
         assert!(
