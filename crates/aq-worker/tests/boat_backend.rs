@@ -87,7 +87,7 @@ impl BackendFixture for Fixture {
     }
     fn inject(&mut self, fault: Fault) {
         match fault {
-            Fault::CrashAfterCreate => self.api.fault(Method::POST, "/sandboxes", 0, true),
+            Fault::CrashAfterCreate => self.api.fail_after(Method::POST, "/sandboxes", 0),
             Fault::DestroyFailure => {
                 let id = self
                     .api
@@ -100,7 +100,7 @@ impl BackendFixture for Fixture {
                     .unwrap()
                     .clone();
                 self.api
-                    .fault(Method::DELETE, &format!("/sandboxes/{id}"), 503, false)
+                    .fail_before(Method::DELETE, &format!("/sandboxes/{id}"), 503)
             }
             _ => panic!("unused conformance fault"),
         }
@@ -265,7 +265,7 @@ async fn boat_mapping_survives_restart_and_rejects_changed_request() {
     let dir = tempfile::tempdir().unwrap();
     let mut b = backend(&api, dir.path()).await;
     let r = request(50);
-    api.fault(Method::POST, "/sandboxes", 0, true);
+    api.fail_after(Method::POST, "/sandboxes", 0);
     assert!(b.create(&r).await.is_err());
     drop(b);
     let mut b = backend(&api, dir.path()).await;
@@ -424,7 +424,11 @@ async fn boat_unavailable_refuses_offers_without_orphans() {
         let deadline = r.hard_deadline_ms;
         let id = c.reserve(r).unwrap();
         c.accept_with(id, |_| async { Ok(()) }).await.unwrap();
-        api.fault(Method::POST, "/sandboxes", status, after);
+        if after {
+            api.fail_after(Method::POST, "/sandboxes", status);
+        } else {
+            api.fail_before(Method::POST, "/sandboxes", status);
+        }
         let error = c.launch(id, &()).await.unwrap_err();
         assert_eq!(
             error.downcast_ref::<RefusalReason>(),
