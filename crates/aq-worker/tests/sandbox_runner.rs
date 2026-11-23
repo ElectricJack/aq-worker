@@ -432,3 +432,6 @@ mod login;
 
 #[path = "sandbox_runner/subscription_login.rs"]
 mod subscription_login;
+
+#[path = "sandbox_runner/disk_watch.rs"]
+mod disk_watch;
