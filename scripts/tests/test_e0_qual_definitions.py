@@ -1,10 +1,14 @@
+import copy
 import importlib.util
 import json
 from pathlib import Path
 import re
 import subprocess
 import tomllib
+import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 PINS = json.loads((ROOT / 'scripts/e0-qual/pins.json').read_text())
@@ -58,6 +62,79 @@ class E0QualDefinitions(unittest.TestCase):
 
     def test_canonical_is_sorted_compact_utf8(self):
         self.assertEqual(self.d.canonical({'b': 1, 'a': 'é'}), '{"a":"é","b":1}')
+
+
+class MeasurementEvidence(unittest.TestCase):
+    def setUp(self):
+        self.d = load()
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.evidence = Path(temporary.name)
+        model = dict(model='fixture-model', native_reasoning='high')
+        self.stack = SimpleNamespace(PINS={'model': model}, layout=lambda: {'evidence': self.evidence},
+                                     require=self.require)
+        call = dict(exit_code=0, errors=[], prompt_utf8_bytes=100, prompt_sha256='fixture-digest',
+                    payload_utf8_bytes=80, started_at_ms=1, finished_at_ms=2,
+                    usage=dict(input_tokens=16484, cached_input_tokens=0, output_tokens=10,
+                               reasoning_output_tokens=3),
+                    rollout=dict(models=['fixture-model'], efforts=['high'], model_context_windows=[32768],
+                                 last_input_tokens=16484))
+        self.raw = dict(model, codex_version='codex-cli 0.166.0', calls=[
+            dict(copy.deepcopy(call), call=name, finished_at_ms=i + 2)
+            for i, name in enumerate(('minimal', 'mixed', 'adversarial'))])
+
+    @staticmethod
+    def require(condition, message):
+        if not condition:
+            raise ValueError(message)
+
+    def measured(self):
+        (self.evidence / 'measure-raw.json').write_text(json.dumps(self.raw))
+        return self.d.measured(self.stack)
+
+    def test_accepts_exact_counting_bound_and_retains_capacity_and_latest_time(self):
+        rows, capacity, observed = self.measured()
+        self.assertEqual((capacity, observed), (32768, 4))
+        self.assertEqual([r['call'] for r in rows], ['minimal', 'mixed', 'adversarial'])
+        self.assertTrue(all(r['input_tokens'] == r['bound_tokens'] == 16484 for r in rows))
+        self.assertEqual(rows[0]['reasoning_output_tokens'], 3)
+        self.assertEqual(rows[0]['rollout_model_context_windows'], [32768])
+
+    def test_rejects_incomplete_or_unbounded_calls(self):
+        original = copy.deepcopy(self.raw)
+        for field, value in (('exit_code', 1), ('errors', ['incomplete'])):
+            self.raw = copy.deepcopy(original)
+            self.raw['calls'][0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'incomplete'):
+                self.measured()
+        self.raw = copy.deepcopy(original)
+        self.raw['calls'][0]['usage']['input_tokens'] += 1
+        with self.assertRaisesRegex(ValueError, 'counting bound'):
+            self.measured()
+
+    def test_rejects_wrong_order_model_reasoning_or_capacity(self):
+        original = copy.deepcopy(self.raw)
+        self.raw['calls'].reverse()
+        with self.assertRaisesRegex(ValueError, 'three bounded'):
+            self.measured()
+        for field, value in (('models', ['other']), ('efforts', ['low']),
+                             ('model_context_windows', [65536]), ('model_context_windows', [])):
+            self.raw = copy.deepcopy(original)
+            self.raw['calls'][0]['rollout'][field] = value
+            # Other calls still provide the single window when one call supplies no windows.
+            if value == []:
+                for call in self.raw['calls']:
+                    call['rollout'][field] = []
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                self.measured()
+
+    def test_public_bodies_refuse_changed_pinned_bytes(self):
+        stack = SimpleNamespace(PINS=PINS, HERE=ROOT / 'scripts', require=self.require)
+        builder = self.d.Builder()
+        with patch.object(self.d.subprocess, 'run', return_value=SimpleNamespace(stdout=b'changed')):
+            with self.assertRaisesRegex(ValueError, 'differs from the pinned I0 source'):
+                self.d.pinned_public_bodies(stack, builder)
+        self.assertEqual(builder.definitions, [])
 
 
 if __name__ == '__main__':

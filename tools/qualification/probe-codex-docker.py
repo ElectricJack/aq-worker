@@ -101,16 +101,55 @@ def execute(command, timeout=30):
             "stdout": result.stdout, "stderr": result.stderr}
 
 
+class Qualification:
+    def __init__(self, image, output):
+        self.image = image
+        self.output = output
+        self.report = {"image_requested": image, "passed": False, "results": []}
+
+    def save(self):
+        (self.output / 'qualification.json').write_text(json.dumps(self.report, indent=2) + '\n')
+
+    OPTIONS = ['docker', 'run', '--rm', '--init', '--read-only', '--user', '10001:10001',
+               '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges=true',
+               '--network', 'none', '--pids-limit', '128', '--memory', '512m',
+               '--cpus', '1', '--tmpfs', '/state:rw,nosuid,nodev,mode=1777,size=64m',
+               '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777,size=64m']
+
+    def run(self, name, policy, mode='true', expected=0, error_text=None):
+        container = 'aq-codex-probe-' + uuid.uuid4().hex
+        command = self.OPTIONS + ['--name', container]
+        if policy:
+            command += ['--security-opt', 'seccomp=' + str(policy)]
+        command += ['--entrypoint', 'python3', self.image, '-c', SETUP, mode, CANARY]
+        try:
+            result = execute(command)
+        except subprocess.TimeoutExpired:
+            # Stop only this probe's uniquely named, credential-free container.
+            cleanup = execute(['docker', 'rm', '-f', container])
+            self.report['results'].append({'name': name, 'command': command,
+                                          'timeout_seconds': 30, 'cleanup': cleanup})
+            self.save()
+            raise
+        result.update(name=name, expected_exit=expected)
+        if policy and policy != 'unconfined':
+            result['profile_sha256'] = hashlib.sha256(pathlib.Path(policy).read_bytes()).hexdigest()
+        self.report['results'].append(result)
+        self.save()
+        assert result['exit'] == expected, result
+        if error_text:
+            assert error_text in result['stderr'], result
+        print(f"PASS {name}: exit {result['exit']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=pathlib.Path, required=True)
     parser.add_argument('--image', default=IMAGE, help='locally installed image ID to requalify')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
-    report = {"image_requested": args.image, "passed": False, "results": []}
-
-    def save():
-        (args.output / 'qualification.json').write_text(json.dumps(report, indent=2) + '\n')
+    qualification = Qualification(args.image, args.output)
+    report = qualification.report
 
     try:
         version = execute(['docker', 'version', '--format', '{{json .}}'])
@@ -125,44 +164,13 @@ def main():
         assert image['stdout'].strip().endswith('"amd64" "10001:10001"'), image
         report['profiles'] = {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
                               for p in (BASE, PROFILE)}
-        options = ['docker', 'run', '--rm', '--init', '--read-only', '--user', '10001:10001',
-                   '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges=true',
-                   '--network', 'none', '--pids-limit', '128', '--memory', '512m',
-                   '--cpus', '1', '--tmpfs', '/state:rw,nosuid,nodev,mode=1777,size=64m',
-                   '--tmpfs', '/tmp:rw,nosuid,nodev,mode=1777,size=64m']
-
-        def run(name, policy, mode='true', expected=0, error_text=None):
-            container = 'aq-codex-probe-' + uuid.uuid4().hex
-            command = options + ['--name', container]
-            if policy:
-                command += ['--security-opt', 'seccomp=' + str(policy)]
-            command += ['--entrypoint', 'python3', args.image, '-c', SETUP, mode, CANARY]
-            try:
-                result = execute(command)
-            except subprocess.TimeoutExpired:
-                # Stop only this probe's uniquely named, credential-free container.
-                cleanup = execute(['docker', 'rm', '-f', container])
-                report['results'].append({'name': name, 'command': command,
-                                          'timeout_seconds': 30, 'cleanup': cleanup})
-                save()
-                raise
-            result.update(name=name, expected_exit=expected)
-            if policy and policy != 'unconfined':
-                result['profile_sha256'] = hashlib.sha256(pathlib.Path(policy).read_bytes()).hexdigest()
-            report['results'].append(result)
-            save()
-            assert result['exit'] == expected, result
-            if error_text:
-                assert error_text in result['stderr'], result
-            print(f"PASS {name}: exit {result['exit']}", flush=True)
-
-        run('docker-default', None, expected=1, error_text='No permissions to create new namespace')
-        run('unconfined-control', 'unconfined')
-        run('pinned-upstream-default', BASE, expected=1, error_text='No permissions to create new namespace')
-        run('metadata', PROFILE, mode='metadata')
-        run('narrow-profile', PROFILE)
-        run('workspace-canary', PROFILE, mode='canary')
-        run('retained-denials', PROFILE, mode='denials')
+        qualification.run('docker-default', None, expected=1, error_text='No permissions to create new namespace')
+        qualification.run('unconfined-control', 'unconfined')
+        qualification.run('pinned-upstream-default', BASE, expected=1, error_text='No permissions to create new namespace')
+        qualification.run('metadata', PROFILE, mode='metadata')
+        qualification.run('narrow-profile', PROFILE)
+        qualification.run('workspace-canary', PROFILE, mode='canary')
+        qualification.run('retained-denials', PROFILE, mode='denials')
         # Each necessity check removes exactly one of the five added allowances.
         with tempfile.TemporaryDirectory(prefix='aq-codex-seccomp-') as temporary:
             for call, message in [('clone', 'No permissions to create new namespace'),
@@ -175,10 +183,10 @@ def main():
                 profile['syscalls'] = [rule for rule in profile['syscalls'] if rule['names']]
                 path = pathlib.Path(temporary) / (call + '.json')
                 path.write_text(json.dumps(profile))
-                run('without-' + call, path, expected=1, error_text=message)
+                qualification.run('without-' + call, path, expected=1, error_text=message)
         report['passed'] = True
     finally:
-        save()
+        qualification.save()
 
 
 if __name__ == '__main__':
