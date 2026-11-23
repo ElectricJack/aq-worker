@@ -98,7 +98,6 @@ pub fn recorded_handoff(
     })
 }
 
-
 impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
     /// Marks and announces the running attempts. Each notice post is bounded by
     /// `HANDOFF_POST_WAIT`; the caller bounds the whole call by the grace.

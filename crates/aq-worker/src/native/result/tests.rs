@@ -3,8 +3,8 @@ use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 #[path = "../../../tests/support/result_history.rs"]
 mod history_fixture;
 use crate::native::journal::RuntimeIdentity;
-pub(crate) use history_fixture::history;
 use history_fixture::binding;
+pub(crate) use history_fixture::history;
 fn directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let temp = tempfile::tempdir().unwrap();
     std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
