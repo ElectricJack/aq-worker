@@ -32,16 +32,13 @@ pub enum SourceRole {
     Base,
     Checkpoint,
 }
+fn valid_ids(ids: &[Uuid]) -> bool {
+    ids.iter().all(|id| !id.is_nil())
+}
+
 impl Validate for ObjectId {
     fn validate(&self) -> Result<(), ValidationError> {
-        check(
-            self.hex.len() == 40
-                && self
-                    .hex
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-            "invalid typed oid",
-        )
+        check(lower_hex(&self.hex, 40), "invalid typed oid")
     }
 }
 impl Validate for SourceBinding {
@@ -86,22 +83,30 @@ impl Validate for ExecutionBindings {
         Ok(())
     }
 }
+const MANIFEST_LIMIT: u64 = 1024 * 1024;
+const BUNDLE_LIMIT: u64 = 16 * 1024 * 1024 * 1024;
+
+impl TransferManifest {
+    fn valid_bundle(&self) -> bool {
+        match &self.bundle_digest {
+            None => self.bundle_bytes == 0,
+            Some(value) => (1..=BUNDLE_LIMIT).contains(&self.bundle_bytes) && digest(value),
+        }
+    }
+}
+
 impl Validate for TransferManifest {
     fn validate(&self) -> Result<(), ValidationError> {
         self.attempt.validate()?;
         self.source.validate()?;
         self.checkpoint.validate()?;
         check(
-            !self.transfer_id.is_nil()
-                && !self.artifact_id.is_nil()
+            valid_ids(&[self.transfer_id, self.artifact_id])
                 && (self.role != SourceRole::Base || self.checkpoint == self.source.base)
                 && digest(&self.resolved_spec_digest)
                 && digest(&self.manifest_digest)
-                && self.manifest_bytes > 0
-                && self.manifest_bytes <= 1024 * 1024
-                && self.bundle_bytes <= 16 * 1024 * 1024 * 1024
-                && self.bundle_digest.as_ref().is_none_or(|s| digest(s))
-                && (self.bundle_bytes == 0) == self.bundle_digest.is_none(),
+                && (1..=MANIFEST_LIMIT).contains(&self.manifest_bytes)
+                && self.valid_bundle(),
             "invalid transfer manifest",
         )
     }
@@ -111,8 +116,7 @@ impl Validate for TransferChunkRequest {
     fn validate(&self) -> Result<(), ValidationError> {
         self.identity.validate()?;
         check(
-            !self.operation_id.is_nil()
-                && !self.transfer_id.is_nil()
+            valid_ids(&[self.operation_id, self.transfer_id])
                 && self.length > 0
                 && self.length as usize <= MAX_CHUNK_BYTES
                 && self.offset.checked_add(self.length as u64).is_some()
@@ -125,7 +129,7 @@ impl Validate for TransferStatusRequest {
     fn validate(&self) -> Result<(), ValidationError> {
         self.identity.validate()?;
         check(
-            !self.operation_id.is_nil() && !self.transfer_id.is_nil(),
+            valid_ids(&[self.operation_id, self.transfer_id]),
             "invalid transfer status request",
         )
     }
@@ -134,11 +138,12 @@ impl Validate for CentralRetentionReceipt {
     fn validate(&self) -> Result<(), ValidationError> {
         self.source.validate()?;
         check(
-            !self.receipt_id.is_nil()
-                && !self.transfer_id.is_nil()
-                && !self.repository_id.is_nil()
-                && !self.retention_handle.is_nil()
-                && self.binding_generation > 0
+            valid_ids(&[
+                self.receipt_id,
+                self.transfer_id,
+                self.repository_id,
+                self.retention_handle,
+            ]) && self.binding_generation > 0
                 && digest(&self.manifest_digest),
             "invalid retention receipt",
         )
@@ -148,8 +153,8 @@ impl Validate for TransferStatus {
     fn validate(&self) -> Result<(), ValidationError> {
         check(
             !self.transfer_id.is_nil()
-                && self.manifest_offset <= 1024 * 1024
-                && self.bundle_offset <= 16 * 1024 * 1024 * 1024,
+                && self.manifest_offset <= MANIFEST_LIMIT
+                && self.bundle_offset <= BUNDLE_LIMIT,
             "invalid transfer status",
         )?;
         if let Some(r) = &self.receipt {

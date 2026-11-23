@@ -104,7 +104,10 @@ fn text(value: &str, max: usize) -> bool {
     !value.is_empty() && value.len() <= max
 }
 fn digest(value: &str) -> bool {
-    value.len() == 64
+    lower_hex(value, 64)
+}
+fn lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
         && value
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
@@ -393,72 +396,53 @@ pub fn schema() -> String {
     // binding and cross-field rules. Add portable shape bounds to the schema.
     let mut schema = serde_json::to_value(schemars::schema_for!(WireMessage)).unwrap();
     for (name, definition) in schema["$defs"].as_object_mut().unwrap() {
-        let Some(properties) = definition
+        if let Some(properties) = definition
             .get_mut("properties")
-            .and_then(|v| v.as_object_mut())
-        else {
-            continue;
-        };
-        for (field, value) in properties {
-            let object = value.as_object_mut().unwrap();
-            if field.ends_with("_id") {
-                object.insert(
-                    "not".into(),
-                    serde_json::json!({"const":"00000000-0000-0000-0000-000000000000"}),
-                );
-            }
-            match field.as_str() {
-                "resolved_spec_digest" | "digest" => {
-                    object.insert("pattern".into(), serde_json::json!("^[a-f0-9]{64}$"));
-                }
-                "generation" | "grant_sequence" | "sequence" | "inventory_sequence" => {
-                    object.insert("minimum".into(), serde_json::json!(1));
-                }
-                "valid_for_ms" | "reservation_ttl_ms" | "reservation_remaining_ms" => {
-                    object.insert("minimum".into(), serde_json::json!(1));
-                    object.insert("maximum".into(), serde_json::json!(MAX_GRANT_MS));
-                }
-                "max_items" => {
-                    object.insert("minimum".into(), serde_json::json!(1));
-                    object.insert("maximum".into(), serde_json::json!(MAX_BATCH));
-                }
-                "slots" if name == "Resources" => {
-                    object.insert("minimum".into(), serde_json::json!(0));
-                    object.insert("maximum".into(), serde_json::json!(1024));
-                }
-                "offers" | "directives" | "attempts" | "artifacts" | "pending_operation_ids" => {
-                    object.insert("maxItems".into(), serde_json::json!(MAX_BATCH));
-                    if field == "pending_operation_ids" {
-                        object.insert("uniqueItems".into(), serde_json::json!(true));
-                        if let Some(items) = object.get_mut("items").and_then(|v| v.as_object_mut())
-                        {
-                            items.insert(
-                                "not".into(),
-                                serde_json::json!({"const":"00000000-0000-0000-0000-000000000000"}),
-                            );
-                        }
-                    }
-                }
-                "capabilities" | "required_capabilities" => {
-                    object.insert("maxItems".into(), serde_json::json!(MAX_CAPABILITIES));
-                    object.insert("uniqueItems".into(), serde_json::json!(true));
-                    object.insert(
-                        "items".into(),
-                        serde_json::json!({"type":"string","minLength":1,"maxLength":128}),
-                    );
-                }
-                "output" | "fixture_output" | "detail" | "reason" | "message" => {
-                    object.insert("maxLength".into(), serde_json::json!(MAX_TEXT));
-                }
-                "worker_version" | "harness" => {
-                    object.insert("minLength".into(), serde_json::json!(1));
-                    object.insert("maxLength".into(), serde_json::json!(128));
-                }
-                _ => {}
+            .and_then(|value| value.as_object_mut())
+        {
+            for (field, value) in properties {
+                constrain_property(name, field, value);
             }
         }
     }
     serde_json::to_string_pretty(&schema).unwrap() + "\n"
+}
+
+fn constrain_property(name: &str, field: &str, value: &mut serde_json::Value) {
+    use serde_json::json;
+    if field.ends_with("_id") {
+        value["not"] = json!({"const": Uuid::nil()});
+    }
+    let constraints = match field {
+        "resolved_spec_digest" | "digest" => json!({"pattern":"^[a-f0-9]{64}$"}),
+        "generation" | "grant_sequence" | "sequence" | "inventory_sequence" => json!({"minimum":1}),
+        "valid_for_ms" | "reservation_ttl_ms" | "reservation_remaining_ms" => {
+            json!({"minimum":1, "maximum":MAX_GRANT_MS})
+        }
+        "max_items" => json!({"minimum":1, "maximum":MAX_BATCH}),
+        "slots" if name == "Resources" => json!({"minimum":0, "maximum":1024}),
+        "offers" | "directives" | "attempts" | "artifacts" => json!({"maxItems":MAX_BATCH}),
+        "pending_operation_ids" => {
+            if let Some(items) = value
+                .get_mut("items")
+                .and_then(|items| items.as_object_mut())
+            {
+                items.insert("not".into(), json!({"const":Uuid::nil()}));
+            }
+            json!({"maxItems":MAX_BATCH, "uniqueItems":true})
+        }
+        "capabilities" | "required_capabilities" => {
+            json!({"maxItems":MAX_CAPABILITIES,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":128}})
+        }
+        "output" | "fixture_output" | "detail" | "reason" | "message" => {
+            json!({"maxLength":MAX_TEXT})
+        }
+        "worker_version" | "harness" => json!({"minLength":1,"maxLength":128}),
+        _ => return,
+    };
+    for (key, constraint) in constraints.as_object().unwrap() {
+        value[key] = constraint.clone();
+    }
 }
 
 impl ExecutionSpec {
