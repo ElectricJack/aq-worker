@@ -1,33 +1,10 @@
 use super::*;
-use aq_session_protocol::{ArtifactRef, Capability, Digest, Text};
+use aq_session_protocol::Text;
 
 fn settings(confinement: &str) -> (HarnessSettings, ModelSettings) {
-    let artifact = ArtifactRef {
-        id: Text::new("fixture").unwrap(),
-        version: Text::new("1").unwrap(),
-        digest: Digest::of(b"fixture"),
-    };
-    let caps = ["aq.harness.startup-context", confinement, "aq.harness.stop"]
-        .map(|id| Capability {
-            id: Text::new(id).unwrap(),
-            version: 1,
-        })
-        .to_vec();
     (
-        HarnessSettings {
-            harness: Text::new("opencode").unwrap(),
-            cli_version: Text::new(OPENCODE_CLI_VERSION).unwrap(),
-            adapter: artifact.clone(),
-            environment: artifact,
-            required_capabilities: caps,
-        },
-        ModelSettings {
-            provider: Text::new("openai").unwrap(),
-            model: Text::new("gpt-5.5").unwrap(),
-            reasoning: Text::new("high").unwrap(),
-            max_output_tokens: 4096,
-            spending_budget: None,
-        },
+        recipe::fixture::harness("opencode", OPENCODE_CLI_VERSION, confinement),
+        recipe::fixture::model("openai", "gpt-5.5", "high"),
     )
 }
 fn paths() -> OpenCodePaths<'static> {
@@ -48,7 +25,13 @@ const PROXY: OpenCodeRoute = OpenCodeRoute::ResponsesProxy { port: 41234 };
 #[test]
 fn proxy_recipe_runs_headless_json_with_private_config_at_loopback_proxy() {
     let (harness, model) = container();
-    let recipe = map(&harness, &model, paths(), ConfinementMode::Container, PROXY).unwrap();
+    let recipe = map(
+        RecipeSettings::new(&harness, &model),
+        paths(),
+        ConfinementMode::Container,
+        PROXY,
+    )
+    .unwrap();
     assert_eq!(recipe.executable, Path::new("/opt/aq/bin/opencode"));
     assert_eq!(recipe.working_directory, Path::new("/work"));
     assert_eq!(
@@ -63,35 +46,7 @@ fn proxy_recipe_runs_headless_json_with_private_config_at_loopback_proxy() {
         ]
     );
     let env = &recipe.environment;
-    let home = "/home/agent/.aq/opencode";
-    assert_eq!(env["HOME"], home);
-    for (k, sub) in [
-        ("XDG_CONFIG_HOME", "config"),
-        ("XDG_DATA_HOME", "data"),
-        ("XDG_CACHE_HOME", "cache"),
-        ("XDG_STATE_HOME", "state"),
-        ("OPENCODE_CONFIG", CONFIG_FILE),
-    ] {
-        assert_eq!(env[k], format!("{home}/{sub}"));
-    }
-    assert_eq!(
-        Path::new(&env["XDG_DATA_HOME"]).join("opencode/auth.json"),
-        Path::new(home).join(AUTH_FILE)
-    );
-    for flag in [
-        "OPENCODE_DISABLE_PROJECT_CONFIG",
-        "OPENCODE_DISABLE_AUTOUPDATE",
-        "OPENCODE_DISABLE_MODELS_FETCH",
-        "OPENCODE_DISABLE_CLAUDE_CODE",
-        "OPENCODE_DISABLE_EXTERNAL_SKILLS",
-        "OPENCODE_DISABLE_DEFAULT_PLUGINS",
-    ] {
-        assert_eq!(env[flag], "1", "{flag}");
-    }
-    assert_eq!(env["npm_config_offline"], "true");
-    for k in FORBIDDEN_ENVIRONMENT {
-        assert!(!env.contains_key(*k), "{k} must not be set");
-    }
+    assert_private_environment(env);
     let c = config_json(&recipe);
     assert_eq!(
         c["provider"]["openai"]["options"]["baseURL"],
@@ -128,7 +83,14 @@ fn reasoning_default_sets_no_effort_and_unknown_values_are_refused() {
         changed
     };
     for route in [PROXY, OpenCodeRoute::Subscription] {
-        let map = |m: &ModelSettings| map(&harness, m, paths(), ConfinementMode::Container, route);
+        let map = |m: &ModelSettings| {
+            map(
+                RecipeSettings::new(&harness, m),
+                paths(),
+                ConfinementMode::Container,
+                route,
+            )
+        };
         for value in ["low", "medium", "high"] {
             let c = config_json(&map(&with(value)).unwrap());
             let options = &c["provider"]["openai"]["models"]["gpt-5.5"]["options"];
@@ -158,8 +120,7 @@ fn reasoning_default_sets_no_effort_and_unknown_values_are_refused() {
 fn subscription_recipe_keeps_the_stock_endpoint() {
     let (harness, model) = container();
     let recipe = map(
-        &harness,
-        &model,
+        RecipeSettings::new(&harness, &model),
         paths(),
         ConfinementMode::Container,
         OpenCodeRoute::Subscription,
@@ -185,42 +146,114 @@ fn subscription_recipe_keeps_the_stock_endpoint() {
 #[test]
 fn opencode_recipe_refuses_native_mode_and_unsupported_settings() {
     let (harness, model) = settings(NATIVE_CONFINEMENT_CAPABILITY);
-    assert!(map(&harness, &model, paths(), ConfinementMode::Native, PROXY).is_err());
-    assert!(map(&harness, &model, paths(), ConfinementMode::Container, PROXY).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&harness, &model),
+            paths(),
+            ConfinementMode::Native,
+            PROXY
+        )
+        .is_err()
+    );
+    assert!(
+        map(
+            RecipeSettings::new(&harness, &model),
+            paths(),
+            ConfinementMode::Container,
+            PROXY
+        )
+        .is_err()
+    );
     let (harness, model) = container();
-    assert!(map(&harness, &model, paths(), ConfinementMode::Native, PROXY).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&harness, &model),
+            paths(),
+            ConfinementMode::Native,
+            PROXY
+        )
+        .is_err()
+    );
     let port0 = OpenCodeRoute::ResponsesProxy { port: 0 };
-    assert!(map(&harness, &model, paths(), ConfinementMode::Container, port0).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&harness, &model),
+            paths(),
+            ConfinementMode::Container,
+            port0
+        )
+        .is_err()
+    );
+    assert_unsupported_settings(&harness, &model);
+    assert_invalid_paths(RecipeSettings::new(&harness, &model));
+}
+
+fn assert_private_environment(env: &BTreeMap<String, String>) {
+    let home = "/home/agent/.aq/opencode";
+    assert_eq!(env["HOME"], home);
+    for (k, sub) in [
+        ("XDG_CONFIG_HOME", "config"),
+        ("XDG_DATA_HOME", "data"),
+        ("XDG_CACHE_HOME", "cache"),
+        ("XDG_STATE_HOME", "state"),
+        ("OPENCODE_CONFIG", CONFIG_FILE),
+    ] {
+        assert_eq!(env[k], format!("{home}/{sub}"));
+    }
+    assert_eq!(
+        Path::new(&env["XDG_DATA_HOME"]).join("opencode/auth.json"),
+        Path::new(home).join(AUTH_FILE)
+    );
+    for flag in [
+        "OPENCODE_DISABLE_PROJECT_CONFIG",
+        "OPENCODE_DISABLE_AUTOUPDATE",
+        "OPENCODE_DISABLE_MODELS_FETCH",
+        "OPENCODE_DISABLE_CLAUDE_CODE",
+        "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+        "OPENCODE_DISABLE_DEFAULT_PLUGINS",
+    ] {
+        assert_eq!(env[flag], "1", "{flag}");
+    }
+    assert_eq!(env["npm_config_offline"], "true");
+    for k in FORBIDDEN_ENVIRONMENT {
+        assert!(!env.contains_key(*k), "{k} must not be set");
+    }
+}
+
+fn assert_unsupported_settings(harness: &HarnessSettings, model: &ModelSettings) {
     let mut h = harness.clone();
     h.cli_version = Text::new("1.18.36").unwrap();
-    assert!(map(&h, &model, paths(), ConfinementMode::Container, PROXY).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, model),
+            paths(),
+            ConfinementMode::Container,
+            PROXY
+        )
+        .is_err()
+    );
     let mut h = harness.clone();
     h.harness = Text::new("codex").unwrap();
-    assert!(map(&h, &model, paths(), ConfinementMode::Container, PROXY).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&h, model),
+            paths(),
+            ConfinementMode::Container,
+            PROXY
+        )
+        .is_err()
+    );
     let mut m = model.clone();
     m.provider = Text::new("anthropic").unwrap();
-    assert!(map(&harness, &m, paths(), ConfinementMode::Container, PROXY).is_err());
-    let bad = [
-        OpenCodePaths {
-            workspace: Path::new("/home/agent/.aq"),
-            ..paths()
-        },
-        OpenCodePaths {
-            private_home: Path::new("/work/.opencode"),
-            ..paths()
-        },
-        OpenCodePaths {
-            executable: Path::new("opencode"),
-            ..paths()
-        },
-        OpenCodePaths {
-            private_home: Path::new("/home/agent/../x"),
-            ..paths()
-        },
-    ];
-    for p in bad {
-        assert!(map(&harness, &model, p, ConfinementMode::Container, PROXY).is_err());
-    }
+    assert!(
+        map(
+            RecipeSettings::new(harness, &m),
+            paths(),
+            ConfinementMode::Container,
+            PROXY
+        )
+        .is_err()
+    );
 }
 
 fn login(expires: i64) -> Vec<u8> {
@@ -264,7 +297,13 @@ fn ollama_recipe_enables_only_the_local_server_and_no_credential() {
     model.model = Text::new("qwen3.5:9b").unwrap();
     let host = std::net::Ipv4Addr::new(169, 254, 1, 2);
     let route = OpenCodeRoute::Ollama { host, port: 18434 };
-    let recipe = map(&harness, &model, paths(), ConfinementMode::Container, route).unwrap();
+    let recipe = map(
+        RecipeSettings::new(&harness, &model),
+        paths(),
+        ConfinementMode::Container,
+        route,
+    )
+    .unwrap();
     assert_eq!(recipe.arguments[4..], ["--model", "ollama/qwen3.5:9b"]);
     assert_eq!(recipe.environment["OPENCODE_DISABLE_DEFAULT_PLUGINS"], "1");
     assert_eq!(recipe.environment["npm_config_offline"], "true");
@@ -286,8 +325,7 @@ fn ollama_recipe_enables_only_the_local_server_and_no_credential() {
         model.provider = Text::new(provider).unwrap();
         assert!(
             map(
-                &harness,
-                &model,
+                RecipeSettings::new(&harness, &model),
                 paths(),
                 ConfinementMode::Container,
                 OpenCodeRoute::Ollama { host, port },
@@ -297,5 +335,37 @@ fn ollama_recipe_enables_only_the_local_server_and_no_credential() {
         );
     }
     model.provider = Text::new("ollama").unwrap();
-    assert!(map(&harness, &model, paths(), ConfinementMode::Container, PROXY).is_err());
+    assert!(
+        map(
+            RecipeSettings::new(&harness, &model),
+            paths(),
+            ConfinementMode::Container,
+            PROXY
+        )
+        .is_err()
+    );
+}
+
+fn assert_invalid_paths(settings: RecipeSettings<'_>) {
+    let bad = [
+        OpenCodePaths {
+            workspace: Path::new("/home/agent/.aq"),
+            ..paths()
+        },
+        OpenCodePaths {
+            private_home: Path::new("/work/.opencode"),
+            ..paths()
+        },
+        OpenCodePaths {
+            executable: Path::new("opencode"),
+            ..paths()
+        },
+        OpenCodePaths {
+            private_home: Path::new("/home/agent/../x"),
+            ..paths()
+        },
+    ];
+    for p in bad {
+        assert!(map(settings, p, ConfinementMode::Container, PROXY).is_err());
+    }
 }

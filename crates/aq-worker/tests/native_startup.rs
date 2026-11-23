@@ -154,6 +154,8 @@ mod codex_settings {
     use serde::Serialize;
     use std::{os::unix::fs::PermissionsExt, path::Path};
 
+    include!("native_startup/commands.rs");
+    include!("native_startup/sealed_image.rs");
     const PEER: &[u8] = b"#!/bin/sh\nexit 0\n";
     fn canonical_digest(value: &impl Serialize) -> anyhow::Result<Digest> {
         let mut value = serde_json::to_value(value)?;
@@ -454,3 +456,10 @@ mod codex_settings {
         }
     }
 }
+
+#[path = "native_startup/events.rs"]
+mod events;
+#[path = "native_startup/installed_adapter.rs"]
+mod installed_adapter;
+#[path = "native_startup/native_image.rs"]
+mod native_image;
