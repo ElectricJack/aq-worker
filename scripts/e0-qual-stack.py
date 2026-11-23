@@ -110,6 +110,28 @@ def urls():
             f"http://127.0.0.1:{ports['worker']}")
 
 
+def prepare_service_token(path, mode):
+    try:
+        with path.open("x") as out:
+            out.write(secrets.token_hex(32))
+    except FileExistsError:
+        require(not path.is_symlink() and path.is_file() and path.stat().st_size >= 32,
+                "invalid retained qualification credential file")
+    path.chmod(mode)
+
+
+def prepare_secrets(secret):
+    # Same secret shapes as the E0 dev stack, generated fresh for this project.
+    for name, mode in (("postgres_password", 0o644), ("graph_database_password", 0o644), ("graph_token", 0o600)):
+        prepare_service_token(secret / name, mode)
+    for name, factory in (("playbook_database_password", lambda: secrets.token_hex(32).encode()),
+                          ("playbook_engine_keys", lambda: json.dumps(dict(active_key_id="dev-engine-1",
+                              keys={"dev-engine-1": secrets.token_hex(32)})).encode()),
+                          ("playbook_bridge_key", lambda: secrets.token_bytes(32))):
+        if not (secret / name).exists():
+            private_bytes(secret / name, factory())
+
+
 def prepare():
     p = layout()
     for directory in (p["root"], p["state"], p["secret"], p["vault"], p["qual"], p["qual"] / "secrets",
@@ -118,23 +140,7 @@ def prepare():
         directory.chmod(0o700)
     (p["state"] / "fixture").mkdir(exist_ok=True, mode=0o755)
     (p["state"] / "fixture").chmod(0o755)
-    secret = p["secret"]
-    # Same secret shapes as the E0 dev stack, generated fresh for this project.
-    for name, mode in (("postgres_password", 0o644), ("graph_database_password", 0o644), ("graph_token", 0o600)):
-        path = secret / name
-        try:
-            with path.open("x") as out:
-                out.write(secrets.token_hex(32))
-        except FileExistsError:
-            require(not path.is_symlink() and path.is_file() and path.stat().st_size >= 32,
-                    "invalid retained qualification credential file")
-        path.chmod(mode)
-    for name, factory in (("playbook_database_password", lambda: secrets.token_hex(32).encode()),
-                          ("playbook_engine_keys", lambda: json.dumps(dict(active_key_id="dev-engine-1",
-                              keys={"dev-engine-1": secrets.token_hex(32)})).encode()),
-                          ("playbook_bridge_key", lambda: secrets.token_bytes(32))):
-        if not (secret / name).exists():
-            private_bytes(secret / name, factory())
+    prepare_secrets(p["secret"])
     target = p["vault"] / "config.toml"
     config = base_config()
     require(not target.exists() or target.read_text() == config,
