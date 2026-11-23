@@ -1476,6 +1476,8 @@ fn shared_cache_is_charged_once_for_multiple_projects_and_growth_stays_protected
     );
 }
 
+#[path = "support/source_repository.rs"]
+mod source_repository;
 #[path = "support/source_http.rs"]
 mod source_http;
 
