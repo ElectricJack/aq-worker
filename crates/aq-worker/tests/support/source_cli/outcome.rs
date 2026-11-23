@@ -123,13 +123,8 @@ impl Case {
         );
         assert!(!source.workspace.as_ref().unwrap().path.exists());
         let checkpoint = source.checkpoint.as_ref().unwrap();
-        direct(
-            &self.peer.fixture.exe,
-            &self.peer.fixture.central,
-            self.peer.fixture.rid,
-            "workspace.create",
-            json!({"base":checkpoint.source}),
-            1,
-        );
+        self.peer
+            .fixture
+            .central_request("workspace.create", json!({"base":checkpoint.source}), 1);
     }
 }

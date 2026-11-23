@@ -1,4 +1,5 @@
 use super::*;
+use crate::source_repository::PreparedSource;
 pub(super) struct Work {
     pub(super) id: Uuid,
     pub(super) journal: std::path::PathBuf,
@@ -11,34 +12,16 @@ pub(super) struct Work {
 }
 impl Work {
     pub(super) fn prepare(fixture: &Fixture, root: &Path) -> (Self, Runtime<FakeClock>) {
-        let worker = root.join("worker");
-        source_repository::register_worker(&fixture.exe, &worker, fixture.rid);
-        stage_base(fixture, &worker);
-        let exe = &fixture.exe;
-        assert!(aq_worker::source::GitService::start(exe, &"0".repeat(64), &worker).is_err());
-        let guard = aq_worker::source::GitService::start(exe, &fixture.pin, &worker).unwrap();
+        let (prepared, mut rt) = PreparedSource::new(fixture, root);
+        let PreparedSource {
+            id,
+            worker,
+            work,
+            guard,
+            journal,
+            ..
+        } = prepared;
         let git = guard.client.clone();
-        let journal = root.join("journal");
-        let mut rt = runtime(&journal);
-        let mut o = offer();
-        o.spec.bindings.as_mut().unwrap().source = Some(fixture.binding.clone());
-        o.spec = o.spec.seal();
-        let id = o.attempt.attempt_id;
-        let mut coordinator = FakeCoordinator::new(o.clone(), 100);
-        let a = rt.reserve_source(o, &git).unwrap();
-        rt.authorize(coordinator.accept(&a).unwrap().grant, 100)
-            .unwrap();
-        let artifact = fixture.exported["artifact_handle"].as_str().unwrap();
-        rt.import_base(id, Uuid::parse_str(artifact).unwrap(), &git)
-            .unwrap();
-        let work = rt.prepare_source(id, &git).unwrap();
-        std::fs::write(work.path.join("result.txt"), "retained source").unwrap();
-        let h = rt
-            .launch_fixture(id, Path::new(env!("CARGO_BIN_EXE_aq-fixture-agent")))
-            .unwrap();
-        rt.finish_fixture(id, h).unwrap();
-        let checkpoint = rt.checkpoint_source(id, &git).unwrap();
-        assert_ne!(checkpoint.source.hex, fixture.binding.base.hex);
         let out = rt.export_source(id, &git).unwrap();
         let manifest: aq_worker::source::GitManifest =
             serde_json::from_value(out["manifest"].clone()).unwrap();
@@ -160,31 +143,12 @@ impl Work {
     }
 
     pub(super) fn assert_central_result(&self, fixture: &Fixture) {
-        let retained = direct(
-            &fixture.exe,
-            &fixture.central,
-            fixture.rid,
-            "workspace.create",
-            json!({"base":self.manifest.source}),
-            1,
-        );
+        let retained =
+            fixture.central_request("workspace.create", json!({"base":self.manifest.source}), 1);
         assert!(
             Path::new(retained["path"].as_str().unwrap())
                 .join("result.txt")
                 .exists()
         );
     }
-}
-fn stage_base(fixture: &Fixture, worker: &Path) {
-    let artifact = fixture.exported["artifact_handle"].as_str().unwrap();
-    let incoming = worker.join("artifacts/incoming").join(artifact);
-    std::fs::create_dir_all(&incoming).unwrap();
-    for file in ["manifest.json", "objects.bundle"] {
-        std::fs::copy(
-            fixture.central.join("artifacts").join(artifact).join(file),
-            incoming.join(file),
-        )
-        .unwrap();
-    }
-    std::fs::write(worker.join("artifact_limits.json"),serde_json::to_vec(&json!({"max_bundle_bytes":64*1024*1024,"max_expanded_bytes":512*1024*1024,"disk_reserve_bytes":16*1024*1024})).unwrap()).unwrap();
 }

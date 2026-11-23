@@ -107,10 +107,7 @@ fn import_receipt(fixture: &Fixture, m: TransferManifest) -> CentralRetentionRec
         .unwrap(),
     )
     .unwrap();
-    let imported = direct(
-        &fixture.exe,
-        &fixture.central,
-        fixture.rid,
+    let imported = fixture.central_request(
         "artifact.import",
         json!({"artifact_handle":m.artifact_id}),
         1,

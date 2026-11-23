@@ -50,10 +50,7 @@ impl Peer {
             .unwrap(),
         )
         .unwrap();
-        let result = direct(
-            &self.fixture.exe,
-            &self.fixture.central,
-            self.fixture.rid,
+        let result = self.fixture.central_request(
             "artifact.import",
             json!({"artifact_handle":m.artifact_id}),
             1,
