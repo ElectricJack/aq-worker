@@ -16,6 +16,7 @@ use tokio::sync::watch;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
     FailBefore(u16),
+    StallBeforeApply,
     DropReplyAfterApply,
     LieOkWithoutApply,
 }
@@ -256,6 +257,7 @@ impl DockerTransport for ScriptedDocker {
         };
         let response = match effect {
             Some(Effect::FailBefore(status)) => error(status, "scripted failure"),
+            Some(Effect::StallBeforeApply) => std::future::pending().await,
             Some(Effect::LieOkWithoutApply) => DockerResponse {
                 status: match request.method {
                     DockerMethod::Get | DockerMethod::Put => 200,

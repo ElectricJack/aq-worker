@@ -57,7 +57,7 @@ pub enum ServiceCmd {
         #[arg(long)]
         profile: String,
     },
-    /// Record a failed handoff from a specific retained Git commit when the sandbox is absent.
+    /// Record a failed handoff from a retained checkout for an absent or quarantined sandbox.
     RecoverCheckout {
         #[arg(long)]
         profile: String,
@@ -69,6 +69,9 @@ pub enum ServiceCmd {
         attempt_id: Uuid,
         #[arg(long)]
         expected_head: String,
+        /// Use the original clean checkout and keep the credential-quarantined sandbox stopped.
+        #[arg(long)]
+        original_checkpoint: bool,
     },
     /// Destroy the stopped sandbox an attempt of this slot preserved (its work was never
     /// copied back, so the service never destroys it). The reason is recorded as the destroy
@@ -133,7 +136,18 @@ pub async fn dispatch(cmd: ServiceCmd) -> Result<()> {
             slot,
             attempt_id,
             expected_head,
-        } => recover_checkout::run(&profile, node, slot, attempt_id, &expected_head).await,
+            original_checkpoint,
+        } => {
+            recover_checkout::run(
+                &profile,
+                node,
+                slot,
+                attempt_id,
+                &expected_head,
+                original_checkpoint,
+            )
+            .await
+        }
         ServiceCmd::ReleaseSandbox {
             profile,
             node,
@@ -440,9 +454,9 @@ async fn stop_attempt_sandboxes(
     }
     Ok(())
 }
-/// The marker of an attempt that went through the lost path (`lost-<attempt>.json` in its
-/// state dir): its sandbox is kept, never destroyed by the service.
-fn lost_record(state_dir: &Path, attempt: Uuid) -> PathBuf {
+/// A record that the service must keep the sandbox. Retain the `lost-<attempt>.json`
+/// path so a running older service also preserves a quarantined sandbox.
+fn preserved_sandbox_record(state_dir: &Path, attempt: Uuid) -> PathBuf {
     state_dir.join(format!("lost-{attempt}.json"))
 }
 /// The proof first sent for a lost attempt (`lost-proof-<attempt>.json`), written before the
@@ -526,7 +540,7 @@ async fn release_lost(
     };
     // Written on every outcome: the record also marks the sandbox as kept, so without it the
     // slot is held (settle would otherwise release, and destroy, a claimed attempt's sandbox).
-    let path = lost_record(state_dir, attempt);
+    let path = preserved_sandbox_record(state_dir, attempt);
     if let Err(e) = write_private(&path, record.to_string().as_bytes()) {
         return held(format!(
             "the lost-attempt record was not written: {e:#}; {why}"
@@ -542,12 +556,12 @@ async fn release_lost(
 fn json_of<T: serde::Serialize>(v: &T) -> serde_json::Value {
     serde_json::to_value(v).unwrap_or_default()
 }
-/// The claimed attempts whose sandboxes the service may destroy: not those that went through
-/// the lost path (their sandboxes are kept for the operator).
+/// Claimed attempts whose sandboxes the service may destroy. Kept sandboxes
+/// require a separate operator release.
 fn destroyable(state_dir: &Path, claimed: Vec<Uuid>) -> Vec<Uuid> {
     claimed
         .into_iter()
-        .filter(|a| !lost_record(state_dir, *a).exists())
+        .filter(|a| !preserved_sandbox_record(state_dir, *a).exists())
         .collect()
 }
 /// What a restarted node tells the server about an interrupted attempt: the reason the service
@@ -1147,7 +1161,7 @@ fn held_for_salvage(
     retained: impl FnOnce() -> Result<Vec<Uuid>>,
 ) -> bool {
     current.join("journal").exists()
-        && !lost_record(current, attempt).exists()
+        && !preserved_sandbox_record(current, attempt).exists()
         && retained().map_or(true, |r| r.contains(&attempt))
 }
 async fn release_sandbox(
@@ -2022,7 +2036,8 @@ mod tests {
         }
     }
     fn record(dir: &Path, attempt: Uuid) -> serde_json::Value {
-        serde_json::from_slice(&std::fs::read(lost_record(dir, attempt)).unwrap()).unwrap()
+        serde_json::from_slice(&std::fs::read(preserved_sandbox_record(dir, attempt)).unwrap())
+            .unwrap()
     }
 
     /// D2 ruling C: with an outside proof, the lost attempt's sandbox is stopped (kept), the
@@ -2403,7 +2418,7 @@ mod tests {
         assert!(held_for_salvage(current, attempt, || anyhow::bail!(
             "owned"
         )));
-        std::fs::write(lost_record(current, attempt), b"{}").unwrap();
+        std::fs::write(preserved_sandbox_record(current, attempt), b"{}").unwrap();
         assert!(
             !held_for_salvage(current, attempt, || Ok(vec![attempt])),
             "lost path"
@@ -2460,7 +2475,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let attempt = Uuid::from_u128(86);
         // A directory where the record goes: the write fails.
-        std::fs::create_dir(lost_record(dir.path(), attempt)).unwrap();
+        std::fs::create_dir(preserved_sandbox_record(dir.path(), attempt)).unwrap();
         let outcome = release_lost(
             async || Ok(()),
             async |r| Ok(answer(&r, true)),

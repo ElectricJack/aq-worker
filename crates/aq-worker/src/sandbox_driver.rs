@@ -500,15 +500,29 @@ where
             sandbox,
             tree_archive("aq/in", &input_entries(config, prompt)?)?,
         )
-        .await?;
+        .await
+        .context("sandbox launch input upload")?;
     let image = config.docker_local.template_image(&config.template);
     let daemon = (config.docker_local.socket.as_path(), image);
-    let archive = aq_sandbox_archive::build_cache::work_archive(cache, &workspace, daemon).await?;
-    backend.put_archive(sandbox, archive).await?;
+    let archive = aq_sandbox_archive::build_cache::work_archive(cache, &workspace, daemon)
+        .await
+        .context("prepare sandbox workspace archive")?;
+    backend
+        .put_archive(sandbox, archive)
+        .await
+        .context("sandbox workspace upload")?;
     backend
         .deliver_private_material(sandbox, PrivateMaterial::new(token.to_vec()))
-        .await?;
-    backend.start_runner(sandbox).await?;
+        .await
+        .context("sandbox private material upload")?;
+    ensure!(
+        now_ms() < config.hard_deadline_ms,
+        "sandbox preparation reached the attempt deadline"
+    );
+    backend
+        .start_runner(sandbox)
+        .await
+        .context("sandbox runner start")?;
     println!("aq-sandbox-harness: runner started");
     // The sandbox's terminal on this pane, from here until the sandbox stops.
     let id = &sandbox.backend_id;
