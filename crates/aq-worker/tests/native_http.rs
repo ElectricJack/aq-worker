@@ -139,43 +139,7 @@ fn octets(name: &str, metadata: &impl serde::Serialize, bytes: Vec<u8>) -> Respo
 /// The pushed ref and head each result request named.
 static PUSHED: std::sync::Mutex<Vec<(Option<String>, Option<String>)>> =
     std::sync::Mutex::new(Vec::new());
-#[tokio::test]
-async fn exact_native_started_stopped_result_receipts_and_stable_replay() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let started_calls = calls.clone();
-    let server=Server::new(Router::new()
-        .route("/v1/worker/profiled/register",post(|headers:HeaderMap,Json(r):Json<aq_admission::transport::TransportDocument>|async move {auth(&headers);r.validate().unwrap();Json(r)}))
-        .route("/v1/worker/profiled/started",post(move|headers:HeaderMap,Json(r):Json<started::Request>| {let calls=started_calls.clone();async move {
-            auth(&headers);assert_eq!(r.digest().unwrap(),started_request().digest().unwrap());calls.fetch_add(1,Ordering::SeqCst);Json(started_receipt(&r))}}))
-        .route("/v1/worker/profiled/stopped",post(|headers:HeaderMap,Json(r):Json<stopped::Request>|async move {
-            auth(&headers);r.validate().unwrap();Json(stopped::Receipt {schema_version:1,operation_id:r.evidence.stop_operation_id,
-                binding:r.evidence.binding.clone(),grant_id:r.grant_id().unwrap(),request_digest:r.digest().unwrap(),recorded_at_ms:1500,authority_revision_at_record:4})}))
-        .route("/v1/worker/profiled/results",post(|headers:HeaderMap,Json(r):Json<aq_admission::transport::ResultReport>|async move {
-            auth(&headers);
-            let named = |n: &str| headers.get(n).map(|v| v.to_str().unwrap().to_owned());
-            PUSHED.lock().unwrap().push((named("aq-pushed-ref"), named("aq-pushed-head")));
-            let fixture:serde_json::Value=serde_json::from_slice(include_bytes!("../../../vendor/aq-admission-0.1.6/artifacts/result-record.fixture.json")).unwrap();
-            let receipt:result_record::Receipt=serde_json::from_value(fixture["receipt"].clone()).unwrap();receipt.validate_for(&r).unwrap();Json(receipt)}))).await;
-    let client = server.client();
-    let request = started_request();
-    let registered = aq_admission::transport::Register {
-        schema_version: 1,
-        operation_id: Uuid::new_v4(),
-        identity: identity(),
-        runtime: request.runtime.clone(),
-        capabilities: vec![],
-        features: vec![
-            aq_admission::transport::Feature::ArtifactTransferV1,
-            aq_admission::transport::Feature::ServerMaterialV1,
-            aq_admission::transport::Feature::DurableHostJournalV1,
-            aq_admission::transport::Feature::HostStopEvidenceV1,
-        ],
-    };
-    client.register(&registered).await.unwrap();
-    let a = client.started(&request).await.unwrap();
-    let b = client.started(&request).await.unwrap();
-    assert_eq!(a.request_digest, b.request_digest);
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+async fn assert_stopped_and_result_receipts(client: &NativeClient) {
     let stop = stopped::decode_request(include_bytes!(
         "../../../vendor/aq-admission-0.1.6/artifacts/stopped.fixture.json"
     ))
@@ -216,6 +180,45 @@ async fn exact_native_started_stopped_result_receipts_and_stable_replay() {
     let seen = PUSHED.lock().unwrap().clone();
     let pushed = (Some("refs/heads/aq/t".to_owned()), Some("a".repeat(40)));
     assert_eq!(seen, [pushed, (None, None)]);
+}
+#[tokio::test]
+async fn exact_native_started_stopped_result_receipts_and_stable_replay() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let started_calls = calls.clone();
+    let server=Server::new(Router::new()
+        .route("/v1/worker/profiled/register",post(|headers:HeaderMap,Json(r):Json<aq_admission::transport::TransportDocument>|async move {auth(&headers);r.validate().unwrap();Json(r)}))
+        .route("/v1/worker/profiled/started",post(move|headers:HeaderMap,Json(r):Json<started::Request>| {let calls=started_calls.clone();async move {
+            auth(&headers);assert_eq!(r.digest().unwrap(),started_request().digest().unwrap());calls.fetch_add(1,Ordering::SeqCst);Json(started_receipt(&r))}}))
+        .route("/v1/worker/profiled/stopped",post(|headers:HeaderMap,Json(r):Json<stopped::Request>|async move {
+            auth(&headers);r.validate().unwrap();Json(stopped::Receipt {schema_version:1,operation_id:r.evidence.stop_operation_id,
+                binding:r.evidence.binding.clone(),grant_id:r.grant_id().unwrap(),request_digest:r.digest().unwrap(),recorded_at_ms:1500,authority_revision_at_record:4})}))
+        .route("/v1/worker/profiled/results",post(|headers:HeaderMap,Json(r):Json<aq_admission::transport::ResultReport>|async move {
+            auth(&headers);
+            let named = |n: &str| headers.get(n).map(|v| v.to_str().unwrap().to_owned());
+            PUSHED.lock().unwrap().push((named("aq-pushed-ref"), named("aq-pushed-head")));
+            let fixture:serde_json::Value=serde_json::from_slice(include_bytes!("../../../vendor/aq-admission-0.1.6/artifacts/result-record.fixture.json")).unwrap();
+            let receipt:result_record::Receipt=serde_json::from_value(fixture["receipt"].clone()).unwrap();receipt.validate_for(&r).unwrap();Json(receipt)}))).await;
+    let client = server.client();
+    let request = started_request();
+    let registered = aq_admission::transport::Register {
+        schema_version: 1,
+        operation_id: Uuid::new_v4(),
+        identity: identity(),
+        runtime: request.runtime.clone(),
+        capabilities: vec![],
+        features: vec![
+            aq_admission::transport::Feature::ArtifactTransferV1,
+            aq_admission::transport::Feature::ServerMaterialV1,
+            aq_admission::transport::Feature::DurableHostJournalV1,
+            aq_admission::transport::Feature::HostStopEvidenceV1,
+        ],
+    };
+    client.register(&registered).await.unwrap();
+    let a = client.started(&request).await.unwrap();
+    let b = client.started(&request).await.unwrap();
+    assert_eq!(a.request_digest, b.request_digest);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_stopped_and_result_receipts(&client).await;
 }
 #[tokio::test]
 async fn wrong_node_changed_receipt_unknown_fields_and_redirects_refuse() {
@@ -522,8 +525,7 @@ async fn two_stalled_downloads_do_not_consume_started_reporting_lane() {
         assert!(task.await.unwrap());
     }
 }
-#[tokio::test]
-async fn material_digest_scope_and_full_network_interval_are_checked() {
+fn material_fixture() -> (MaterialLease, Vec<u8>, MaterialFetch) {
     let fixtures: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../vendor/aq-admission-0.1.6/artifacts/fixtures.json"
     ))
@@ -550,6 +552,11 @@ async fn material_digest_scope_and_full_network_interval_are_checked() {
         binding: lease.binding.clone(),
         lease_id: lease.lease_id,
     };
+    (lease, bytes, request)
+}
+#[tokio::test]
+async fn material_digest_scope_and_full_network_interval_are_checked() {
+    let (lease, bytes, request) = material_fixture();
     let server_lease = lease.clone();
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();

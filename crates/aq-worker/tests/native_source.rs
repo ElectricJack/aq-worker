@@ -126,6 +126,63 @@ async fn chunk(
     );
     response
 }
+fn source_admission() -> SourceAdmission {
+    let object = ObjectId {
+        format: ObjectFormat::Sha1,
+        hex: "a".repeat(40),
+    };
+    SourceAdmission {
+        schema_version: 1,
+        project_id: Uuid::new_v4(),
+        project_revision: 1,
+        repository_id: Uuid::new_v4(),
+        repository_binding_generation: 1,
+        policy: ArtifactRef {
+            id: Text::new("synthetic-policy").unwrap(),
+            version: Text::new("1").unwrap(),
+            digest: Digest::of(b"synthetic"),
+        },
+        selection: SourceSelection::Immutable {
+            object: object.clone(),
+        },
+        resolved_object: object,
+        observed_at_ms: 1000,
+        expires_at_ms: 2000,
+    }
+}
+fn transfer_manifest(
+    binding: &LaunchBinding,
+    source: &SourceAdmission,
+    session_id: Uuid,
+) -> TransferManifest {
+    let object = aq_worker_protocol::ObjectId {
+        algorithm: aq_worker_protocol::ObjectAlgorithm::Sha1,
+        hex: source.resolved_object.hex.clone(),
+    };
+    let id = Uuid::new_v4();
+    TransferManifest {
+        transfer_id: id,
+        artifact_id: id,
+        role: SourceRole::Base,
+        checkpoint: object.clone(),
+        attempt: AttemptRef {
+            attempt_id: binding.attempt_id,
+            session_id,
+            generation: binding.assignment_generation,
+        },
+        resolved_spec_digest: binding.execution_spec_digest.as_str().into(),
+        source: SourceBinding {
+            repository_id: source.repository_id,
+            binding_generation: 1,
+            logical_identity: "synthetic".into(),
+            base: object,
+        },
+        manifest_digest: Digest::of(MANIFEST).as_str().into(),
+        bundle_digest: Some(Digest::of(BUNDLE).as_str().into()),
+        manifest_bytes: MANIFEST.len() as u64,
+        bundle_bytes: BUNDLE.len() as u64,
+    }
+}
 impl Server {
     async fn new() -> Self {
         let f: Value = serde_json::from_slice(include_bytes!(
@@ -135,28 +192,7 @@ impl Server {
         let binding: LaunchBinding =
             serde_json::from_value(f["requests"]["accept"]["acceptance"]["binding"].clone())
                 .unwrap();
-        let object = ObjectId {
-            format: ObjectFormat::Sha1,
-            hex: "a".repeat(40),
-        };
-        let source = SourceAdmission {
-            schema_version: 1,
-            project_id: Uuid::new_v4(),
-            project_revision: 1,
-            repository_id: Uuid::new_v4(),
-            repository_binding_generation: 1,
-            policy: ArtifactRef {
-                id: Text::new("synthetic-policy").unwrap(),
-                version: Text::new("1").unwrap(),
-                digest: Digest::of(b"synthetic"),
-            },
-            selection: SourceSelection::Immutable {
-                object: object.clone(),
-            },
-            resolved_object: object,
-            observed_at_ms: 1000,
-            expires_at_ms: 2000,
-        };
+        let source = source_admission();
         let aq_session_protocol::SessionIdentity::Remote {
             node_id,
             session_id,
@@ -165,33 +201,7 @@ impl Server {
         else {
             panic!()
         };
-        let object = aq_worker_protocol::ObjectId {
-            algorithm: aq_worker_protocol::ObjectAlgorithm::Sha1,
-            hex: source.resolved_object.hex.clone(),
-        };
-        let id = Uuid::new_v4();
-        let manifest = TransferManifest {
-            transfer_id: id,
-            artifact_id: id,
-            role: SourceRole::Base,
-            checkpoint: object.clone(),
-            attempt: AttemptRef {
-                attempt_id: binding.attempt_id,
-                session_id,
-                generation: binding.assignment_generation,
-            },
-            resolved_spec_digest: binding.execution_spec_digest.as_str().into(),
-            source: SourceBinding {
-                repository_id: source.repository_id,
-                binding_generation: 1,
-                logical_identity: "synthetic".into(),
-                base: object,
-            },
-            manifest_digest: Digest::of(MANIFEST).as_str().into(),
-            bundle_digest: Some(Digest::of(BUNDLE).as_str().into()),
-            manifest_bytes: MANIFEST.len() as u64,
-            bundle_bytes: BUNDLE.len() as u64,
-        };
+        let manifest = transfer_manifest(&binding, &source, session_id);
         let data = Data {
             manifest,
             mode: Arc::new(AtomicUsize::new(0)),
