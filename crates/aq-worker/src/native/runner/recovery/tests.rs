@@ -209,25 +209,143 @@ async fn mixed_execution_history_is_refused_as_inconsistent() {
         .unwrap_err();
     assert!(e.downcast_ref::<RecoveryHold>().is_none(), "{e:#}");
 }
-/// R1 review: only an attempt that failed before journaling Prepare settles as never started.
-/// A journaled Prepare may have been granted (a lost reply), and a granted execution with no
-/// launch needs its closure: both hold with their reason. A launched attempt is replayed.
+/// A journaled Prepare may have been granted despite a lost reply. A durable
+/// local grant and a potentially granted Prepare take different recovery paths.
 #[test]
 fn only_an_attempt_before_prepare_settles_as_never_started() {
-    let reason = |a: &Attempt| match pre_launch(a) {
-        Some(Err(e)) => e.downcast_ref::<RecoveryHold>().map(|h| h.0),
-        other => panic!("not held: {:?}", other.map(|d| d.ok())),
-    };
     let mut a = terminal_attempt(false, false);
     assert!(pre_launch(&a).is_none(), "launched: replayed");
     (a.native_host, a.result) = (None, None);
-    assert_eq!(reason(&a), Some("launch_closure_pending"));
+    assert_eq!(pre_launch(&a), Some(PreLaunch::Granted));
     a.phase_execution = None;
     assert!(a.phase_prepared.is_some());
-    assert_eq!(reason(&a), Some("prepare_disposition_unknown"));
+    assert_eq!(pre_launch(&a), Some(PreLaunch::PrepareUnconfirmed));
     a.phase_prepared = None;
-    let settled = pre_launch(&a).unwrap().unwrap();
-    assert_eq!(settled, ReconcileDisposition::NeverExecuted);
+    assert_eq!(pre_launch(&a), Some(PreLaunch::NeverExecuted));
+}
+
+#[tokio::test]
+async fn unconfirmed_prepare_rechecks_until_the_original_closure_is_confirmed() {
+    use aq_admission::{
+        ArtifactRef, Digest, SessionIdentity, Text,
+        control::{ControlReply, CurrentAuthority, LaunchOwner, ReconcilePage, Versions},
+        transport::WorkerIdentity,
+    };
+    let mut attempt = terminal_attempt(true, false);
+    (
+        attempt.native_host,
+        attempt.result,
+        attempt.refresh_execution,
+    ) = (None, None, None);
+    assert_eq!(pre_launch(&attempt), Some(PreLaunch::PrepareUnconfirmed));
+    let binding = attempt.reservation.offer.offered.offer.binding.clone();
+    let reservation_id = attempt.reservation.reservation_id;
+    let SessionIdentity::Remote {
+        node_id, boot_id, ..
+    } = binding.session
+    else {
+        panic!()
+    };
+    let state = crate::native::journal::State {
+        format: 1,
+        identity: WorkerIdentity { node_id, boot_id },
+        kernel_boot_id: Uuid::new_v4(),
+        revision: 8,
+        attempts: Default::default(),
+    };
+    let calls = Arc::new(AtomicU32::new(0));
+    let server_calls = calls.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new().route(
+        "/v1/worker/profiled/reconcile",
+        post(
+            move |headers: axum::http::HeaderMap, Json(request): Json<Reconcile>| {
+                let binding = binding.clone();
+                let server_calls = server_calls.clone();
+                async move {
+                    let [exact] = request.attempts.as_slice() else {
+                        panic!()
+                    };
+                    assert_eq!(exact.binding, binding);
+                    assert_eq!(exact.last_grant_id, None);
+                    let closure = ArtifactRef {
+                        id: Text::new(format!("aq.never-granted/{}", Uuid::new_v4())).unwrap(),
+                        version: Text::new("1").unwrap(),
+                        digest: Digest::of(b"retained closure"),
+                    };
+                    let (phase, grant_revision) = match server_calls.fetch_add(1, Ordering::SeqCst)
+                    {
+                        0 => (
+                            CurrentPhase::StopRequired {
+                                owner: None,
+                                last_grant_id: None,
+                                execution_deadline_ms: None,
+                                reason: FailureCode::RecoveryRequired,
+                            },
+                            0,
+                        ),
+                        1 => (CurrentPhase::NeverGranted { closure }, 0),
+                        _ => (
+                            CurrentPhase::StopRequired {
+                                owner: Some(LaunchOwner {
+                                    reservation_id,
+                                    guardian_id: exact.guardian_id,
+                                    launch_id: exact.launch_id,
+                                }),
+                                last_grant_id: Some(Uuid::new_v4()),
+                                execution_deadline_ms: Some(10_000),
+                                reason: FailureCode::RecoveryRequired,
+                            },
+                            1,
+                        ),
+                    };
+                    Json(ControlReply::Reconciled(ReconcilePage {
+                        schema_version: 1,
+                        operation_id: request.operation_id,
+                        identity: request.identity,
+                        delivery_nonce: headers["aq-delivery-nonce"]
+                            .to_str()
+                            .unwrap()
+                            .parse()
+                            .unwrap(),
+                        server_time_ms: 1_000,
+                        next_after: None,
+                        attempts: vec![ReconcileEntry::Current {
+                            authority: Box::new(CurrentAuthority {
+                                binding,
+                                versions: Versions {
+                                    record_revision: 8,
+                                    authority_revision: 4,
+                                    grant_revision,
+                                },
+                                phase,
+                            }),
+                        }],
+                    }))
+                }
+            },
+        ),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = NativeClient::from_config(&worker(&url, node_id)).unwrap();
+    let waiting = reconcile_prepared(&client, &state, &attempt)
+        .await
+        .unwrap_err();
+    assert!(waiting.downcast_ref::<RecoveryHold>().is_none());
+    assert_eq!(
+        reconcile_prepared(&client, &state, &attempt).await.unwrap(),
+        ReconcileDisposition::NeverExecuted
+    );
+    let issued = reconcile_prepared(&client, &state, &attempt)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        issued.downcast_ref::<RecoveryHold>().map(|h| h.0),
+        Some("prepared_grant_issued")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    server.abort();
 }
 #[tokio::test]
 async fn uncertain_stop_is_preserved_without_reporting_or_admission() {
