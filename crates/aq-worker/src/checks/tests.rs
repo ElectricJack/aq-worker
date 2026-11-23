@@ -112,14 +112,13 @@ fn runner(
     backend: FakeBackend,
     transport: &FakeTransport,
     source: Option<&[u8]>,
-    timeout_ms: u64,
 ) -> CheckRunner<FakeBackend, FakeTransport, FixedSource> {
     CheckRunner::new(
         backend,
         transport.clone(),
         FixedSource(source.map(<[u8]>::to_vec)),
         dir,
-        config(timeout_ms),
+        config(60_000),
         NODE,
     )
     .unwrap()
@@ -247,7 +246,6 @@ async fn exited_zero_reports_complete_inputs_then_releases_the_sandbox() {
         exiting(RunnerExit::Exited(0)),
         &transport,
         Some(b"bundle"),
-        60_000,
     );
     assert_eq!(runner.tick(&idle()).await.unwrap(), 1);
     let sent = transport.sent();
@@ -280,7 +278,6 @@ async fn nonzero_exit_is_reported_as_its_code() {
         exiting(RunnerExit::Exited(3)),
         &transport,
         Some(b"b"),
-        60_000,
     );
     runner.tick(&idle()).await.unwrap();
     let sent = transport.sent();
@@ -298,7 +295,6 @@ async fn signalled_runner_is_reported_signalled_and_incomplete() {
         exiting(RunnerExit::Signalled),
         &transport,
         Some(b"b"),
-        60_000,
     );
     runner.tick(&idle()).await.unwrap();
     assert_eq!(transport.sent()[0]["stop"], json!({"kind": "signalled"}));
@@ -321,7 +317,6 @@ async fn unknown_validator_or_missing_source_is_lost_without_a_sandbox() {
             exiting(RunnerExit::Exited(0)),
             &transport,
             source,
-            60_000,
         );
         runner.tick(&idle()).await.unwrap();
         let sent = transport.sent();
@@ -353,7 +348,6 @@ async fn malformed_claim_with_an_identity_is_stopped_lost() {
         exiting(RunnerExit::Exited(0)),
         &transport,
         Some(b"b"),
-        60_000,
     );
     assert_eq!(runner.tick(&idle()).await.unwrap(), 2);
     let sent = transport.sent();
@@ -373,13 +367,15 @@ async fn validator_past_its_deadline_is_timed_out_and_stopped() {
     let op = Uuid::from_u128(0x104);
     transport.queue_claim(vec![claim_json(op)]);
     // The fake runner keeps running; a zero timeout expires at the first poll.
-    let mut runner = runner(
-        dir.path(),
+    let mut runner = CheckRunner::new(
         FakeBackend::default(),
-        &transport,
-        Some(b"b"),
-        0,
-    );
+        transport.clone(),
+        FixedSource(Some(b"b".to_vec())),
+        dir.path(),
+        config(0),
+        NODE,
+    )
+    .unwrap();
     runner.tick(&idle()).await.unwrap();
     assert_eq!(transport.sent()[0]["stop"], json!({"kind": "timed_out"}));
     let record = runner.journal().load(op).unwrap().unwrap();
@@ -398,7 +394,6 @@ async fn transient_stop_failure_resends_the_identical_body() {
         exiting(RunnerExit::Exited(0)),
         &transport,
         Some(b"b"),
-        60_000,
     );
     runner.tick(&idle()).await.unwrap();
     let record = runner.journal().load(op).unwrap().unwrap();
@@ -430,7 +425,6 @@ async fn conflicting_stop_is_never_retried_and_keeps_the_sandbox() {
         exiting(RunnerExit::Exited(1)),
         &transport,
         Some(b"retained-source"),
-        60_000,
     );
     runner.tick(&idle()).await.unwrap();
     transport.queue_claim(vec![claim_json(op)]);
@@ -464,7 +458,6 @@ async fn restart_mid_run_reports_lost_and_never_reruns() {
         exiting(RunnerExit::Exited(0)),
         &transport,
         Some(b"b"),
-        60_000,
     );
     runner.tick(&idle()).await.unwrap();
     let sent = transport.sent();
