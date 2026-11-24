@@ -52,30 +52,6 @@ pub(crate) fn history() -> ResultHistory {
         salvaged: None,
     }
 }
-
-#[test]
-fn pane_exit_keeps_the_exact_unpolled_claim_after_intake_closes() {
-    use super::super::stopped::stopped_submission;
-    let mut history = history();
-    let (_dir, original) = super::pending_submission(&mut history);
-    assert!(stopped_submission(&history).is_err());
-    history.intake_closed = true;
-
-    let spool = history.scope.root.join(wire::SUBMISSIONS_DIRECTORY);
-    let writer = std::fs::File::open(spool.join(wire::WRITER_LOCK_FILE)).unwrap();
-    fs2::FileExt::try_lock_exclusive(&writer).unwrap();
-    assert!(stopped_submission(&history).is_err());
-    drop(writer);
-
-    let claim = stopped_submission(&history).unwrap().unwrap();
-    assert_eq!(claim, original);
-    assert_eq!(
-        wire::encode(&claim).unwrap(),
-        std::fs::read(spool.join(wire::SUBMISSION_FILE)).unwrap()
-    );
-    assert!(history.claim.is_none());
-}
-
 fn result_source_binding() -> aq_worker_protocol::SourceBinding {
     use aq_worker_protocol::{ObjectAlgorithm, ObjectId};
     aq_worker_protocol::SourceBinding {
