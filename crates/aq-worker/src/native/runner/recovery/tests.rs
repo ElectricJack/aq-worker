@@ -514,8 +514,12 @@ fn refresh_profile_unstarted_launch_closes_with_the_refresh_envelope() {
 use crate::native::{journal::salvage_history, result::history::ResultHistory};
 use {ReconcileDisposition as R, SalvageDisposition as S};
 fn salvage_fixture() -> (tempfile::TempDir, ResultHistory, Attempt) {
+    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("kept.txt"), b"base").unwrap();
+    let kept = dir.path().join("kept.txt");
+    std::fs::write(&kept, b"base").unwrap();
+    // Match the fake archive's mode so the host umask cannot add a change.
+    std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o644)).unwrap();
     let mut h = crate::native::result::tests::history();
     h.scope.workspace.path = dir.path().to_path_buf();
     let mut a = stopped_attempt(false);

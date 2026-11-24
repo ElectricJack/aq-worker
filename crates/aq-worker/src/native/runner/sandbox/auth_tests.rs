@@ -173,7 +173,6 @@ async fn foreign_execution_scope_is_rejected(http: &RunnerHttp, b: &PermitBindin
             .await
             .is_err()
     );
-<<<<<<< HEAD
     for body in [
         json!({"nested":[{"attempt_id":Uuid::new_v4()}]}),
         json!({"session":{"boot_id":Uuid::new_v4()}}),
@@ -185,25 +184,6 @@ async fn foreign_execution_scope_is_rejected(http: &RunnerHttp, b: &PermitBindin
     ] {
         assert!(http.post(RunnerRoute::Started, b, &body).await.is_err());
     }
-=======
-    assert!(
-        http.post(
-            RunnerRoute::Started,
-            b,
-            &json!({"nested":[{"attempt_id":Uuid::new_v4()}]})
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        http.post(
-            RunnerRoute::Started,
-            b,
-            &json!({"session":{"boot_id":Uuid::new_v4()}})
-        )
-        .await
-        .is_err()
-    );
 }
 fn check_delegated_headers(peer: &Peer) {
     for (_, headers, _) in peer.seen.lock().unwrap().iter() {
@@ -265,7 +245,6 @@ async fn runner_authenticates_with_delegated_permit_and_refuses_foreign_scope() 
         );
     }
     foreign_execution_scope_is_rejected(&http, b, &body).await;
->>>>>>> refs/remotes/central/main
     clock.advance_to(super::boot_ns().unwrap() + 5_000_000_000);
     assert!(http.post(RunnerRoute::Started, b, &body).await.is_err());
     assert!(http.source(b, SourceMember::Bundle, 0, 1024).await.is_err());
