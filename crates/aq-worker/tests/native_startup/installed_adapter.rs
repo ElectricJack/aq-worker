@@ -1,4 +1,11 @@
-use super::*;
+use anyhow::Result;
+use aq_session_protocol::{ArtifactRef, Digest};
+use aq_worker::native::adapter::{
+    AdapterManifest, ExpectedAdapter, FilePin, HandoffKind, InstalledAdapter,
+};
+use std::fs::OpenOptions;
+const MAX_MANIFEST: usize = 16_384;
+const MAX_EXECUTABLE: u64 = 256 * 1024 * 1024;
 use std::os::unix::fs::{PermissionsExt, symlink};
 fn artifact(id: &str, bytes: &[u8]) -> ArtifactRef {
     ArtifactRef {

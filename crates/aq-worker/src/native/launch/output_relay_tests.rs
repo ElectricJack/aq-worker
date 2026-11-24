@@ -47,23 +47,20 @@ fn bounded_tail_packet_preserves_literal_sequences_and_explicit_eviction_gap() {
         .unwrap();
     let p = prepare(&tail, &peer(), 0, false).unwrap().unwrap();
     assert_eq!(p.through, 5);
-    assert_eq!(p.request.gaps[0].first_missing, 1);
-    assert_eq!(p.request.gaps[0].last_missing, 3);
-    assert_eq!(
-        p.request
-            .frames
-            .iter()
-            .map(|f| f.sequence)
-            .collect::<Vec<_>>(),
-        vec![4, 5]
-    );
-    assert_eq!(p.request.frames[0].bytes, b"mnop");
-    assert!(
-        p.request.snapshots.is_empty()
-            && p.request.receipts.is_empty()
-            && p.request.fence_acks.is_empty()
-    );
+    check_evicted_frames(&p.request);
     assert!(prepare(&tail, &peer(), 5, false).unwrap().is_none());
+}
+fn check_evicted_frames(packet: &PeerUpload) {
+    let gap = &packet.gaps[0];
+    assert_eq!((gap.first_missing, gap.last_missing), (1, 3));
+    let sequences: Vec<_> = packet.frames.iter().map(|f| f.sequence).collect();
+    assert_eq!(
+        (sequences.as_slice(), packet.frames[0].bytes.as_slice()),
+        (&[4, 5][..], b"mnop".as_slice())
+    );
+    assert!(
+        packet.snapshots.is_empty() && packet.receipts.is_empty() && packet.fence_acks.is_empty()
+    );
 }
 #[test]
 fn worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames() {
@@ -82,17 +79,17 @@ fn worst_case_json_bytes_are_bounded_and_prefix_never_skips_unselected_frames() 
         seen.extend(p.request.frames.iter().map(|f| f.sequence));
         through = p.through;
     }
+    check_frame_coverage(&tail, &seen);
+}
+fn check_frame_coverage(tail: &TerminalOutput, seen: &[u64]) {
     assert_eq!(seen, (1..tail.next_sequence()).collect::<Vec<_>>());
-    assert_eq!(
-        tail.frames().map(|f| f.bytes.len()).sum::<usize>(),
-        16 * 65536
-    );
+    let bytes: usize = tail.frames().map(|f| f.bytes.len()).sum();
+    assert_eq!((tail.next_sequence(), bytes), (33, 16 * 65536));
     assert_eq!(
         MAX_UPLOAD,
         256 * 1024,
         "must fit the actual RelayHttp transport ceiling"
     );
-    assert_eq!(tail.next_sequence(), 33);
 }
 #[test]
 fn unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart() {
@@ -104,9 +101,10 @@ fn unknown_producer_discontinuity_does_not_invent_an_exact_gap_or_restart() {
         tail.accept(&ControlEvent::Bytes(b"not-restarted".to_vec()))
             .is_err()
     );
-    assert_eq!(tail.next_sequence(), 2);
-    assert_eq!(tail.gaps().count(), 0);
-    assert_eq!(tail.state(), TailState::Discontinuous);
+    assert_eq!(
+        (tail.next_sequence(), tail.gaps().count(), tail.state()),
+        (2, 0, TailState::Discontinuous)
+    );
 }
 #[derive(Default)]
 struct PeerState {
@@ -221,40 +219,7 @@ async fn poll_peer(
     })
     .into_response()
 }
-// White-box retained transport state only: no LocalPhaseHost or launch token.
-async fn transport_fixture() -> (
-    PhaseOutputRelay,
-    Arc<Mutex<Outputs>>,
-    Arc<PeerState>,
-    tokio::task::JoinHandle<()>,
-) {
-    transport_fixture_policy(policy(4, 8)).await
-}
-async fn transport_fixture_policy(
-    negotiated: TerminalPolicy,
-) -> (
-    PhaseOutputRelay,
-    Arc<Mutex<Outputs>>,
-    Arc<PeerState>,
-    tokio::task::JoinHandle<()>,
-) {
-    let s = Arc::new(PeerState {
-        policy: Some(negotiated.clone()),
-        ..PeerState::default()
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let app = Router::new()
-        .route("/v1/terminal-relay/register", post(register_peer))
-        .route("/v1/terminal-relay/upload", post(upload_peer))
-        .route("/v1/terminal-relay/output-poll", post(poll_peer))
-        .with_state(s.clone());
-    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    let http = RelayHttp::development_loopback(
-        &url,
-        &NodeCredential::new("synthetic-node-credential".into()).unwrap(),
-    )
-    .unwrap();
+fn fixture_relay(http: RelayHttp, negotiated: &TerminalPolicy) -> Arc<Relay> {
     let q = Register {
         version: wire::VERSION,
         capability: Text::new(wire::CAPABILITY).unwrap(),
@@ -272,7 +237,7 @@ async fn transport_fixture_policy(
         "../../../../../vendor/aq-phase-terminal-protocol-0.1.0/artifacts/fixtures.json"
     ))
     .unwrap();
-    let relay = Arc::new(Relay {
+    Arc::new(Relay {
         terminal: terminal(),
         attempt: Uuid::from_u128(3),
         journal: Weak::new(),
@@ -297,7 +262,37 @@ async fn transport_fixture_policy(
         draining: AtomicBool::new(false),
         snapshot_requested: AtomicBool::new(false),
         task: Mutex::new(None),
+    })
+}
+// White-box retained transport state only: no LocalPhaseHost or launch token.
+type TransportFixture = (
+    PhaseOutputRelay,
+    Arc<Mutex<Outputs>>,
+    Arc<PeerState>,
+    tokio::task::JoinHandle<()>,
+);
+async fn transport_fixture() -> TransportFixture {
+    transport_fixture_policy(policy(4, 8)).await
+}
+async fn transport_fixture_policy(negotiated: TerminalPolicy) -> TransportFixture {
+    let s = Arc::new(PeerState {
+        policy: Some(negotiated.clone()),
+        ..PeerState::default()
     });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new()
+        .route("/v1/terminal-relay/register", post(register_peer))
+        .route("/v1/terminal-relay/upload", post(upload_peer))
+        .route("/v1/terminal-relay/output-poll", post(poll_peer))
+        .with_state(s.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let http = RelayHttp::development_loopback(
+        &url,
+        &NodeCredential::new("synthetic-node-credential".into()).unwrap(),
+    )
+    .unwrap();
+    let relay = fixture_relay(http, &negotiated);
     let outputs = Arc::new(Mutex::new(Outputs::default()));
     {
         let mut o = outputs.lock().unwrap();
@@ -325,8 +320,7 @@ async fn transport_fixture_policy(
 async fn no_watch_and_ambiguous_reply_keep_exact_pending_bytes_while_tail_continues() {
     let (handle, outputs, peer, server) = transport_fixture().await;
     let info = handle.register().await.unwrap();
-    assert_eq!(info.session_revision, 77);
-    assert_eq!(info.terminal, terminal());
+    assert_eq!((info.session_revision, info.terminal), (77, terminal()));
     assert_eq!(peer.registrations.lock().unwrap().len(), 1);
     assert!(handle.upload_once().await.is_err());
     outputs
@@ -345,15 +339,16 @@ async fn no_watch_and_ambiguous_reply_keep_exact_pending_bytes_while_tail_contin
     {
         let uploads = peer.uploads.lock().unwrap();
         assert_eq!(uploads.len(), 3);
-        assert_eq!(uploads[0], uploads[1]);
-        assert_eq!(uploads[1], uploads[2]);
+        assert!(uploads.windows(2).all(|pair| pair[0] == pair[1]));
     }
     handle.upload_once().await.unwrap().unwrap();
     let uploads = peer.uploads.lock().unwrap();
     let next: PeerUpload = serde_json::from_slice(&uploads[3]).unwrap();
-    assert_eq!(next.gaps[0].first_missing, 3);
-    assert_eq!(next.gaps[0].last_missing, 3);
-    assert_eq!(next.frames[0].sequence, 4);
+    let gap = &next.gaps[0];
+    assert_eq!(
+        (gap.first_missing, gap.last_missing, next.frames[0].sequence),
+        (3, 3, 4)
+    );
     drop(uploads);
     assert_eq!(peer.registrations.lock().unwrap().len(), 1);
     assert_eq!(handle.status().unwrap().next_sequence, 6);
@@ -369,6 +364,19 @@ async fn dropped_pipeline_tail_owner_cannot_be_reconstructed_from_transport_hist
     server.abort();
 }
 
+fn decoded_coverage(uploads: &[Vec<u8>]) -> (usize, Vec<u64>) {
+    let mut bytes = 0;
+    let mut sequences = vec![];
+    for encoded in uploads {
+        assert!(encoded.len() <= 256 * 1024);
+        let request: PeerUpload = serde_json::from_slice(encoded).unwrap();
+        for frame in request.frames {
+            bytes += frame.bytes.len();
+            sequences.push(frame.sequence);
+        }
+    }
+    (bytes, sequences)
+}
 #[tokio::test]
 async fn high_byte_frames_fit_actual_http_transport_without_losing_sequences() {
     let (relay, outputs, peer, server) = transport_fixture_policy(policy(65536, 1048576)).await;
@@ -385,29 +393,14 @@ async fn high_byte_frames_fit_actual_http_transport_without_losing_sequences() {
             break;
         }
     }
-    let uploads = peer.uploads.lock().unwrap();
-    let mut bytes = 0;
-    let mut sequences = vec![];
-    for encoded in uploads.iter() {
-        assert!(encoded.len() <= 256 * 1024);
-        let request: PeerUpload = serde_json::from_slice(encoded).unwrap();
-        for frame in request.frames {
-            bytes += frame.bytes.len();
-            sequences.push(frame.sequence);
-        }
-    }
+    let (bytes, sequences) = decoded_coverage(&peer.uploads.lock().unwrap());
     // The transport fixture already has one eight-byte literal prefix.
     assert_eq!(bytes, 4 * 65536 + 8);
     assert_eq!(sequences, (1..=9).collect::<Vec<_>>());
     server.abort();
 }
 
-#[tokio::test]
-async fn watch_poll_keeps_pending_upload_bytes_and_independent_cursors_after_409() {
-    let (relay, _outputs, peer, server) = transport_fixture().await;
-    assert!(relay.upload_once().await.is_err());
-    let before = peer.uploads.lock().unwrap()[0].clone();
-    assert_eq!(relay.poll_watch_once().await.unwrap(), 1);
+async fn check_pending_upload(relay: &PhaseOutputRelay, before: &[u8]) {
     {
         let network = relay.owner.network.lock().await;
         assert_eq!(network.through, 0);
@@ -418,16 +411,26 @@ async fn watch_poll_keeps_pending_upload_bytes_and_independent_cursors_after_409
         assert_eq!(network.pending.as_ref().unwrap().request.cursor, 0);
     }
     assert_eq!(relay.owner.polling.lock().await.cursor, 7);
+}
+async fn cursors(relay: &PhaseOutputRelay) -> (u64, u64) {
+    let uploaded = relay.owner.network.lock().await.through;
+    (uploaded, relay.owner.polling.lock().await.cursor)
+}
+#[tokio::test]
+async fn watch_poll_keeps_pending_upload_bytes_and_independent_cursors_after_409() {
+    let (relay, _outputs, peer, server) = transport_fixture().await;
+    assert!(relay.upload_once().await.is_err());
+    let before = peer.uploads.lock().unwrap()[0].clone();
+    assert_eq!(relay.poll_watch_once().await.unwrap(), 1);
+    check_pending_upload(&relay, &before).await;
     peer.mode.store(1, Ordering::SeqCst);
     relay.upload_once().await.unwrap().unwrap();
     assert_eq!(peer.uploads.lock().unwrap()[1], before);
-    assert_eq!(relay.owner.network.lock().await.through, 2);
-    assert_eq!(relay.owner.polling.lock().await.cursor, 7);
+    assert_eq!(cursors(&relay).await, (2, 7));
     assert_eq!(relay.poll_watch_once().await.unwrap(), 1);
     let polls = peer.polls.lock().unwrap();
     let next: wire::RelayPoll = serde_json::from_slice(&polls[1]).unwrap();
-    assert_eq!(next.cursor, 7);
-    assert_eq!(next.active_subscriptions, 1);
+    assert_eq!((next.cursor, next.active_subscriptions), (7, 1));
     server.abort();
 }
 #[tokio::test]
@@ -435,14 +438,15 @@ async fn output_poll_never_consumes_control_or_regressing_cursor() {
     let (relay, _outputs, peer, server) = transport_fixture().await;
     peer.poll_mode.store(1, Ordering::SeqCst);
     assert!(relay.poll_watch_once().await.is_err());
-    assert_eq!(relay.owner.polling.lock().await.cursor, 0);
-    assert!(relay.owner.polling.lock().await.watches.is_empty());
+    {
+        let poll = relay.owner.polling.lock().await;
+        assert_eq!((poll.cursor, poll.watches.len()), (0, 0));
+    }
     peer.poll_mode.store(0, Ordering::SeqCst);
     relay.poll_watch_once().await.unwrap();
     peer.poll_mode.store(2, Ordering::SeqCst);
     assert!(relay.poll_watch_once().await.is_err());
-    assert_eq!(relay.owner.polling.lock().await.cursor, 7);
-    assert_eq!(relay.owner.network.lock().await.through, 0);
+    assert_eq!(cursors(&relay).await, (0, 7));
     assert!(
         peer.uploads.lock().unwrap().is_empty(),
         "poll must never ACK an effect"

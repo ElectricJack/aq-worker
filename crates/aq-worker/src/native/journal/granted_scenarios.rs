@@ -382,8 +382,7 @@ async fn every_grant_write_fault_preserves_holds_and_reopen_never_restores_autho
                     .check_initial_grant(
                         h.id,
                         &record.digest().unwrap(),
-                        record.deadline_ns,
-                        record.hard_deadline_ns
+                        (record.deadline_ns, record.hard_deadline_ns)
                     )
                     .is_err()
             );

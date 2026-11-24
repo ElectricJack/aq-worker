@@ -44,36 +44,53 @@ def metadata(root=ROOT):
     return json.loads(out)
 
 
+def library_target(targets):
+    return next((t for t in targets if {"lib", "proc-macro"}.intersection(t["kind"])), None)
+
+
+def source_lines(path):
+    with path.open("rb") as handle:
+        return sum(1 for _ in handle)
+
+
 def lib_lines(package):
     """Lines of .rs source under the lib target's directory, excluding other targets."""
     targets = package["targets"]
-    lib = next((t for t in targets if "lib" in t["kind"] or "proc-macro" in t["kind"]), None)
+    lib = library_target(targets)
     if lib is None:
         return None
     src = Path(lib["src_path"]).parent
     others = {Path(t["src_path"]) for t in targets if t is not lib}
-    excluded_dirs = [src / "bin"]
+    bin_dir = src / "bin"
     total = 0
     for path in sorted(src.rglob("*.rs")):
-        if path in others or any(d in path.parents for d in excluded_dirs):
+        if path in others or bin_dir in path.parents:
             continue
-        with open(path, "rb") as handle:
-            total += sum(1 for _ in handle)
+        total += source_lines(path)
     return total
+
+
+def test_targets(package):
+    return [t for t in package["targets"] if "test" in t["kind"]]
+
+
+def unbuilt_test_files(packages, root):
+    unbuilt = []
+    for package in packages:
+        tests = Path(package["manifest_path"]).parent / "tests"
+        targets = {Path(t["src_path"]).resolve() for t in test_targets(package)}
+        for path in sorted([*tests.glob("*.rs"), *tests.glob("*/main.rs")]):
+            if path.resolve() not in targets:
+                unbuilt.append(str(path.relative_to(root)))
+    return unbuilt
 
 
 def measure(root=ROOT):
     meta = metadata(root)
     members = set(meta["workspace_members"])
     packages = [p for p in meta["packages"] if p["id"] in members]
-    test_binaries = sum(1 for p in packages for t in p["targets"] if "test" in t["kind"])
-    unbuilt = []
-    for package in packages:
-        tests = Path(package["manifest_path"]).parent / "tests"
-        targets = {Path(t["src_path"]).resolve() for t in package["targets"] if "test" in t["kind"]}
-        for path in sorted([*tests.glob("*.rs"), *tests.glob("*/main.rs")]):
-            if path.resolve() not in targets:
-                unbuilt.append(str(path.relative_to(root)))
+    test_binaries = sum(len(test_targets(p)) for p in packages)
+    unbuilt = unbuilt_test_files(packages, root)
     lines = {}
     for package in packages:
         count = lib_lines(package)
@@ -109,6 +126,47 @@ def allowed(base_count, ceiling, base_ceiling):
     return base_count
 
 
+def check_test_binaries(test_binaries, test_budget, base, errors):
+    base_tests, _, base_budget = base or (None, {}, {})
+    test_limit = allowed(base_tests, test_budget, base_budget.get("test_binaries", {}).get("max"))
+    print(f"build-budget: integration test binaries {test_binaries} (limit {test_limit}, ceiling {test_budget})")
+    if test_binaries > test_limit:
+        errors.append(
+            f"{test_binaries} integration test binaries, more than {test_limit}. "
+            "Add new tests to an existing test binary instead of a new test target.")
+
+def check_line_target(name, count, line_target, errors):
+    if count > line_target * 3 // 4:
+        print(f"build-budget: {name} lib {count} lines (target {line_target})")
+    if count > line_target:
+        errors.append(
+            f"{name} lib is {count} lines, above the {line_target}-line target. "
+            "Split it into smaller crates.")
+
+
+def check_libraries(lines, policy, base_name, base):
+    errors = []
+    _, base_lines, base_budget = base or (None, {}, {})
+    base_ratchets = base_budget.get("lib_lines", {}).get("ratchet", {})
+    line_target = policy["target"]
+    ratchets = policy.get("ratchet", {})
+    for name, count in sorted(lines.items(), key=lambda item: -item[1]):
+        if name in ratchets:
+            limit = allowed(base_lines.get(name),
+                            ratchets[name], base_ratchets.get(name))
+            print(f"build-budget: {name} lib {count} lines (limit {limit}, ceiling {ratchets[name]}, target {line_target})")
+            if count > limit:
+                errors.append(
+                    f"{name} lib is {count} lines, more than {limit} on {base_name} (target "
+                    f"{line_target}). Move code out of the crate (or delete some) rather than "
+                    "raising its ceiling.")
+        else:
+            check_line_target(name, count, line_target, errors)
+    for name in sorted(set(ratchets) - set(lines)):
+        print(f"build-budget: note: ratchet for {name} names no workspace lib; remove it.")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--base", default="origin/main", help="ref to compare with (default origin/main)")
@@ -120,50 +178,20 @@ def main():
 
     budget = tomllib.loads(BUDGET.read_text())
     test_budget = budget["test_binaries"]["max"]
-    line_target = budget["lib_lines"]["target"]
-    ratchets = budget["lib_lines"].get("ratchet", {})
     test_binaries, lines, unbuilt = measure()
     base = base_state(args.base)
-    if base is None:
-        print(f"build-budget: no {args.base}; checking the ceilings only")
-        base_tests, base_lines, base_budget = None, {}, {}
-    else:
-        base_tests, base_lines, base_budget = base
-        print(f"build-budget: comparing with {args.base}")
-    base_ratchets = base_budget.get("lib_lines", {}).get("ratchet", {})
+    message = f"no {args.base}; checking the ceilings only" if base is None else f"comparing with {args.base}"
+    print("build-budget: " + message)
 
     errors = []
-    test_limit = allowed(base_tests, test_budget, base_budget.get("test_binaries", {}).get("max"))
-    print(f"build-budget: integration test binaries {test_binaries} (limit {test_limit}, ceiling {test_budget})")
-    if test_binaries > test_limit:
-        errors.append(
-            f"{test_binaries} integration test binaries, more than {test_limit}. "
-            "Add new tests to an existing test binary instead of a new test target.")
+    check_test_binaries(test_binaries, test_budget, base, errors)
 
     for path in unbuilt:
         errors.append(
             f"{path} is not a test target, so it is never built or run (the crate sets "
             "autotests = false). Make it a module of an existing tests/<group>/main.rs.")
 
-    for name, count in sorted(lines.items(), key=lambda item: -item[1]):
-        if name in ratchets:
-            limit = allowed(base_lines.get(name) if base is not None else None,
-                            ratchets[name], base_ratchets.get(name))
-            print(f"build-budget: {name} lib {count} lines (limit {limit}, ceiling {ratchets[name]}, target {line_target})")
-            if count > limit:
-                errors.append(
-                    f"{name} lib is {count} lines, more than {limit} on {args.base} (target "
-                    f"{line_target}). Move code out of the crate (or delete some) rather than "
-                    "raising its ceiling.")
-        else:
-            if count > line_target * 3 // 4:
-                print(f"build-budget: {name} lib {count} lines (target {line_target})")
-            if count > line_target:
-                errors.append(
-                    f"{name} lib is {count} lines, above the {line_target}-line target. "
-                    "Split it into smaller crates.")
-    for name in sorted(set(ratchets) - set(lines)):
-        print(f"build-budget: note: ratchet for {name} names no workspace lib; remove it.")
+    errors.extend(check_libraries(lines, budget["lib_lines"], args.base, base))
 
     for error in errors:
         print(f"::error::build-budget: {error}" if os.environ.get("GITHUB_ACTIONS")

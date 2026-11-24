@@ -56,21 +56,21 @@ fn scan(bytes: &[u8]) -> Scan {
 
 /// The sequence ends with ST (`ESC \`), or BEL when `bel` is allowed.
 fn terminated(bytes: &[u8], from: usize, bel: bool) -> Scan {
-    let mut i = from;
-    while i < bytes.len() {
-        match bytes[i] {
-            0x07 if bel => return Scan::Reply(i + 1),
-            0x1b => {
-                return match bytes.get(i + 1) {
-                    Some(b'\\') => Scan::Reply(i + 2),
-                    Some(_) => Scan::No,
-                    None => Scan::Incomplete,
-                };
-            }
-            _ => i += 1,
-        }
+    let Some(index) = bytes[from..]
+        .iter()
+        .position(|&b| b == 0x1b || (bel && b == 0x07))
+    else {
+        return Scan::Incomplete;
+    };
+    let i = from + index;
+    if bytes[i] == 0x07 {
+        return Scan::Reply(i + 1);
     }
-    Scan::Incomplete
+    match bytes.get(i + 1) {
+        Some(b'\\') => Scan::Reply(i + 2),
+        Some(_) => Scan::No,
+        None => Scan::Incomplete,
+    }
 }
 
 impl ReplyFilter {
@@ -80,15 +80,12 @@ impl ReplyFilter {
     pub fn feed(&mut self, input: &[u8]) -> Vec<u8> {
         self.held.extend_from_slice(input);
         let (mut out, mut i) = (Vec::with_capacity(self.held.len()), 0);
-        while i < self.held.len() {
-            if self.held[i] != 0x1b {
-                out.push(self.held[i]);
-                i += 1;
-                continue;
-            }
+        while let Some(plain) = self.held[i..].iter().position(|&byte| byte == 0x1b) {
+            out.extend_from_slice(&self.held[i..i + plain]);
+            i += plain;
             match scan(&self.held[i..]) {
                 Scan::Reply(n) => i += n,
-                Scan::Incomplete if self.held.len() - i >= 3 && self.held.len() - i <= MAX_HELD => {
+                Scan::Incomplete if (3..=MAX_HELD).contains(&(self.held.len() - i)) => {
                     let rest = self.held.split_off(i);
                     self.held = rest;
                     return out;
@@ -99,6 +96,7 @@ impl ReplyFilter {
                 }
             }
         }
+        out.extend_from_slice(&self.held[i..]);
         self.held.clear();
         out
     }

@@ -15,6 +15,7 @@ STATE = Path('/var/lib/aq-qualification/state')
 IMAGE = Path('/opt/aq-qualification')
 MINIMUM_FREE = 11005853696
 MAX_PACKET = 131072
+RESULT_PROFILE = 'codex-0.166-trusted-node-named-readonly-result-local-v1'
 
 
 def require(condition, message):
@@ -59,32 +60,40 @@ def pin(path, expected, maximum):
     require(digest.hexdigest() == expected, 'image digest mismatch')
 
 
-def configure(value, control_origin):
-    native = value.get('native_config', {})
-    kind = native.get('executor', {}).get('kind')
+def validate_state_paths(native):
+    paths = {'state_dir': STATE, 'git_root': STATE / 'git', 'git_socket': STATE / 'git.sock',
+             'adapter_manifest': STATE / 'config/adapter.json',
+             'inventory_definition': STATE / 'config/inventory.json'}
+    require(isinstance(native, dict) and all(native[key] == str(path) for key, path in paths.items()),
+            'fixture state paths')
+    require(native['executor']['settings']['host_root'] == str(STATE / 'host'), 'fixture host scope')
+    disk = os.statvfs(STATE)
+    require(0 < native['capacity']['disk_bytes'] <= disk.f_blocks * disk.f_frsize, 'truthful private disk capacity')
+
+
+def validate_config_packet(value, kind):
     required = {'schema_version', 'operation', 'worker_config', 'native_config',
                 'installation_manifest', 'inventory_definition'}
-    if kind == 'codex-0.166-trusted-node-named-readonly-result-local-v1':
+    if kind == RESULT_PROFILE:
         required |= {'client_manifest', 'composite_definition'}
     else:
         require(kind == 'codex-0.166-trusted-node-named-readonly-v1', 'explicit named runner profile')
     require(set(value) == required and value['schema_version'] == 1
             and value['operation'] == 'configure', 'closed configure packet')
-    require(isinstance(native, dict) and native['state_dir'] == str(STATE)
-            and native['git_root'] == str(STATE / 'git')
-            and native['git_socket'] == str(STATE / 'git.sock')
-            and native['adapter_manifest'] == str(STATE / 'config/adapter.json')
-            and native['inventory_definition'] == str(STATE / 'config/inventory.json'), 'fixture state paths')
-    require(native['executor']['settings']['host_root'] == str(STATE / 'host'), 'fixture host scope')
-    disk = os.statvfs(STATE)
-    require(0 < native['capacity']['disk_bytes'] <= disk.f_blocks * disk.f_frsize, 'truthful private disk capacity')
+
+
+def configure(value, control_origin):
+    native = value.get('native_config', {})
+    kind = native.get('executor', {}).get('kind')
+    validate_config_packet(value, kind)
+    validate_state_paths(native)
     # Trusted parent serializes the actual WorkerConfig with this origin. This
     # is an early shape check, not a TOML parser or an authority decision; the
     # ordinary CLI still validates its closed configuration before admission.
     require(isinstance(value['worker_config'], str) and control_origin in value['worker_config'], 'private control origin marker')
     files = [('native_config', 'native.json'), ('installation_manifest', 'adapter.json'),
              ('inventory_definition', 'inventory.json')]
-    if kind == 'codex-0.166-trusted-node-named-readonly-result-local-v1':
+    if kind == RESULT_PROFILE:
         require(native['executor']['client_manifest'] == str(STATE / 'config/client.json')
                 and native['executor']['composite_definition'] == str(STATE / 'config/composite.json'),
                 'fixed result installation input files')
@@ -126,6 +135,46 @@ def stop(child, grace):
         return False
 
 
+def prepare_state():
+    require(os.environ.get('AQ_NATIVE_FIXTURE_CONFINED') == 'v1', 'fixture premises absent')
+    require(STATE.parent.is_dir() and not STATE.exists(), 'fresh fixture state required')
+    pin(IMAGE / 'aq-worker', os.environ['AQ_NATIVE_WORKER_SHA256'], 256 * 1024 * 1024)
+    pin(IMAGE / 'aq-git', os.environ['AQ_NATIVE_GIT_SHA256'], 64 * 1024 * 1024)
+    if 'AQ_NATIVE_AGENT_CLIENT_SHA256' in os.environ:
+        pin(IMAGE / 'aq-agent', os.environ['AQ_NATIVE_AGENT_CLIENT_SHA256'], 64 * 1024 * 1024)
+    # Actual Codex/helper/tmux hashing and the live named environment owner
+    # remain in the ordinary installed factory, before the offer/grant.
+    STATE.mkdir(mode=0o700)
+    disk = os.statvfs(STATE)
+    free = disk.f_bavail * disk.f_frsize
+    require(free > MINIMUM_FREE, 'unchanged Git minimum unavailable in private state')
+    return free
+
+
+def send_listeners(control, listeners, root_fd, packet):
+    encoded = json.dumps(packet, separators=(',', ':')).encode()
+    rights = array.array('i', [listeners[0].fileno(), listeners[1].fileno(), root_fd])
+    require(control.sendmsg([encoded], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, rights)]) == len(encoded), 'exact listener transfer')
+
+
+def wait_for_git(git):
+    until = time.monotonic() + 2
+    while not (STATE / 'git.sock').exists():
+        require(git.poll() is None and time.monotonic() < until, 'bounded actual Git startup')
+        time.sleep(.01)
+    require(os.statvfs(STATE).f_bavail * os.statvfs(STATE).f_frsize > MINIMUM_FREE,
+            'unchanged Git minimum after provisioning')
+
+
+def open_listeners(listeners):
+    for _ in range(2):
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.set_inheritable(False)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(64)
+        listeners.append(listener)
+
+
 def run():
     stage = 'premises'
     control = None
@@ -134,25 +183,9 @@ def run():
     listeners = []
     root_fd = None
     try:
-        require(os.environ.get('AQ_NATIVE_FIXTURE_CONFINED') == 'v1', 'fixture premises absent')
-        require(STATE.parent.is_dir() and not STATE.exists(), 'fresh fixture state required')
-        pin(IMAGE / 'aq-worker', os.environ['AQ_NATIVE_WORKER_SHA256'], 256 * 1024 * 1024)
-        pin(IMAGE / 'aq-git', os.environ['AQ_NATIVE_GIT_SHA256'], 64 * 1024 * 1024)
-        if 'AQ_NATIVE_AGENT_CLIENT_SHA256' in os.environ:
-            pin(IMAGE / 'aq-agent', os.environ['AQ_NATIVE_AGENT_CLIENT_SHA256'], 64 * 1024 * 1024)
-        # Actual Codex/helper/tmux hashing and the live named environment owner
-        # remain in the ordinary installed factory, before the offer/grant.
-        STATE.mkdir(mode=0o700)
-        disk = os.statvfs(STATE)
-        free = disk.f_bavail * disk.f_frsize
-        require(free > MINIMUM_FREE, 'unchanged Git minimum unavailable in private state')
+        free = prepare_state()
         stage = 'listeners'
-        for _ in range(2):
-            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            listener.set_inheritable(False)
-            listener.bind(('127.0.0.1', 0))
-            listener.listen(64)
-            listeners.append(listener)
+        open_listeners(listeners)
         control_origin = 'http://127.0.0.1:%d/' % listeners[0].getsockname()[1]
         provider_origin = 'http://127.0.0.1:%d/' % listeners[1].getsockname()[1]
         root_fd = os.open(STATE, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -162,9 +195,7 @@ def run():
         packet = {'schema_version': 1, 'phase': 'listeners', 'control_origin': control_origin,
                   'provider_origin': provider_origin, 'state_dir': str(STATE), 'state_free_bytes': free,
                   'private_pid_namespace': os.readlink('/proc/thread-self/ns/pid')}
-        encoded = json.dumps(packet, separators=(',', ':')).encode()
-        rights = array.array('i', [listeners[0].fileno(), listeners[1].fileno(), root_fd])
-        require(control.sendmsg([encoded], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, rights)]) == len(encoded), 'exact listener transfer')
+        send_listeners(control, listeners, root_fd, packet)
         for listener in listeners:
             listener.close()
         listeners = []
@@ -182,12 +213,7 @@ def run():
         git = subprocess.Popen([str(IMAGE / 'aq-git'), '--state-dir', str(STATE / 'git'),
                                 '--git-executable', '/usr/bin/git', '--listen', str(STATE / 'git.sock'), 'serve'],
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, close_fds=True)
-        until = time.monotonic() + 2
-        while not (STATE / 'git.sock').exists():
-            require(git.poll() is None and time.monotonic() < until, 'bounded actual Git startup')
-            time.sleep(.01)
-        require(os.statvfs(STATE).f_bavail * os.statvfs(STATE).f_frsize > MINIMUM_FREE,
-                'unchanged Git minimum after provisioning')
+        wait_for_git(git)
         stage = 'ordinary_runner'
         worker = subprocess.Popen([str(IMAGE / 'aq-worker'), '--config', str(STATE / 'config/worker.toml'),
                                    'run-native', '--native-config', str(STATE / 'config/native.json'),

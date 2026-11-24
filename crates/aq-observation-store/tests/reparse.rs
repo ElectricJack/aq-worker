@@ -4,6 +4,7 @@ mod support;
 use anyhow::{Result, ensure};
 use aq_lifecycle_protocol::*;
 use aq_observation_engine::{self as engine, framing::Frame};
+use aq_observation_store::backend::{Action, Fault};
 use aq_observation_store::{
     Limits, ReplayAuthority, ReplayPlan, SourceRow, Store, VerifiedRetained,
 };
@@ -42,84 +43,11 @@ fn fixture(temp: &tempfile::TempDir, unknown_history: bool) -> (Store, Vec<u8>, 
         version: Text::new("0").unwrap(),
         digest: Digest::of(b"synthetic-input7-from-native12"),
     };
-    let db = redb::Database::open(root.join("store.redb")).unwrap();
-    let mut tx = db.begin_write().unwrap();
-    tx.set_durability(Durability::Immediate).unwrap();
-    tx.set_two_phase_commit(true);
-    let mut sources = tx.open_table(SOURCES).unwrap();
-    let old_source = sources
-        .get(Uuid::from_u128(8).as_bytes().as_slice())
-        .unwrap()
-        .unwrap()
-        .value()
-        .to_vec();
-    let mut row: SourceRow = serde_json::from_slice(&old_source).unwrap();
     let mut bytes = raw.clone();
     if unknown_history {
         bytes.extend(support::row(999));
     }
-    row.cursor = bytes.len() as u64;
-    row.engine.as_mut().unwrap().context.parser = old_parser.clone();
-    row.parsers = vec![old_parser.clone()];
-    let source_bytes = serde_json::to_vec(&row).unwrap();
-    sources
-        .insert(
-            Uuid::from_u128(8).as_bytes().as_slice(),
-            source_bytes.as_slice(),
-        )
-        .unwrap();
-    drop(sources);
-    let mut out = tx.open_table(OUT).unwrap();
-    let old_event = out.get(1).unwrap().unwrap().value().to_vec();
-    let mut event: ObservationRecord = serde_json::from_slice(&old_event).unwrap();
-    let old_id = event.event_id;
-    event.event_id = Uuid::from_u128(777);
-    event.body.provenance.parser = old_parser.clone();
-    let ObservationKind::Usage { usage } = &mut event.body.kind else {
-        panic!()
-    };
-    usage.counters.input = Counter::Known { value: 7 };
-    usage.category_semantics = CategorySemantics::MayOverlap {
-        policy: old_parser.clone(),
-    };
-    event.body_digest = canonical_digest(&event.body).unwrap();
-    let event_bytes = serde_json::to_vec(&event).unwrap();
-    out.insert(1, event_bytes.as_slice()).unwrap();
-    drop(out);
-    let mut ids = tx.open_table(IDS).unwrap();
-    ids.remove(old_id.as_bytes().as_slice()).unwrap();
-    let digest = serde_json::to_vec(&event.body_digest).unwrap();
-    ids.insert(event.event_id.as_bytes().as_slice(), digest.as_slice())
-        .unwrap();
-    drop(ids);
-    let mut seen = tx.open_table(SEEN).unwrap();
-    let mut key = Uuid::from_u128(8).as_bytes().to_vec();
-    key.extend(b"claude-call:call-1");
-    let old_seen = seen.get(key.as_slice()).unwrap().unwrap().value().to_vec();
-    let mut seen_value: Value = serde_json::from_slice(&old_seen).unwrap();
-    seen_value["normalized_digest"] = json!(canonical_digest(&event.body.kind).unwrap());
-    let prior = EventRef {
-        event_id: event.event_id,
-        digest: event.body_digest.clone(),
-    };
-    seen_value["event"] = json!(prior);
-    let seen_bytes = serde_json::to_vec(&seen_value).unwrap();
-    seen.insert(key.as_slice(), seen_bytes.as_slice()).unwrap();
-    drop(seen);
-    let mut meta = tx.open_table(META).unwrap();
-    let mut state: Value =
-        serde_json::from_slice(meta.get("state").unwrap().unwrap().value()).unwrap();
-    state["logical_bytes"] = json!(
-        state["logical_bytes"].as_u64().unwrap()
-            - (old_source.len() + old_event.len() + old_seen.len()) as u64
-            + (source_bytes.len() + event_bytes.len() + seen_bytes.len()) as u64
-    );
-    state["ordinary_bytes"] = json!(event_bytes.len());
-    let state_bytes = serde_json::to_vec(&state).unwrap();
-    meta.insert("state", state_bytes.as_slice()).unwrap();
-    drop(meta);
-    tx.commit().unwrap();
-    drop(db);
+    let prior = install_retained_rows(&root, &old_parser, bytes.len() as u64);
     let store = Store::open(&root, Limits::fixture()).unwrap();
     let plan = ReplayPlan {
         operation_id: Uuid::from_u128(900),
@@ -349,74 +277,197 @@ fn replay_intent_cursor_corrections_and_finish_share_every_mutating_crash_bounda
     let mut io_cuts = 0;
     let mut process_cuts = 0;
     for phase in ["begin", "record", "finish"] {
-        let temp = tempfile::tempdir().unwrap();
-        let (store, bytes, plan) = fixture(&temp, false);
-        let replay = verified(plan.clone(), bytes.clone());
-        if phase != "begin" {
-            store.begin_reparse(&replay).unwrap();
-        }
-        if phase == "finish" {
-            store.replay_next(&replay, 101).unwrap();
-        }
-        let before = projection(&store);
-        drop(store);
-        let base = temp.path().join("rows");
-        let plan_path = temp.path().join("plan.json");
-        let bytes_path = temp.path().join("retained.jsonl");
-        std::fs::write(&plan_path, serde_json::to_vec(&plan).unwrap()).unwrap();
-        std::fs::write(&bytes_path, &bytes).unwrap();
-        let successful = temp.path().join("successful");
-        copy_db(&base, &successful);
-        let store = Store::open(&successful, Limits::fixture()).unwrap();
-        store.monitor().reset();
-        replay_phase(&store, &replay, phase).unwrap();
-        let operations = store.monitor().stats().operations;
-        let after = projection(&store);
-        drop(store);
-        for process in [false, true] {
-            for cut in 1..=operations {
-                for is_after in [false, true] {
-                    let path = temp.path().join(format!("cut-{process}-{cut}-{is_after}"));
-                    copy_db(&base, &path);
-                    if process {
-                        let status = std::process::Command::new(std::env::current_exe().unwrap())
-                            .args(["--exact", "replay_crash_child", "--nocapture"])
-                            .env("AQ_REPLAY_CRASH_ROOT", &path)
-                            .env("AQ_REPLAY_PLAN", &plan_path)
-                            .env("AQ_REPLAY_BYTES", &bytes_path)
-                            .env("AQ_REPLAY_CUT", cut.to_string())
-                            .env("AQ_REPLAY_AFTER", is_after.to_string())
-                            .env("AQ_REPLAY_PHASE", phase)
-                            .stdout(std::process::Stdio::null())
-                            .stderr(std::process::Stdio::null())
-                            .status()
-                            .unwrap();
-                        assert_eq!(status.code(), Some(77));
-                        process_cuts += 1;
-                    } else {
-                        let store = Store::open(&path, Limits::fixture()).unwrap();
-                        store.monitor().reset();
-                        store.monitor().fault(aq_observation_store::backend::Fault {
-                            operation: cut,
-                            after: is_after,
-                            action: aq_observation_store::backend::Action::Error,
-                        });
-                        assert!(replay_phase(&store, &replay, phase).is_err());
-                        drop(store);
-                        io_cuts += 1;
-                    }
-                    let store = Store::open(&path, Limits::fixture()).unwrap();
-                    let actual = projection(&store);
-                    assert!(
-                        actual == before || actual == after,
-                        "partial replay {phase}/{cut}/{is_after}"
-                    );
-                    store.audit().unwrap();
-                    drop(store);
-                    std::fs::remove_dir_all(path).unwrap();
-                }
+        let operations = walk_replay_phase(phase);
+        io_cuts += operations * 2;
+        process_cuts += operations * 2;
+    }
+    eprintln!("reparse IO-error cuts:{io_cuts};process-exit cuts:{process_cuts}");
+}
+
+fn overwrite_source_parser(
+    tx: &redb::WriteTransaction,
+    old_parser: &ArtifactRef,
+    cursor: u64,
+) -> (usize, usize) {
+    let mut sources = tx.open_table(SOURCES).unwrap();
+    let old_source = sources
+        .get(Uuid::from_u128(8).as_bytes().as_slice())
+        .unwrap()
+        .unwrap()
+        .value()
+        .to_vec();
+    let mut row: SourceRow = serde_json::from_slice(&old_source).unwrap();
+    row.cursor = cursor;
+    row.engine.as_mut().unwrap().context.parser = old_parser.clone();
+    row.parsers = vec![old_parser.clone()];
+    let source_bytes = serde_json::to_vec(&row).unwrap();
+    sources
+        .insert(
+            Uuid::from_u128(8).as_bytes().as_slice(),
+            source_bytes.as_slice(),
+        )
+        .unwrap();
+    drop(sources);
+    (old_source.len(), source_bytes.len())
+}
+fn overwrite_usage(
+    tx: &redb::WriteTransaction,
+    old_parser: &ArtifactRef,
+) -> (ObservationRecord, (usize, usize)) {
+    let mut out = tx.open_table(OUT).unwrap();
+    let old_event = out.get(1).unwrap().unwrap().value().to_vec();
+    let mut event: ObservationRecord = serde_json::from_slice(&old_event).unwrap();
+    let old_id = event.event_id;
+    event.event_id = Uuid::from_u128(777);
+    event.body.provenance.parser = old_parser.clone();
+    let ObservationKind::Usage { usage } = &mut event.body.kind else {
+        panic!()
+    };
+    usage.counters.input = Counter::Known { value: 7 };
+    usage.category_semantics = CategorySemantics::MayOverlap {
+        policy: old_parser.clone(),
+    };
+    event.body_digest = canonical_digest(&event.body).unwrap();
+    let event_bytes = serde_json::to_vec(&event).unwrap();
+    out.insert(1, event_bytes.as_slice()).unwrap();
+    drop(out);
+    let mut ids = tx.open_table(IDS).unwrap();
+    ids.remove(old_id.as_bytes().as_slice()).unwrap();
+    let digest = serde_json::to_vec(&event.body_digest).unwrap();
+    ids.insert(event.event_id.as_bytes().as_slice(), digest.as_slice())
+        .unwrap();
+    drop(ids);
+    (event, (old_event.len(), event_bytes.len()))
+}
+fn overwrite_seen(
+    tx: &redb::WriteTransaction,
+    event: &ObservationRecord,
+) -> (EventRef, (usize, usize)) {
+    let mut seen = tx.open_table(SEEN).unwrap();
+    let mut key = Uuid::from_u128(8).as_bytes().to_vec();
+    key.extend(b"claude-call:call-1");
+    let old_seen = seen.get(key.as_slice()).unwrap().unwrap().value().to_vec();
+    let mut seen_value: Value = serde_json::from_slice(&old_seen).unwrap();
+    seen_value["normalized_digest"] = json!(canonical_digest(&event.body.kind).unwrap());
+    let prior = EventRef {
+        event_id: event.event_id,
+        digest: event.body_digest.clone(),
+    };
+    seen_value["event"] = json!(prior);
+    let seen_bytes = serde_json::to_vec(&seen_value).unwrap();
+    seen.insert(key.as_slice(), seen_bytes.as_slice()).unwrap();
+    drop(seen);
+    (prior, (old_seen.len(), seen_bytes.len()))
+}
+fn walk_replay_phase(phase: &str) -> u64 {
+    let temp = tempfile::tempdir().unwrap();
+    let (store, bytes, plan) = fixture(&temp, false);
+    let replay = verified(plan.clone(), bytes.clone());
+    if phase != "begin" {
+        store.begin_reparse(&replay).unwrap();
+    }
+    if phase == "finish" {
+        store.replay_next(&replay, 101).unwrap();
+    }
+    let before = projection(&store);
+    drop(store);
+    let base = temp.path().join("rows");
+    let plan_path = temp.path().join("plan.json");
+    let bytes_path = temp.path().join("retained.jsonl");
+    std::fs::write(&plan_path, serde_json::to_vec(&plan).unwrap()).unwrap();
+    std::fs::write(&bytes_path, &bytes).unwrap();
+    let successful = temp.path().join("successful");
+    copy_db(&base, &successful);
+    let store = Store::open(&successful, Limits::fixture()).unwrap();
+    store.monitor().reset();
+    replay_phase(&store, &replay, phase).unwrap();
+    let operations = store.monitor().stats().operations;
+    let after = projection(&store);
+    drop(store);
+    for action in [Action::Error, Action::Exit] {
+        let process = matches!(action, Action::Exit);
+        for cut in 1..=operations {
+            for is_after in [false, true] {
+                let path = temp.path().join(format!("cut-{process}-{cut}-{is_after}"));
+                copy_db(&base, &path);
+                let fault = Fault {
+                    operation: cut,
+                    after: is_after,
+                    action,
+                };
+                inject_replay_fault((&path, temp.path()), fault, phase, &replay);
+
+                let store = Store::open(&path, Limits::fixture()).unwrap();
+                let actual = projection(&store);
+                assert!(
+                    actual == before || actual == after,
+                    "partial replay {phase}/{cut}/{is_after}"
+                );
+                store.audit().unwrap();
+                drop(store);
+                std::fs::remove_dir_all(path).unwrap();
             }
         }
     }
-    eprintln!("reparse IO-error cuts:{io_cuts};process-exit cuts:{process_cuts}");
+    operations
+}
+fn inject_replay_fault(
+    paths: (&std::path::Path, &std::path::Path),
+    fault: aq_observation_store::backend::Fault,
+    phase: &str,
+    replay: &VerifiedRetained,
+) {
+    let (path, root) = paths;
+    let cut = fault.operation;
+    let is_after = fault.after;
+    if matches!(fault.action, aq_observation_store::backend::Action::Exit) {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "replay_crash_child", "--nocapture"])
+            .env("AQ_REPLAY_CRASH_ROOT", path)
+            .env("AQ_REPLAY_PLAN", root.join("plan.json"))
+            .env("AQ_REPLAY_BYTES", root.join("retained.jsonl"))
+            .env("AQ_REPLAY_CUT", cut.to_string())
+            .env("AQ_REPLAY_AFTER", is_after.to_string())
+            .env("AQ_REPLAY_PHASE", phase)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(77));
+    } else {
+        let store = Store::open(path, Limits::fixture()).unwrap();
+        store.monitor().reset();
+        store.monitor().fault(fault);
+        assert!(replay_phase(&store, replay, phase).is_err());
+        drop(store);
+    }
+}
+
+fn install_retained_rows(
+    root: &std::path::Path,
+    old_parser: &ArtifactRef,
+    cursor: u64,
+) -> EventRef {
+    let db = redb::Database::open(root.join("store.redb")).unwrap();
+    let mut tx = db.begin_write().unwrap();
+    tx.set_durability(Durability::Immediate).unwrap();
+    tx.set_two_phase_commit(true);
+    let source_size = overwrite_source_parser(&tx, old_parser, cursor);
+    let (event, event_size) = overwrite_usage(&tx, old_parser);
+    let (prior, seen_size) = overwrite_seen(&tx, &event);
+    let mut meta = tx.open_table(META).unwrap();
+    let mut state: Value =
+        serde_json::from_slice(meta.get("state").unwrap().unwrap().value()).unwrap();
+    state["logical_bytes"] = json!(
+        state["logical_bytes"].as_u64().unwrap()
+            - (source_size.0 + event_size.0 + seen_size.0) as u64
+            + (source_size.1 + event_size.1 + seen_size.1) as u64
+    );
+    state["ordinary_bytes"] = json!(event_size.1);
+    let state_bytes = serde_json::to_vec(&state).unwrap();
+    meta.insert("state", state_bytes.as_slice()).unwrap();
+    drop(meta);
+    tx.commit().unwrap();
+    drop(db);
+    prior
 }

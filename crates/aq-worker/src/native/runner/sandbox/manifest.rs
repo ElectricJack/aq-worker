@@ -49,6 +49,11 @@ impl FrozenLaunch {
             self.schema_version == 1 && !self.launch_id.is_nil() && self.revision > 0,
             "handoff version/identity"
         );
+        self.validate_binding()?;
+        self.validate_state_dir(state)?;
+        self.validate_delivery()
+    }
+    fn validate_binding(&self) -> Result<()> {
         self.manifest.validate()?;
         self.authority.validate()?;
         ensure!(
@@ -65,6 +70,9 @@ impl FrozenLaunch {
                 == canonical_digest(&self.manifest)?,
             "phase/manifest digest"
         );
+        Ok(())
+    }
+    fn validate_state_dir(&self, state: &Path) -> Result<()> {
         let meta = std::fs::symlink_metadata(state)?;
         ensure!(
             meta.is_dir()
@@ -79,6 +87,9 @@ impl FrozenLaunch {
                 == self.kernel_boot_id,
             "handoff belongs to another kernel boot"
         );
+        Ok(())
+    }
+    fn validate_delivery(&self) -> Result<(u64, u64)> {
         self.delivery
             .validate_for(self.delivery.nonce, self.authority.grant.expires_at_ms)?;
         ensure!(

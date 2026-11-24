@@ -8,26 +8,24 @@ pub(super) enum TerminalProfile {
 }
 impl TerminalProfile {
     pub(super) fn for_execution(attempt: &Attempt) -> Result<Self> {
-        let frozen = attempt.phase_acceptance.is_some()
-            && attempt.phase_preparation.is_some()
-            && attempt.phase_prepared.is_some()
-            && attempt.phase_execution.is_some();
-        let no_frozen = attempt.phase_acceptance.is_none()
-            && attempt.phase_preparation.is_none()
-            && attempt.phase_prepared.is_none()
-            && attempt.phase_execution.is_none();
-        let refresh = attempt.refresh_acceptance.is_some()
-            && attempt.refresh_preparation.is_some()
-            && attempt.refresh_prepared.is_some()
-            && attempt.refresh_execution.is_some();
-        let no_refresh = attempt.refresh_acceptance.is_none()
-            && attempt.refresh_preparation.is_none()
-            && attempt.refresh_prepared.is_none()
-            && attempt.refresh_execution.is_none();
+        let frozen = [
+            attempt.phase_acceptance.is_some(),
+            attempt.phase_preparation.is_some(),
+            attempt.phase_prepared.is_some(),
+            attempt.phase_execution.is_some(),
+        ];
+        let refresh = [
+            attempt.refresh_acceptance.is_some(),
+            attempt.refresh_preparation.is_some(),
+            attempt.refresh_prepared.is_some(),
+            attempt.refresh_execution.is_some(),
+        ];
         attempt.phase_scope()?;
-        match (frozen, no_frozen, refresh, no_refresh) {
-            (true, false, false, true) => Ok(Self::Frozen),
-            (false, true, true, false) => Ok(Self::Refresh),
+        const COMPLETE: [bool; 4] = [true; 4];
+        const ABSENT: [bool; 4] = [false; 4];
+        match (frozen, refresh) {
+            (COMPLETE, ABSENT) => Ok(Self::Frozen),
+            (ABSENT, COMPLETE) => Ok(Self::Refresh),
             _ => anyhow::bail!("runner missing or mixed retained preparation profile"),
         }
     }

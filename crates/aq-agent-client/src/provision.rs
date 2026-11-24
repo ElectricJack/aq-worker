@@ -237,6 +237,67 @@ fn edge_digest(value: Option<&AgentEgressCredential>) -> Result<Option<String>> 
 fn intent_digest(a: &Allocation, expected: u64) -> Result<String> {
     digest(&serde_json::json!({"binding":a.binding,"startup_digest":a.startup_digest,"origin":a.origin,"egress_digest":a.egress_digest,"expected_credential_version":expected})).map_err(Into::into)
 }
+impl Allocation {
+    fn validate(&self, session: Uuid, node_id: Uuid, ids: &mut BTreeSet<Uuid>) -> Result<()> {
+        self.binding.validate()?;
+        ensure!(
+            session == self.binding.session_id
+                && self.binding.node_id == node_id
+                && !self.intents.is_empty()
+                && self.intents.len() <= MAX_INTENTS,
+            "allocation binding/history bound"
+        );
+        Http::new(&self.origin)?;
+        self.validate_history()?;
+        for intent in &self.intents {
+            ensure!(
+                !intent.id.is_nil()
+                    && ids.insert(intent.id)
+                    && intent.request_digest == intent_digest(self, intent.expected_version)?,
+                "issuance intent identity/payload conflict"
+            );
+            if let IssuanceState::Ready { credential_version } = intent.state {
+                ensure!(
+                    intent.expected_version.checked_add(1) == Some(credential_version),
+                    "installed version mismatch"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_repeat(&self, proposed: &Allocation, intent: &Intent) -> Result<()> {
+        ensure!(
+            self.binding == proposed.binding
+                && self.startup_digest == proposed.startup_digest
+                && self.origin == proposed.origin
+                && self.egress_digest == proposed.egress_digest
+                && self.intents.iter().any(|i| i.id == intent.id
+                    && i.expected_version == intent.expected_version
+                    && i.request_digest == intent.request_digest),
+            "allocation or intent reused with changed payload"
+        );
+        Ok(())
+    }
+
+    fn validate_history(&self) -> Result<()> {
+        for pair in self.intents.windows(2) {
+            let permitted = match pair[0].state {
+                IssuanceState::Ready { credential_version } => {
+                    pair[1].expected_version == credential_version
+                }
+                IssuanceState::Unknown => {
+                    pair[1].expected_version == pair[0].expected_version
+                        || Some(pair[1].expected_version) == pair[0].expected_version.checked_add(1)
+                }
+                IssuanceState::Prepared => false,
+            };
+            ensure!(permitted, "corrupt issuance version history");
+        }
+        Ok(())
+    }
+}
+
 impl Allocator {
     pub fn open(root: &Path, node_id: Uuid, limits: Limits) -> Result<Self> {
         ensure!(!node_id.is_nil(), "nil allocation node");
@@ -279,43 +340,7 @@ impl Allocator {
         );
         let mut ids = BTreeSet::new();
         for (session, a) in &self.state.sessions {
-            a.binding.validate()?;
-            ensure!(
-                *session == a.binding.session_id
-                    && a.binding.node_id == self.state.node_id
-                    && !a.intents.is_empty()
-                    && a.intents.len() <= MAX_INTENTS,
-                "allocation binding/history bound"
-            );
-            Http::new(&a.origin)?;
-            for pair in a.intents.windows(2) {
-                let permitted = match pair[0].state {
-                    IssuanceState::Ready { credential_version } => {
-                        pair[1].expected_version == credential_version
-                    }
-                    IssuanceState::Unknown => {
-                        pair[1].expected_version == pair[0].expected_version
-                            || Some(pair[1].expected_version)
-                                == pair[0].expected_version.checked_add(1)
-                    }
-                    IssuanceState::Prepared => false,
-                };
-                ensure!(permitted, "corrupt issuance version history");
-            }
-            for intent in &a.intents {
-                ensure!(
-                    !intent.id.is_nil()
-                        && ids.insert(intent.id)
-                        && intent.request_digest == intent_digest(a, intent.expected_version)?,
-                    "issuance intent identity/payload conflict"
-                );
-                if let IssuanceState::Ready { credential_version } = intent.state {
-                    ensure!(
-                        intent.expected_version.checked_add(1) == Some(credential_version),
-                        "installed version mismatch"
-                    );
-                }
-            }
+            a.validate(*session, self.state.node_id, &mut ids)?;
         }
         Ok(())
     }
@@ -435,57 +460,23 @@ impl Allocator {
         let edge_digest = edge_digest(edge.as_ref())?;
         Http::new(&node.origin)?;
         let session = startup.binding.session_id;
-        let mut a = Allocation {
+        let a = Allocation {
             binding: startup.binding.clone(),
             startup_digest: startup_digest(&startup)?,
             origin: node.origin.clone(),
             egress_digest: edge_digest,
             intents: vec![],
         };
-        let request_digest = intent_digest(&a, expected_version)?;
+        let intent = Intent {
+            id: intent_id,
+            expected_version,
+            request_digest: intent_digest(&a, expected_version)?,
+            state: IssuanceState::Prepared,
+        };
         if let Some(old) = self.state.sessions.get(&session) {
-            ensure!(
-                old.binding == a.binding
-                    && old.startup_digest == a.startup_digest
-                    && old.origin == a.origin
-                    && old.egress_digest == a.egress_digest
-                    && old.intents.iter().any(|i| i.id == intent_id
-                        && i.expected_version == expected_version
-                        && i.request_digest == request_digest),
-                "allocation or intent reused with changed payload"
-            );
+            old.verify_repeat(&a, &intent)?;
         } else {
-            ensure!(
-                !self
-                    .state
-                    .sessions
-                    .values()
-                    .any(|a| a.intents.iter().any(|i| i.id == intent_id)),
-                "issuance UUID belongs to another allocation"
-            );
-            a.intents.push(Intent {
-                id: intent_id,
-                expected_version,
-                request_digest,
-                state: IssuanceState::Prepared,
-            });
-            let available = fs2::available_space(&self.directory.path)?;
-            self.commit(|s| {
-                ensure!(
-                    s.sessions.len() < s.limits.max_sessions as usize,
-                    "node session allocations full; retained slots require explicit recovery"
-                );
-                let required = (s.sessions.len() as u64 + 1)
-                    .checked_mul(s.limits.session_reserved_bytes)
-                    .and_then(|n| n.checked_add(NODE_RESERVATION))
-                    .context("reservation overflow")?;
-                ensure!(
-                    required <= s.limits.total_reserved_bytes && required <= available,
-                    "node allocation bytes or physical headroom full"
-                );
-                s.sessions.insert(session, a);
-                Ok(())
-            })?;
+            self.reserve(a, intent)?;
         }
         let dir = self.directory(session)?;
         if dir.optional("context.json", MAX_BUNDLE_BYTES)?.is_none() {
@@ -500,6 +491,36 @@ impl Allocator {
         }
         self.status(session)
     }
+    fn reserve(&mut self, mut a: Allocation, intent: Intent) -> Result<()> {
+        let session = a.binding.session_id;
+        ensure!(
+            !self
+                .state
+                .sessions
+                .values()
+                .any(|a| a.intents.iter().any(|i| i.id == intent.id)),
+            "issuance UUID belongs to another allocation"
+        );
+        a.intents.push(intent);
+        let available = fs2::available_space(&self.directory.path)?;
+        self.commit(|s| {
+            ensure!(
+                s.sessions.len() < s.limits.max_sessions as usize,
+                "node session allocations full; retained slots require explicit recovery"
+            );
+            let required = (s.sessions.len() as u64 + 1)
+                .checked_mul(s.limits.session_reserved_bytes)
+                .and_then(|n| n.checked_add(NODE_RESERVATION))
+                .context("reservation overflow")?;
+            ensure!(
+                required <= s.limits.total_reserved_bytes && required <= available,
+                "node allocation bytes or physical headroom full"
+            );
+            s.sessions.insert(session, a);
+            Ok(())
+        })
+    }
+
     fn startup(&self, session: Uuid) -> Result<StartupContext> {
         let a = self
             .state

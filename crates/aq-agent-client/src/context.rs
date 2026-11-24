@@ -101,26 +101,8 @@ fn validate_parts(
 ) -> Result<()> {
     binding.validate()?;
     profiled_offer.validate()?;
-    let b = binding;
-    let offer = profiled_offer;
-    let launch = &offer.binding;
-    let m = &offer.manifest;
-    ensure!(
-        launch.session
-            == SessionIdentity::Remote {
-                node_id: b.node_id,
-                boot_id: b.boot_id,
-                attempt_id: b.attempt_id,
-                assignment_generation: b.generation,
-                session_id: b.session_id,
-            }
-            && launch.execution_spec_digest.as_str() == b.resolved_spec_digest
-            && launch.graph_access_profile_digest.as_str() == b.profile_digest
-            && m.bindings.graph_id == b.workspace_id
-            && m.bindings.task_id == b.task_id
-            && m.bindings.project_id == b.project_id,
-        "context offer/access binding mismatch"
-    );
+    validate_offer_binding(binding, profiled_offer)?;
+    let m = &profiled_offer.manifest;
     let mut by_digest = BTreeMap::new();
     for content in contents {
         ensure!(
@@ -150,5 +132,27 @@ fn validate_parts(
         "unbound context content"
     );
 
+    Ok(())
+}
+
+fn validate_offer_binding(binding: &Binding, offer: &ProfiledOffer) -> Result<()> {
+    let launch = &offer.binding;
+    let m = &offer.manifest;
+    ensure!(
+        launch.session
+            == SessionIdentity::Remote {
+                node_id: binding.node_id,
+                boot_id: binding.boot_id,
+                attempt_id: binding.attempt_id,
+                assignment_generation: binding.generation,
+                session_id: binding.session_id,
+            }
+            && launch.execution_spec_digest.as_str() == binding.resolved_spec_digest
+            && launch.graph_access_profile_digest.as_str() == binding.profile_digest
+            && m.bindings.graph_id == binding.workspace_id
+            && m.bindings.task_id == binding.task_id
+            && m.bindings.project_id == binding.project_id,
+        "context offer/access binding mismatch"
+    );
     Ok(())
 }

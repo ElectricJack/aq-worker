@@ -46,6 +46,43 @@ struct Peer {
     operation: Uuid,
     task: tokio::task::JoinHandle<()>,
 }
+fn material_response(
+    request: &MaterialFetch,
+    lease: &MaterialLease,
+    bytes: &[u8],
+    short: bool,
+) -> Response {
+    assert_eq!(request.lease_id, lease.lease_id);
+    assert_eq!(request.binding, lease.binding);
+    let server_time = if short {
+        lease.expires_at_ms - 100
+    } else {
+        1600
+    };
+    let delivery = MaterialDelivery {
+        lease: lease.clone(),
+        clock: DeliveryClock::new(server_time, lease.expires_at_ms).unwrap(),
+    };
+    let mut response: Response = bytes.to_vec().into_response();
+    response
+        .headers_mut()
+        .insert("content-type", "application/octet-stream".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    response.headers_mut().insert(
+        "aq-material-delivery",
+        URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&delivery).unwrap())
+            .parse()
+            .unwrap(),
+    );
+    // C5b: the stored version of a subscription login.
+    response
+        .headers_mut()
+        .insert("aq-material-version", "7".parse().unwrap());
+    response
+}
 impl Peer {
     async fn new(lease_id: Uuid, short: bool) -> Self {
         let accept: Accept =
@@ -85,38 +122,7 @@ impl Peer {
                 post(move |Json(request): Json<MaterialFetch>| {
                     let lease = server_lease.clone();
                     let bytes = bytes.clone();
-                    async move {
-                        assert_eq!(request.lease_id, lease.lease_id);
-                        assert_eq!(request.binding, lease.binding);
-                        let server_time = if short {
-                            lease.expires_at_ms - 100
-                        } else {
-                            1600
-                        };
-                        let delivery = MaterialDelivery {
-                            lease: lease.clone(),
-                            clock: DeliveryClock::new(server_time, lease.expires_at_ms).unwrap(),
-                        };
-                        let mut response: Response = bytes.to_vec().into_response();
-                        response
-                            .headers_mut()
-                            .insert("content-type", "application/octet-stream".parse().unwrap());
-                        response
-                            .headers_mut()
-                            .insert("cache-control", "no-store".parse().unwrap());
-                        response.headers_mut().insert(
-                            "aq-material-delivery",
-                            URL_SAFE_NO_PAD
-                                .encode(serde_json::to_vec(&delivery).unwrap())
-                                .parse()
-                                .unwrap(),
-                        );
-                        // C5b: the stored version of a subscription login.
-                        response
-                            .headers_mut()
-                            .insert("aq-material-version", "7".parse().unwrap());
-                        response
-                    }
+                    async move { material_response(&request, &lease, &bytes, short) }
                 }),
             );
         let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });

@@ -74,24 +74,27 @@ impl ResponsesPolicy {
     /// refuse before any upstream credential-bearing request.
     pub fn prepare(&self, body: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         self.remaining()?;
-        ensure!(
-            !body.is_empty() && body.len() <= MAX_REQUEST_BYTES,
-            "Responses request byte bound"
-        );
-        let mut deserializer = serde_json::Deserializer::from_slice(body);
-        let mut nodes = 0;
-        let mut root = Erased(
-            Seed {
-                nodes: &mut nodes,
-                depth: 0,
-            }
-            .deserialize(&mut deserializer)?,
-        );
-        deserializer.end()?;
+        let mut root = Erased::parse(body)?;
         let object = root
             .0
             .as_object_mut()
             .context("Responses body must be object")?;
+        self.validate_settings(object)?;
+        if let Some(existing) = object.get("max_output_tokens") {
+            ensure!(
+                existing.as_u64() == Some(self.cap),
+                "Responses conflicting output cap"
+            );
+        }
+        object.insert("max_output_tokens".into(), Value::from(self.cap));
+        let bytes = Zeroizing::new(serde_json::to_vec(&root.0)?);
+        ensure!(
+            bytes.len() <= MAX_REQUEST_BYTES,
+            "Responses injected request bound"
+        );
+        Ok(bytes)
+    }
+    fn validate_settings(&self, object: &serde_json::Map<String, Value>) -> Result<()> {
         for name in object.keys() {
             ensure!(
                 matches!(
@@ -137,23 +140,29 @@ impl ResponsesPolicy {
             object.get("access_programs").is_none_or(Value::is_null),
             "unqualified Responses access program"
         );
-        super::items::validate(object)?;
-        if let Some(existing) = object.get("max_output_tokens") {
-            ensure!(
-                existing.as_u64() == Some(self.cap),
-                "Responses conflicting output cap"
-            );
-        }
-        object.insert("max_output_tokens".into(), Value::from(self.cap));
-        let bytes = Zeroizing::new(serde_json::to_vec(&root.0)?);
-        ensure!(
-            bytes.len() <= MAX_REQUEST_BYTES,
-            "Responses injected request bound"
-        );
-        Ok(bytes)
+        super::items::validate(object)
     }
 }
 struct Erased(Value);
+impl Erased {
+    fn parse(body: &[u8]) -> Result<Self> {
+        ensure!(
+            !body.is_empty() && body.len() <= MAX_REQUEST_BYTES,
+            "Responses request byte bound"
+        );
+        let mut deserializer = serde_json::Deserializer::from_slice(body);
+        let mut nodes = 0;
+        let root = Erased(
+            Seed {
+                nodes: &mut nodes,
+                depth: 0,
+            }
+            .deserialize(&mut deserializer)?,
+        );
+        deserializer.end()?;
+        Ok(root)
+    }
+}
 impl Drop for Erased {
     fn drop(&mut self) {
         erase(&mut self.0);

@@ -3,25 +3,16 @@ use aq_session_protocol::{ArtifactRef, Text};
 use aq_worker::native::adapter::{
     AdapterManifest, ExpectedAdapter, FilePin, HandoffKind, InstalledAdapter,
 };
-#[tokio::test]
-async fn exact_installed_owner_handoff_detects_tampering_without_second_store() {
-    let peer = Peer::new(Uuid::new_v4(), false).await;
-    let plan = peer.plan().await;
-    let root = private_root();
-    let mut store = MaterialStore::open(root.path(), peer.accept.identity.clone(), 1).unwrap();
-    let installed = store.install(peer.material().await, &plan).unwrap();
-    let receipt = installed.receipt().unwrap();
-    let exe = tempfile::tempdir().unwrap();
-    let path = exe.path().join("program");
-    std::fs::write(&path, b"offline test file").unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500)).unwrap();
+fn offline_adapter(path: &std::path::Path) -> InstalledAdapter {
+    std::fs::write(path, b"offline test file").unwrap();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o500)).unwrap();
     let reference = ArtifactRef {
         id: Text::new("offline-fixture").unwrap(),
         version: Text::new("1").unwrap(),
         digest: Digest::of(b"offline test file"),
     };
     let pin = FilePin {
-        path: path.clone(),
+        path: path.to_path_buf(),
         artifact: reference.clone(),
     };
     let manifest = AdapterManifest {
@@ -36,7 +27,7 @@ async fn exact_installed_owner_handoff_detects_tampering_without_second_store() 
         tmux: pin,
     };
     let digest = manifest.digest().unwrap();
-    let mut adapter = InstalledAdapter::open(
+    InstalledAdapter::open(
         manifest,
         ExpectedAdapter {
             manifest_digest: &digest,
@@ -46,7 +37,20 @@ async fn exact_installed_owner_handoff_detects_tampering_without_second_store() 
             renderer: &reference,
         },
     )
-    .unwrap();
+    .unwrap()
+}
+
+#[tokio::test]
+async fn exact_installed_owner_handoff_detects_tampering_without_second_store() {
+    let peer = Peer::new(Uuid::new_v4(), false).await;
+    let plan = peer.plan().await;
+    let root = private_root();
+    let mut store = MaterialStore::open(root.path(), peer.accept.identity.clone(), 1).unwrap();
+    let installed = store.install(peer.material().await, &plan).unwrap();
+    let receipt = installed.receipt().unwrap();
+    let exe = tempfile::tempdir().unwrap();
+    let path = exe.path().join("program");
+    let mut adapter = offline_adapter(&path);
     let handoff = adapter
         .material(&installed, &receipt, &receipt.binding)
         .unwrap();

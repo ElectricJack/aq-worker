@@ -45,8 +45,7 @@ impl Journal {
         &self,
         id: Uuid,
         digest: &Digest,
-        deadline: u64,
-        hard: u64,
+        (deadline, hard): (u64, u64),
     ) -> Result<()> {
         let a = self
             .state

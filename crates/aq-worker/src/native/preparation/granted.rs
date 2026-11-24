@@ -41,22 +41,18 @@ macro_rules! retained_profile {
 impl RetainedOwners {
     pub(super) fn reserve(
         &mut self,
-        journal: &mut Journal,
-        offer: aq_worker_protocol::git_author::AttemptOffer,
-        runtime: super::super::journal::RuntimeIdentity,
-        deadline_ns: u64,
-        disk_bytes: u64,
-    ) -> Result<Uuid> {
-        let id = offer.offer.offered.offer.binding.attempt_id;
+        id: Uuid,
+        commit: impl FnOnce() -> Result<Uuid>,
+    ) -> Result<()> {
         ensure!(
             self.admitted.len() < 64 && !self.admitted.contains(&id),
             "retained attempt already admitted or capacity exhausted"
         );
         // The durable owner publishes first. No fallible operation follows its
         // successful commit while this resource-map lock remains held.
-        journal.reserve(offer, runtime, deadline_ns, disk_bytes)?;
+        commit()?;
         self.admitted.insert(id);
-        Ok(id)
+        Ok(())
     }
     pub(super) fn new(state: &State) -> Self {
         Self {
@@ -177,6 +173,15 @@ pub struct DurableInitialGrant {
     hard_deadline_ns: u64,
 }
 impl DurableInitialGrant {
+    fn verify(&self, journal: &Journal) -> Result<()> {
+        verify_grant(
+            journal,
+            &self.history.inputs,
+            (self.history.attempt, &self.history.record_digest),
+            (self.deadline_ns, self.hard_deadline_ns),
+        )
+    }
+
     pub fn history(&self) -> &RetainedGrantHistory {
         &self.history
     }
@@ -255,23 +260,16 @@ impl InputPipeline {
                 inputs,
             };
             // History is retained even if verification/expiry fails after commit.
-            if owner
-                .journal
-                .check_initial_grant(id, &history.record_digest, deadline_ns, hard_deadline_ns)
-                .is_err()
-                || history.inputs.verify_current(&owner.journal).is_err()
-                || owner
-                    .journal
-                    .check_initial_grant(id, &history.record_digest, deadline_ns, hard_deadline_ns)
-                    .is_err()
-            {
-                return Ok(GrantCommit::HistoryOnly(history));
-            }
-            Ok(GrantCommit::Usable(DurableInitialGrant {
+            let grant = DurableInitialGrant {
                 history,
                 deadline_ns,
                 hard_deadline_ns,
-            }))
+            };
+            Ok(if grant.verify(&owner.journal).is_ok() {
+                GrantCommit::Usable(grant)
+            } else {
+                GrantCommit::HistoryOnly(grant.history)
+            })
         })
         .await
     }
@@ -281,23 +279,26 @@ impl InputPipeline {
                 && Arc::ptr_eq(&self.retained, &grant.history.resources),
             "initial grant belongs to another owner"
         );
-        let id = grant.history.attempt;
-        let digest = grant.history.record_digest.clone();
-        let deadline = grant.deadline_ns;
-        let hard = grant.hard_deadline_ns;
         let inputs = grant.history.inputs.clone();
-        self.storage(move |owner| {
-            owner
-                .journal
-                .check_initial_grant(id, &digest, deadline, hard)?;
-            inputs.verify_current(&owner.journal)?;
-            owner
-                .journal
-                .check_initial_grant(id, &digest, deadline, hard)?;
-            Ok(())
-        })
-        .await
+        let id = grant.history.attempt;
+        let record = grant.history.record_digest.clone();
+        let deadlines = (grant.deadline_ns, grant.hard_deadline_ns);
+        self.storage(move |owner| verify_grant(&owner.journal, &inputs, (id, &record), deadlines))
+            .await
     }
+}
+
+fn verify_grant(
+    journal: &Journal,
+    inputs: &PreparedInputs,
+    (id, digest): (Uuid, &Digest),
+    (deadline, hard_deadline): (u64, u64),
+) -> Result<()> {
+    let live = || journal.check_initial_grant(id, digest, (deadline, hard_deadline));
+    live()?;
+    inputs.verify_current(journal)?;
+    live()?;
+    Ok(())
 }
 
 mod presence;

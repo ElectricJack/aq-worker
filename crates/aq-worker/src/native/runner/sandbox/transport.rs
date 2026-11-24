@@ -51,20 +51,27 @@ pub trait RunnerTransport {
     ) -> TransportFuture<'a, super::FinishedReceipt>;
 }
 
+pub(super) struct RenewalWindow {
+    pub(super) sent: u64,
+    pub(super) received: u64,
+    pub(super) prior: u64,
+    pub(super) hard: u64,
+}
 pub(super) fn validate_renewal(
     delivery: &RenewalDelivery,
     request: &RunnerRenewalRequest,
     nonce: Uuid,
-    sent: u64,
-    received: u64,
-    prior: u64,
-    hard: u64,
+    window: RenewalWindow,
 ) -> Result<u64> {
     // Keep B1's evolving validation API behind this single boundary.
     delivery
         .response
         .validate_for(request, &delivery.context, nonce, delivery.server_now_ms)?;
-    Ok(delivery
-        .response
-        .client_deadline_ns(sent, received, prior, hard, request.revision)?)
+    Ok(delivery.response.client_deadline_ns(
+        window.sent,
+        window.received,
+        window.prior,
+        window.hard,
+        request.revision,
+    )?)
 }

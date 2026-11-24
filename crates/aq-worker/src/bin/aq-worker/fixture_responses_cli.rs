@@ -53,38 +53,66 @@ fn identifier(value: &str) -> Result<()> {
     );
     Ok(())
 }
+fn vectors(model: &str, commands: Vec<Command>, completion: &str) -> Result<Value> {
+    text(model, 128)?;
+    text(completion, 4096)?;
+    ensure!(
+        !commands.is_empty() && commands.len() <= 4,
+        "finite command count"
+    );
+    let mut responses = Vec::new();
+    for command in commands {
+        for id in [&command.response_id, &command.item_id, &command.call_id] {
+            identifier(id)?;
+        }
+        text(&command.command, 4096)?;
+        responses.push(shared::exec_command(
+            model,
+            &command.response_id,
+            &command.item_id,
+            &command.call_id,
+            &command.command,
+        ));
+    }
+    responses.push(shared::completed(model, completion));
+    Ok(
+        json!({"schema_version":1,"responses":responses,"scope":"finite local fixture data; no model/provider qualification"}),
+    )
+}
+
+fn check(
+    model: &str,
+    output_cap: u64,
+    forbidden_material: &[String],
+    body_utf8: &str,
+) -> Result<Value> {
+    text(model, 128)?;
+    ensure!((16..=1_048_576).contains(&output_cap), "fixture cap bound");
+    ensure!(
+        forbidden_material.len() <= 8,
+        "bounded forbidden material count"
+    );
+    for value in forbidden_material {
+        text(value, 16_384)?;
+    }
+    let forbidden: Vec<_> = forbidden_material.iter().map(String::as_str).collect();
+    let request = shared::request(body_utf8.as_bytes(), Some(model), output_cap, &forbidden)?;
+    // Return metadata only. The parent HTTP fixture retains its own exact
+    // bytes for tool-result assertions; this program never dumps inputs.
+    Ok(
+        json!({"schema_version":1,"valid":true,"body_bytes":body_utf8.len(),
+        "body_digest":aq_session_protocol::Digest::of(body_utf8.as_bytes()),
+        "model":request["model"],"output_cap":request["max_output_tokens"]}),
+    )
+}
+
 fn apply(input: Input) -> Result<Value> {
     match input {
         Input::Vectors {
             model,
             commands,
             completion,
-        } => {
-            text(&model, 128)?;
-            text(&completion, 4096)?;
-            ensure!(
-                !commands.is_empty() && commands.len() <= 4,
-                "finite command count"
-            );
-            let mut responses = Vec::new();
-            for command in commands {
-                for id in [&command.response_id, &command.item_id, &command.call_id] {
-                    identifier(id)?;
-                }
-                text(&command.command, 4096)?;
-                responses.push(shared::exec_command(
-                    &model,
-                    &command.response_id,
-                    &command.item_id,
-                    &command.call_id,
-                    &command.command,
-                ));
-            }
-            responses.push(shared::completed(&model, &completion));
-            Ok(
-                json!({"schema_version":1,"responses":responses,"scope":"finite local fixture data; no model/provider qualification"}),
-            )
-        }
+        } => vectors(&model, commands, &completion),
         Input::Poll {
             model,
             response_id,
@@ -117,27 +145,7 @@ fn apply(input: Input) -> Result<Value> {
             output_cap,
             forbidden_material,
             body_utf8,
-        } => {
-            text(&model, 128)?;
-            ensure!((16..=1_048_576).contains(&output_cap), "fixture cap bound");
-            ensure!(
-                forbidden_material.len() <= 8,
-                "bounded forbidden material count"
-            );
-            for value in &forbidden_material {
-                text(value, 16_384)?;
-            }
-            let forbidden: Vec<_> = forbidden_material.iter().map(String::as_str).collect();
-            let request =
-                shared::request(body_utf8.as_bytes(), Some(&model), output_cap, &forbidden)?;
-            // Return metadata only. The parent HTTP fixture retains its own exact
-            // bytes for tool-result assertions; this program never dumps inputs.
-            Ok(
-                json!({"schema_version":1,"valid":true,"body_bytes":body_utf8.len(),
-                "body_digest":aq_session_protocol::Digest::of(body_utf8.as_bytes()),
-                "model":request["model"],"output_cap":request["max_output_tokens"]}),
-            )
-        }
+        } => check(&model, output_cap, &forbidden_material, &body_utf8),
     }
 }
 pub(super) fn run() -> Result<()> {

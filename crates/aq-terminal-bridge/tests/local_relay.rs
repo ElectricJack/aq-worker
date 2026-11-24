@@ -191,11 +191,22 @@ async fn poll(
     auth(&h);
     let mut state = c.state.lock().unwrap();
     assert!(state.registered);
-    let effects = match state.stage {
+    let effects = next_effects(&mut state, &c.terminal);
+    Json(Envelope {
+        version: VERSION,
+        capability: r.capability,
+        peer: r.peer,
+        exchange_id: Uuid::new_v4(),
+        cursor: r.cursor + 1,
+        effects,
+    })
+}
+fn next_effects(state: &mut CoordinatorState, terminal: &TerminalIdentity) -> Vec<Effect> {
+    match state.stage {
         0 => {
             let time = now();
             let lease = ControllerLease {
-                terminal: c.terminal.clone(),
+                terminal: terminal.clone(),
                 principal_id: Text::new("synthetic-owner").unwrap(),
                 lease_id: Uuid::new_v4(),
                 generation: 1,
@@ -204,7 +215,7 @@ async fn poll(
                 execution_expires_at_ms: time + 8000,
             };
             let fence = Fence {
-                terminal: c.terminal.clone(),
+                terminal: terminal.clone(),
                 fence_id: Uuid::new_v4(),
                 generation: 1,
                 controller: Some(lease),
@@ -243,16 +254,9 @@ async fn poll(
             })]
         }
         _ => vec![],
-    };
-    Json(Envelope {
-        version: VERSION,
-        capability: r.capability,
-        peer: r.peer,
-        exchange_id: Uuid::new_v4(),
-        cursor: r.cursor + 1,
-        effects,
-    })
+    }
 }
+
 async fn upload(
     State(c): State<Arc<Coordinator>>,
     h: HeaderMap,
@@ -294,7 +298,8 @@ async fn upload(
     }
     if !r.resize_receipts.is_empty() {
         assert_eq!(r.resize_receipts.len(), 1);
-        assert!(r.resize_receipts[0].applied);
+        // Input authority cannot resize the host pane. A refused receipt still retires this request.
+        assert!(!r.resize_receipts[0].applied);
         state.resize_acked = true;
     }
     (
@@ -313,6 +318,42 @@ async fn upload(
         ),
     )
 }
+async fn serve_relay(
+    terminal: &TerminalIdentity,
+    policy: &TerminalPolicy,
+    stalled_upload: Option<Arc<tokio::sync::Notify>>,
+) -> (RelayHttp, Arc<Coordinator>, tokio::task::JoinHandle<()>) {
+    let coordinator = Arc::new(Coordinator {
+        terminal: terminal.clone(),
+        policy: policy.clone(),
+        state: Mutex::new(CoordinatorState::default()),
+        stalled_upload,
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let router = Router::new()
+        .route("/v1/terminal-relay/register", post(register))
+        .route("/v1/terminal-relay/poll", post(poll))
+        .route("/v1/terminal-relay/control-upload", post(upload))
+        .with_state(coordinator.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let http = RelayHttp::development_loopback(
+        &origin,
+        &NodeCredential::new("synthetic-node-key".into()).unwrap(),
+    )
+    .unwrap();
+    (http, coordinator, server)
+}
+
+async fn poll_and_execute(http: &RelayHttp, bridge: &mut Bridge) {
+    let envelope = http.poll(&bridge.poll_request(0).unwrap()).await.unwrap();
+    for effect in bridge.receive(&envelope).unwrap() {
+        bridge.execute(effect).unwrap();
+    }
+}
+
 async fn settle(bridge: &mut Bridge) -> PeerUpload {
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
@@ -344,27 +385,7 @@ async fn actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate
         panic!("remote fixture");
     };
     let peer = Peer::Remote { node_id, boot_id };
-    let coordinator = Arc::new(Coordinator {
-        terminal: terminal.clone(),
-        policy: manifest.terminal.clone(),
-        state: Mutex::new(CoordinatorState::default()),
-        stalled_upload: None,
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    let router = Router::new()
-        .route("/v1/terminal-relay/register", post(register))
-        .route("/v1/terminal-relay/poll", post(poll))
-        .route("/v1/terminal-relay/control-upload", post(upload))
-        .with_state(coordinator.clone());
-    let server = tokio::spawn(async move {
-        axum::serve(listener, router).await.unwrap();
-    });
-    let http = RelayHttp::development_loopback(
-        &origin,
-        &NodeCredential::new("synthetic-node-key".into()).unwrap(),
-    )
-    .unwrap();
+    let (http, coordinator, server) = serve_relay(&terminal, &manifest.terminal, None).await;
     let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
     let mut bridge = Bridge::create(&temp.path().join("relay"), peer.clone(), clock).unwrap();
     bridge
@@ -375,17 +396,11 @@ async fn actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate
         .await
         .unwrap();
     bridge.confirm_registration(&registration).unwrap();
-    let envelope = http.poll(&bridge.poll_request(0).unwrap()).await.unwrap();
-    for effect in bridge.receive(&envelope).unwrap() {
-        bridge.execute(effect).unwrap();
-    }
+    poll_and_execute(&http, &mut bridge).await;
     let receipt = settle(&mut bridge).await;
     let ack = http.control_upload(&receipt).await.unwrap();
     bridge.acknowledge_control_upload(&ack).unwrap();
-    let envelope = http.poll(&bridge.poll_request(0).unwrap()).await.unwrap();
-    for effect in bridge.receive(&envelope).unwrap() {
-        bridge.execute(effect).unwrap();
-    }
+    poll_and_execute(&http, &mut bridge).await;
     let receipt = settle(&mut bridge).await;
     assert!(http.control_upload(&receipt).await.is_err());
     assert_eq!(coordinator.state.lock().unwrap().input_uploads, 1);
@@ -408,14 +423,18 @@ async fn actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate
     );
     let ack = http.control_upload(&retry).await.unwrap();
     bridge.acknowledge_control_upload(&ack).unwrap();
-    let envelope = http.poll(&bridge.poll_request(0).unwrap()).await.unwrap();
-    for effect in bridge.receive(&envelope).unwrap() {
-        bridge.execute(effect).unwrap();
-    }
+    poll_and_execute(&http, &mut bridge).await;
     let receipt = settle(&mut bridge).await;
     let ack = http.control_upload(&receipt).await.unwrap();
     bridge.acknowledge_control_upload(&ack).unwrap();
     assert!(coordinator.state.lock().unwrap().resize_acked);
+    assert_terminal_result(&host);
+    host.stop().unwrap();
+    host.wait_stopped(Duration::from_secs(5)).unwrap();
+    server.abort();
+}
+
+fn assert_terminal_result(host: &SessionHandle) {
     let lines: Vec<String> = std::fs::read_to_string(host.directory().join("fixture-input.jsonl"))
         .unwrap()
         .lines()
@@ -434,10 +453,7 @@ async fn actual_guardian_http_relay_lost_ack_restart_unicode_resize_no_duplicate
         ])
         .output()
         .unwrap();
-    assert_eq!(String::from_utf8(size.stdout).unwrap().trim(), "110x33");
-    host.stop().unwrap();
-    host.wait_stopped(Duration::from_secs(5)).unwrap();
-    server.abort();
+    assert_eq!(String::from_utf8(size.stdout).unwrap().trim(), "80x24");
 }
 
 #[tokio::test]
@@ -459,27 +475,7 @@ async fn stalled_receipt_network_does_not_hold_guardian_renewal_or_stop() {
         panic!("remote fixture");
     };
     let started = Arc::new(tokio::sync::Notify::new());
-    let coordinator = Arc::new(Coordinator {
-        terminal: terminal.clone(),
-        policy: manifest.terminal.clone(),
-        state: Mutex::new(CoordinatorState::default()),
-        stalled_upload: Some(started.clone()),
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    let router = Router::new()
-        .route("/v1/terminal-relay/register", post(register))
-        .route("/v1/terminal-relay/poll", post(poll))
-        .route("/v1/terminal-relay/control-upload", post(upload))
-        .with_state(coordinator);
-    let server = tokio::spawn(async move {
-        axum::serve(listener, router).await.unwrap();
-    });
-    let http = RelayHttp::development_loopback(
-        &origin,
-        &NodeCredential::new("synthetic-node-key".into()).unwrap(),
-    )
-    .unwrap();
+    let (http, _, server) = serve_relay(&terminal, &manifest.terminal, Some(started.clone())).await;
     let mut bridge = Bridge::create(
         &temp.path().join("relay"),
         Peer::Remote { node_id, boot_id },
@@ -494,10 +490,7 @@ async fn stalled_receipt_network_does_not_hold_guardian_renewal_or_stop() {
         .await
         .unwrap();
     bridge.confirm_registration(&registration).unwrap();
-    let envelope = http.poll(&bridge.poll_request(0).unwrap()).await.unwrap();
-    for effect in bridge.receive(&envelope).unwrap() {
-        bridge.execute(effect).unwrap();
-    }
+    poll_and_execute(&http, &mut bridge).await;
     let receipt = settle(&mut bridge).await;
     let request = receipt.clone();
     let task_http = http.clone();
@@ -558,28 +551,7 @@ async fn full_tail_queue_keeps_draining_without_a_network_consumer() {
         assert!(Instant::now() < deadline);
         tokio::time::sleep(Duration::from_millis(2)).await;
     }
-    let time = now();
-    let lease = ControllerLease {
-        terminal: terminal.clone(),
-        principal_id: Text::new("synthetic-owner").unwrap(),
-        lease_id: Uuid::new_v4(),
-        generation: 1,
-        issued_at_ms: time,
-        expires_at_ms: time + 6000,
-        execution_expires_at_ms: time + 8000,
-    };
-    let fence = Fence {
-        terminal: terminal.clone(),
-        fence_id: Uuid::new_v4(),
-        generation: 1,
-        controller: Some(lease.clone()),
-    };
-    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
-    io.submit(&Effect::Fence(fence.clone()), clock).unwrap();
-    while io.receipt(fence.fence_id).ok().flatten().is_none() {
-        tokio::time::sleep(Duration::from_millis(2)).await;
-        assert!(Instant::now() < deadline);
-    }
+    let (lease, clock) = fence_tail(&terminal, &io, deadline).await;
     let mut policy = manifest.terminal;
     policy.max_frame_bytes = 1024;
     policy.replay_bytes = 8192;
@@ -620,4 +592,34 @@ async fn full_tail_queue_keeps_draining_without_a_network_consumer() {
     assert!(tail.frames().all(|f| f.terminal.epoch == 1));
     host.stop().unwrap();
     host.wait_stopped(Duration::from_secs(3)).unwrap();
+}
+
+async fn fence_tail(
+    terminal: &TerminalIdentity,
+    io: &terminal_io::TerminalHandle,
+    deadline: Instant,
+) -> (ControllerLease, terminal_io::QualifiedClock) {
+    let time = now();
+    let lease = ControllerLease {
+        terminal: terminal.clone(),
+        principal_id: Text::new("synthetic-owner").unwrap(),
+        lease_id: Uuid::new_v4(),
+        generation: 1,
+        issued_at_ms: time,
+        expires_at_ms: time + 6000,
+        execution_expires_at_ms: time + 8000,
+    };
+    let fence = Fence {
+        terminal: terminal.clone(),
+        fence_id: Uuid::new_v4(),
+        generation: 1,
+        controller: Some(lease.clone()),
+    };
+    let clock = terminal_io::QualifiedClock::assume_bounded_skew(0).unwrap();
+    io.submit(&Effect::Fence(fence.clone()), clock).unwrap();
+    while io.receipt(fence.fence_id).ok().flatten().is_none() {
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        assert!(Instant::now() < deadline);
+    }
+    (lease, clock)
 }

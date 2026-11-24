@@ -1393,7 +1393,7 @@ async fn collect_result_fixture(h:&Inputs,git:&GitPeer)->crate::native::preparat
     let (_config_root,mut config)=crate::native::runner::tests::config();let published=published_phase_fixture();
     config.negotiation=serde_json::from_value(published["proposal"]["negotiation"].clone()).unwrap();config.capabilities=capabilities();
     config.source_profile=serde_json::from_value(published["accept"]["hold"]["source_profile"].clone()).unwrap();config.maximum_preparation_ms=30000;config.renderer=a.reservation.offer.startup.renderer_qualification.clone();
-    crate::native::runner::test_collect(h.pipeline(),&h.inventory().await,&config,h.id,&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
+    crate::native::runner::TestPreparation{pipeline:h.pipeline(),inventory:&h.inventory().await,config:&config}.collect(&a.reservation.offer,a.reservation.deadline_ns,git.client.clone()).await.unwrap()
 }
 #[tokio::test]
 async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_pipeline(){
@@ -1415,6 +1415,7 @@ async fn native_result_actual_retained_owner_refuses_json_launch_and_dies_with_p
 }
 #[tokio::test]
 async fn native_result_fsync_cut_never_publishes_intake_or_loses_pending_evidence(){
+    let _clock=crate::native::http::test_clock::TestClock::new();
     let export=synthetic();let manifest=export.manifest.clone();let h=Inputs::new_result(export).await;
     fs::set_permissions(h._dir.path(),fs::Permissions::from_mode(0o700)).unwrap();
     let git=GitPeer::new(h.root.clone(),manifest);let grant=collect_result_fixture(&h,&git).await;

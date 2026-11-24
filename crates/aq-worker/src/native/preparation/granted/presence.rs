@@ -1,5 +1,7 @@
 //! Initial-only qualified physical facts; neither inventory nor receipt is authority.
 use super::*;
+mod inventory;
+mod observation;
 use aq_admission::{scoped_presence as wire, transport::WorkerIdentity};
 use aq_session_protocol::{ArtifactRef, Validate};
 use serde::Serialize;
@@ -25,6 +27,35 @@ pub struct QualifiedPresenceProfile {
     body: wire::Qualification,
 }
 impl QualifiedPresenceProfile {
+    fn inventory_attempts(
+        &self,
+        journal: &Journal,
+    ) -> Result<(WorkerIdentity, BTreeMap<Uuid, AttemptOps>)> {
+        journal.available()?;
+        let state = journal.state();
+        ensure!(
+            state
+                .attempts
+                .values()
+                .all(|a| a.reservation.runtime.runtime == self.body.runtime
+                    && a.reservation.runtime.qualification == self.body.runtime_qualification),
+            "presence runtime qualification mismatch"
+        );
+        let attempts = state
+            .attempts
+            .keys()
+            .map(|id| {
+                (
+                    *id,
+                    AttemptOps {
+                        sequence: 0,
+                        current: None,
+                    },
+                )
+            })
+            .collect();
+        Ok((state.identity.clone(), attempts))
+    }
     /// Trusted installed qualification input, not an inbound offer/capability.
     pub fn from_definition(
         reference: ArtifactRef,
@@ -90,55 +121,6 @@ pub struct AcknowledgedInventory {
     origin: Arc<()>,
     receipt: wire::InventoryReceipt,
     deadline_ns: u64,
-}
-impl AcknowledgedInventory {
-    pub fn receipt(&self) -> &wire::InventoryReceipt {
-        &self.receipt
-    }
-    pub fn deadline_ns(&self) -> u64 {
-        self.deadline_ns
-    }
-}
-impl InventoryOperation {
-    pub fn request(&self) -> &wire::InventoryV2 {
-        &self.inner.request
-    }
-    pub(crate) fn begin_send(&self, now: u64) -> Result<(wire::InventoryV2, PresenceSendGuard)> {
-        let (_, guard) = begin(&self.inner.tx, now)?;
-        Ok((self.inner.request.clone(), guard))
-    }
-    pub(crate) fn finish(
-        &self,
-        receipt: wire::InventoryReceipt,
-        received: u64,
-    ) -> Result<AcknowledgedInventory> {
-        receipt.validate_for(&self.inner.request)?;
-        let first = lock(&self.inner.tx)?
-            .first_sent_ns
-            .context("inventory was not sent")?;
-        let deadline = first
-            .checked_add(
-                (receipt.expires_at_ms - receipt.recorded_at_ms)
-                    .checked_mul(1_000_000)
-                    .context("inventory clock overflow")?,
-            )
-            .context("inventory clock overflow")?;
-        ensure!(received >= first, "inventory receive clock regression");
-        let mut saved = lock(&self.inner.receipt)?;
-        if let Some(old) = saved.as_ref() {
-            ensure!(same(old, &receipt)?, "inventory replay receipt changed");
-        } else {
-            *saved = Some(receipt.clone());
-        }
-        Ok(AcknowledgedInventory {
-            origin: self.inner.origin.clone(),
-            receipt,
-            deadline_ns: deadline,
-        })
-    }
-    fn acknowledged(&self) -> Result<bool> {
-        Ok(lock(&self.inner.receipt)?.is_some())
-    }
 }
 #[derive(Clone)]
 struct Scope {
@@ -288,8 +270,7 @@ fn scope(owner: &Owned, scope: &Scope, live: bool) -> Result<u64> {
         return owner.journal.check_initial_grant(
             scope.id,
             &scope.record,
-            scope.deadline,
-            scope.hard,
+            (scope.deadline, scope.hard),
         );
     }
     let _ = owner.journal.available()?;
@@ -343,35 +324,7 @@ impl InputPipeline {
         let profile = Arc::new(profile);
         let qualified = profile.clone();
         let (identity, attempts) = self
-            .storage(move |owner| {
-                let _ = owner.journal.available()?;
-                let state = owner.journal.state();
-                ensure!(
-                    state
-                        .attempts
-                        .values()
-                        .all(|a| a.reservation.runtime.runtime == qualified.body.runtime
-                            && a.reservation.runtime.qualification
-                                == qualified.body.runtime_qualification),
-                    "presence runtime qualification mismatch"
-                );
-                Ok((
-                    state.identity.clone(),
-                    state
-                        .attempts
-                        .keys()
-                        .map(|id| {
-                            (
-                                *id,
-                                AttemptOps {
-                                    sequence: 0,
-                                    current: None,
-                                },
-                            )
-                        })
-                        .collect(),
-                ))
-            })
+            .storage(move |owner| qualified.inventory_attempts(&owner.journal))
             .await?;
         let producer = ScopedPresenceProducer {
             pipeline: self.clone(),
@@ -394,78 +347,6 @@ impl InputPipeline {
     }
 }
 impl ScopedPresenceProducer {
-    fn inventory_request(&self, id: Uuid, sequence: u64, ttl: u64) -> Result<wire::InventoryV2> {
-        ensure!(
-            (1000..=self.profile.body.maximum_ttl_ms).contains(&ttl),
-            "inventory TTL exceeds qualification"
-        );
-        Ok(wire::InventoryV2 {
-            schema_version: 1,
-            operation_id: id,
-            identity: self.identity.clone(),
-            runtime: self.profile.body.runtime.clone(),
-            runtime_qualification: self.profile.body.runtime_qualification.clone(),
-            negotiation: wire::Negotiation {
-                protocol: wire::Protocol::ScopedMaterialPresenceV1,
-                qualification: self.profile.reference.clone(),
-            },
-            sequence,
-            ttl_ms: ttl,
-            qualifications: self.harnesses.clone(),
-            provisionable_only: vec![],
-        })
-    }
-    pub fn begin_inventory(&self, ttl_ms: u64) -> Result<InventoryOperation> {
-        let mut state = lock(&self.state)?;
-        if let Some(old) = &state.inventory {
-            ensure!(
-                old.acknowledged()?,
-                "unresolved inventory operation retained"
-            );
-        }
-        let sequence = self.pipeline.inventory.next(state.inventory_sequence)?;
-        let request = self.inventory_request(Uuid::new_v4(), sequence, ttl_ms)?;
-        request.validate()?;
-        let operation = InventoryOperation {
-            inner: Arc::new(InventoryInner {
-                origin: self.origin.clone(),
-                request,
-                tx: Arc::new(Mutex::new(Tx::default())),
-                receipt: Mutex::new(None),
-            }),
-        };
-        state.inventory_sequence = sequence;
-        state.inventory = Some(InventoryOperation {
-            inner: operation.inner.clone(),
-        });
-        Ok(operation)
-    }
-    pub async fn publish_inventory(
-        &self,
-        operation: &InventoryOperation,
-    ) -> Result<AcknowledgedInventory> {
-        ensure!(
-            Arc::ptr_eq(&self.origin, &operation.inner.origin),
-            "inventory belongs to another producer"
-        );
-        {
-            let state = lock(&self.state)?;
-            ensure!(
-                state
-                    .inventory
-                    .as_ref()
-                    .is_some_and(|o| Arc::ptr_eq(&o.inner, &operation.inner)),
-                "inventory operation superseded"
-            );
-        }
-        self.pipeline
-            .storage(|owner| {
-                let _ = owner.journal.available()?;
-                Ok(())
-            })
-            .await?;
-        self.pipeline.client.scoped_inventory(operation).await
-    }
     pub fn begin_presence(
         &self,
         grant: &DurableInitialGrant,
@@ -545,135 +426,6 @@ impl ScopedPresenceProducer {
         );
         Ok(())
     }
-    pub async fn observe(&self, operation: &PresenceOperation) -> Result<()> {
-        self.current(operation)?;
-        {
-            let mut stage = lock(&operation.inner.stage)?;
-            match &*stage {
-                Stage::Ready(_) => return Ok(()),
-                Stage::Allocated => *stage = Stage::Reading,
-                _ => anyhow::bail!("presence read already running or failed"),
-            }
-        }
-        let op = operation.inner.clone();
-        let result = self
-            .pipeline
-            .storage(move |owner| {
-                let result = (|| {
-                    let acquired = scope(owner, &op.scope, true)?;
-                    ensure!(
-                        acquired < op.inventory.deadline_ns,
-                        "presence inventory expired"
-                    );
-                    let a = owner
-                        .journal
-                        .state()
-                        .attempts
-                        .get(&op.scope.id)
-                        .context("presence attempt absent")?;
-                    let original = a
-                        .initial_grant
-                        .as_ref()
-                        .context("presence initial receipt absent")?;
-                    let grant = &original.delivery.original;
-                    ensure!(
-                        grant.materials.len() == 1
-                            && a.prepared
-                                .as_ref()
-                                .is_some_and(|p| p.request.materials.len() == 1),
-                        "presence supports one original material only"
-                    );
-                    ensure!(
-                        original.runtime.runtime == op.profile.body.runtime
-                            && original.runtime.qualification
-                                == op.profile.body.runtime_qualification,
-                        "presence runtime mismatch"
-                    );
-                    let lease = grant.materials[0].clone();
-                    let receipt = a.prepared.as_ref().unwrap().request.materials[0].clone();
-                    receipt.validate_against(&lease, receipt.received_at_ms)?;
-                    op.issued_at_ms
-                        .store(grant.clock.server_time_ms, Ordering::SeqCst);
-                    op.hard_ms
-                        .store(original.delivery.execution_deadline_ms, Ordering::SeqCst);
-                    let (identity, kernel) = (
-                        owner.journal.state().identity.clone(),
-                        owner.journal.state().kernel_boot_id,
-                    );
-                    let (binding, grant_id, guardian_id, launch_id, reservation_id) = (
-                        grant.grant.binding.clone(),
-                        grant.grant.grant_id,
-                        grant.guardian_id,
-                        grant.launch_id,
-                        grant.reservation_id,
-                    );
-                    let authority = wire::AuthorityAnchor {
-                        kind: wire::AuthorityKind::InitialGrant,
-                        operation_id: original.delivery.operation_id,
-                        grant_revision: original.delivery.versions.grant_revision,
-                        expires_at_ms: grant.grant.expires_at_ms,
-                    };
-                    let started = boot_ns()?;
-                    ensure!(
-                        started < op.scope.deadline.min(op.scope.hard),
-                        "presence permit expired before read"
-                    );
-                    let presence = owner.materials.observe_scoped(&receipt);
-                    let completed = boot_ns()?;
-                    scope(owner, &op.scope, presence.is_present())?;
-                    ensure!(
-                        completed >= started
-                            && completed - started <= wire::MAX_READ_MS * 1_000_000,
-                        "presence read interval exceeded"
-                    );
-                    let report = wire::PresenceReport {
-                        schema_version: 1,
-                        operation_id: op.operation,
-                        identity,
-                        runtime: op.profile.body.runtime.clone(),
-                        runtime_qualification: op.profile.body.runtime_qualification.clone(),
-                        negotiation: wire::Negotiation {
-                            protocol: wire::Protocol::ScopedMaterialPresenceV1,
-                            qualification: op.profile.reference.clone(),
-                        },
-                        binding,
-                        grant_id,
-                        guardian_id,
-                        launch_id,
-                        reservation_id,
-                        lease_id: lease.lease_id,
-                        installation_receipt_digest: digest(&receipt)?,
-                        private_binding: receipt.private_binding.clone(),
-                        inventory: op.inventory.receipt.inventory.clone(),
-                        authority,
-                        sequence: op.sequence,
-                        ttl_ms: op.ttl,
-                        observation: wire::Observation {
-                            kernel_boot_id: kernel,
-                            clock_source: wire::ClockSource::Boottime,
-                            permit_acquired_ns: acquired,
-                            permit_deadline_ns: op.scope.deadline.min(op.scope.hard),
-                            read_started_ns: started,
-                            read_completed_ns: completed,
-                            sent_ns: completed,
-                        },
-                        presence,
-                    };
-                    report.validate_against(&lease, &receipt)?;
-                    *lock(&op.stage)? = Stage::Ready(Box::new(report));
-                    Ok(())
-                })();
-                if result.is_err() {
-                    *lock(&op.stage)? = Stage::Failed;
-                }
-                result
-            })
-            .await;
-        if result.is_err() {
-            *lock(&operation.inner.stage)? = Stage::Failed;
-        }
-        result
-    }
     pub async fn publish_presence(
         &self,
         operation: &PresenceOperation,
@@ -686,7 +438,11 @@ impl ScopedPresenceProducer {
             return Err(error);
         }
         let op = operation.inner.clone();
-        self.pipeline.storage(move|owner|{let present=matches!(&*lock(&op.stage)?,Stage::Ready(report) if report.presence.is_present());scope(owner,&op.scope,present)?;Ok(())}).await?;
+        self.pipeline.storage(move |owner| {
+            let present = matches!(&*lock(&op.stage)?, Stage::Ready(report) if report.presence.is_present());
+            scope(owner, &op.scope, present)?;
+            Ok(())
+        }).await?;
         self.pipeline.client.scoped_presence(operation).await
     }
 }

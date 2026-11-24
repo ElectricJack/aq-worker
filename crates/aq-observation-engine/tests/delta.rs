@@ -22,31 +22,34 @@ fn frame(row: &Value) -> Frame {
     }
 }
 fn canonical_kind(mut value: Value, refs: &BTreeMap<String, Value>) -> Value {
-    fn visit(value: &mut Value, refs: &BTreeMap<String, Value>) {
-        match value {
-            Value::Object(map) => {
-                for (key, v) in map {
-                    if key == "policy" {
-                        *v = json!({"explicit_parser_artifact_difference":true});
-                    } else if key == "correction_of" && !v.is_null() {
-                        if let Some(mapped) = refs.get(&serde_json::to_string(v).unwrap()) {
-                            *v = mapped.clone();
-                        }
-                    } else {
-                        visit(v, refs)
-                    }
-                }
-            }
-            Value::Array(a) => {
-                for v in a {
-                    visit(v, refs)
-                }
-            }
-            _ => {}
-        }
-    }
     visit(&mut value, refs);
     value
+}
+fn visit(value: &mut Value, refs: &BTreeMap<String, Value>) {
+    match value {
+        Value::Object(map) => {
+            for (key, v) in map {
+                canonical_field(key, v, refs);
+            }
+        }
+        Value::Array(values) => {
+            for v in values {
+                visit(v, refs);
+            }
+        }
+        _ => {}
+    }
+}
+fn canonical_field(key: &str, v: &mut Value, refs: &BTreeMap<String, Value>) {
+    if key == "policy" {
+        *v = json!({"explicit_parser_artifact_difference":true});
+    } else if key == "correction_of" && !v.is_null() {
+        if let Some(mapped) = refs.get(&serde_json::to_string(v).unwrap()) {
+            *v = mapped.clone();
+        }
+    } else {
+        visit(v, refs)
+    }
 }
 #[test]
 fn four_source_fixture_semantics_match_pinned_reference_with_explicit_parser_identity_mapping() {

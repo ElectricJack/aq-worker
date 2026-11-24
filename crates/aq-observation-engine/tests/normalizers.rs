@@ -1,3 +1,5 @@
+#[path = "normalizers/framing.rs"]
+mod frame_tests;
 mod support;
 use aq_observation_engine::{framing::*, lifecycle::*, *};
 use serde_json::{Value, json};
@@ -37,24 +39,6 @@ fn usages(events: &[ObservationRecord]) -> Vec<&Usage> {
         .collect()
 }
 #[test]
-fn framing_partial_budget_and_oversized_records_remain_explicit() {
-    let f = frame(b"{}\n{", 10, false).unwrap();
-    assert_eq!(f.records.len(), 1);
-    assert_eq!(f.consumed, 3);
-    assert!(f.partial);
-    assert_eq!(f.records[0].end().unwrap(), 13);
-    let f = frame(&vec![b'x'; MAX_RECORD_BYTES], 0, false).unwrap();
-    assert!(f.records[0].oversized && f.discarding_oversized);
-    let next = frame(b"tail\n{}\n", MAX_RECORD_BYTES as u64, true).unwrap();
-    assert!(next.records[0].oversized);
-    assert!(!next.records[1].oversized);
-    assert!(frame(&vec![0; MAX_READ_BYTES + 1], 0, false).is_err());
-    let many = b"{}\n".repeat(100);
-    let f = frame(&many, 0, false).unwrap();
-    assert_eq!(f.records.len(), MAX_RECORDS);
-    assert!(f.consumed < many.len());
-}
-#[test]
 fn codex_cumulative_native_counts_unknown_zero_and_repeated_last_are_distinct() {
     let mut s = Normalizer::new(source(Format::CodexRollout67f0994), 128).unwrap();
     let rows = fixtures()["codex"].as_array().unwrap().clone();
@@ -62,12 +46,15 @@ fn codex_cumulative_native_counts_unknown_zero_and_repeated_last_are_distinct() 
     assert!(apply(&mut s, &rows[1]).is_empty());
     let first = apply(&mut s, &rows[2]);
     let usage = usages(&first)[0];
-    assert_eq!(usage.counters.input, Counter::Known { value: 100 });
-    assert_eq!(usage.counters.cache_read, Counter::Known { value: 25 });
-    assert!(matches!(
-        usage.counters.cache_write,
-        Counter::Unknown { .. }
-    ));
+    let counters = &usage.counters;
+    assert_eq!(
+        (&counters.input, &counters.cache_read),
+        (
+            &Counter::Known { value: 100 },
+            &Counter::Known { value: 25 }
+        )
+    );
+    assert!(matches!(counters.cache_write, Counter::Unknown { .. }));
     assert!(matches!(
         usage.basis,
         CounterBasis::Cumulative {
@@ -141,7 +128,15 @@ fn claude_call_chunks_dedupe_and_corrections_reference_known_prior_fact() {
     assert!(usages(&apply(&mut s, &rows[1])).is_empty());
     let changed = apply(&mut s, &rows[2]);
     let correction = usages(&changed)[0];
-    assert_eq!(correction.counters.output, Counter::Known { value: 8 });
+    assert_eq!(
+        (&correction.counters.output, &correction.counters.reasoning),
+        (
+            &Counter::Known { value: 8 },
+            &Counter::Unknown {
+                reason: UnknownReason::Unsupported
+            }
+        )
+    );
     assert_eq!(
         correction.correction_of,
         Some(EventRef {
@@ -149,12 +144,6 @@ fn claude_call_chunks_dedupe_and_corrections_reference_known_prior_fact() {
             digest: prior.body_digest.clone()
         })
     );
-    assert!(matches!(
-        correction.counters.reasoning,
-        Counter::Unknown {
-            reason: UnknownReason::Unsupported
-        }
-    ));
     assert!(
         apply(&mut s, &rows[0]).is_empty(),
         "historical exact record cannot rollback corrected usage"
@@ -230,17 +219,12 @@ fn opencode_public_dto_preserves_all_native_usage_but_cost_has_no_invoice_receip
     let mut s = s.bind_scoped_record_channel("native-fixture").unwrap();
     let out = apply(&mut s, &fixtures()["opencode"][0]);
     let u = usages(&out)[0];
-    assert_eq!(u.counters.cache_write, Counter::Known { value: 1 });
-    assert_eq!(u.counters.reasoning, Counter::Known { value: 2 });
+    assert_eq!(
+        (&u.counters.cache_write, &u.counters.reasoning),
+        (&Counter::Known { value: 1 }, &Counter::Known { value: 2 })
+    );
     assert!(matches!(u.cost, Cost::Unknown { .. }));
-    assert!(
-        out.iter()
-            .any(|v| matches!(v.body.kind, ObservationKind::ToolStarted { .. }))
-    );
-    assert!(
-        out.iter()
-            .any(|v| matches!(v.body.kind, ObservationKind::ToolResult { .. }))
-    );
+    assert_tool_lifecycle(&out);
 }
 #[test]
 fn malformed_duplicate_negative_and_identity_mismatch_are_not_empty_success() {
@@ -344,8 +328,13 @@ fn opencode_1_18_35_with_parts_session_normalizes_usage_tools_text_and_turns() {
     let kinds: Vec<_> = out.iter().map(|v| &v.body.kind).collect();
     let usage: Vec<_> = usages(&out);
     assert_eq!(usage.len(), 4, "one usage per assistant message");
-    assert_eq!(usage[0].counters.input, Counter::Known { value: 2066 });
-    assert_eq!(usage[0].counters.cache_read, Counter::Known { value: 5365 });
+    assert_eq!(
+        (&usage[0].counters.input, &usage[0].counters.cache_read),
+        (
+            &Counter::Known { value: 2066 },
+            &Counter::Known { value: 5365 }
+        )
+    );
     assert_eq!(usage[0].call.provider.as_str(), "ollama");
     let started = kinds
         .iter()
@@ -407,117 +396,28 @@ fn gemini_cli_0_67_0_recording_is_read_with_usage_once_and_no_raw_content() {
         2,
         "one usage per native gemini message: {seen:?}"
     );
-    assert_eq!(seen[0].input, Counter::Known { value: 1200 });
-    assert_eq!(seen[0].output, Counter::Known { value: 40 });
-    assert_eq!(seen[0].cache_read, Counter::Known { value: 0 });
-    assert_eq!(seen[1].input, Counter::Known { value: 1300 });
-    assert_eq!(seen[1].output, Counter::Known { value: 6 });
-    assert_eq!(seen[1].cache_read, Counter::Known { value: 1024 });
+    for (counters, (input, output, cached)) in seen.iter().zip([(1200, 40, 0), (1300, 6, 1024)]) {
+        assert_eq!(
+            (&counters.input, &counters.output, &counters.cache_read),
+            (
+                &Counter::Known { value: input },
+                &Counter::Known { value: output },
+                &Counter::Known { value: cached }
+            )
+        );
+    }
     let retained = serde_json::to_string(&s).unwrap();
     for raw in ["Fix add in m.py", "return a + b", "Fixed add in m.py."] {
         assert!(!retained.contains(raw), "retained raw content {raw:?}");
     }
 }
-fn apply_stream(state: &mut Normalizer, bytes: &[u8]) -> Vec<ObservationRecord> {
-    let (mut offset, mut discarding, mut out) = (0usize, false, vec![]);
-    while offset < bytes.len() {
-        let end = bytes.len().min(offset + MAX_READ_BYTES);
-        let framed = frame(&bytes[offset..end], offset as u64, discarding).unwrap();
-        assert!(framed.consumed > 0);
-        for f in &framed.records {
-            let (next, events) = state.apply(f, 100).unwrap();
-            *state = next;
-            out.extend(events);
-        }
-        offset += framed.consumed;
-        discarding = framed.discarding_oversized;
-    }
-    out
-}
-fn oversized_record(prefix: &str, suffix: &str) -> Vec<u8> {
-    let mut bytes = prefix.as_bytes().to_vec();
-    bytes.extend(std::iter::repeat_n(b'x', 2 * MAX_RECORD_BYTES + 4096));
-    bytes.extend(suffix.as_bytes());
-    bytes.push(b'\n');
-    bytes
-}
-fn gaps(events: &[ObservationRecord]) -> Vec<String> {
-    events
-        .iter()
-        .filter(|e| matches!(e.body.kind, ObservationKind::Gap { .. }))
-        .map(|e| format!("{:?}", e.body.kind))
-        .collect()
-}
-#[test]
-fn claude_metadata_records_are_skipped_without_gaps() {
-    let row = serde_json::to_vec(&fixtures()["claude"][0]).unwrap();
-    let mut stream = vec![];
-    for meta in [
-        r#"{"type":"mode","mode":"default"}"#,
-        r#"{"type":"api-request","sessionId":"native-fixture","requestId":"r1"}"#,
-        r#"{"type":"system","subtype":"turn_duration","sessionId":"native-fixture","durationMs":1}"#,
-        r#"{"type":"ai-title","title":"x"}"#,
-    ] {
-        stream.extend(meta.as_bytes());
-        stream.push(b'\n');
-    }
-    stream.extend(&row);
-    stream.push(b'\n');
-    stream.extend(br#"{"type":"some-future-record","sessionId":"native-fixture"}"#);
-    stream.push(b'\n');
-    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
-    let events = apply_stream(&mut s, &stream);
-    assert!(gaps(&events).is_empty(), "{:?}", gaps(&events));
-    assert_eq!(usages(&events).len(), 1);
-
-    // A metadata record naming another session is still refused.
-    let s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
-    let other = b"{\"type\":\"api-request\",\"sessionId\":\"another-session\"}\n";
-    let framed = frame(other, 0, false).unwrap();
-    assert!(s.apply(&framed.records[0], 100).is_err());
-}
-
-#[test]
-fn claude_oversized_prompt_snapshot_is_skipped_but_other_oversized_records_gap() {
-    let tail = r#""},"type":"attachment","uuid":"snap-1","sessionId":"native-fixture"}"#;
-    let snapshot = r#"{"parentUuid":"54e0b998-9228-4f63-80a9-4d7023dcffda","isSidechain":false,"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
-    let row = serde_json::to_vec(&fixtures()["claude"][0]).unwrap();
-    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
-    let mut stream = oversized_record(snapshot, tail);
-    assert!(stream.len() > 2 * MAX_RECORD_BYTES);
-    stream.extend(&row);
-    stream.push(b'\n');
-    let events = apply_stream(&mut s, &stream);
-    assert!(gaps(&events).is_empty(), "{:?}", gaps(&events));
-    assert_eq!(usages(&events).len(), 1, "facts after the snapshot survive");
-    assert!(!s.context_gap && s.oversized_chain.is_none());
-
-    let leading = r#"{"attachment":{"type":"prompt_snapshot","systemPrompt":""#;
-    let mut s = Normalizer::new(source(Format::ClaudeV1Jsonl9a9b8e8), 128).unwrap();
-    assert!(gaps(&apply_stream(&mut s, &oversized_record(leading, tail))).is_empty());
-
-    for (format, prefix) in [
-        (
-            Format::ClaudeV1Jsonl9a9b8e8,
-            r#"{"parentUuid":null,"attachment":{"type":"hook_output","text":""#,
-        ),
-        (
-            Format::ClaudeV1Jsonl9a9b8e8,
-            r#"{"type":"user","message":{"attachment":{"type":"prompt_snapshot","text":""#,
-        ),
-        (
-            Format::ClaudeV1Jsonl9a9b8e8,
-            r#"{"parentUuid":"x{","attachment":{"type":"prompt_snapshot","text":""#,
-        ),
-        (Format::CodexRollout67f0994, snapshot),
-    ] {
-        let mut s = Normalizer::new(source(format.clone()), 128).unwrap();
-        let events = apply_stream(&mut s, &oversized_record(prefix, tail));
-        assert_eq!(
-            gaps(&events).len(),
-            3,
-            "{format:?} {prefix}: every frame gaps"
-        );
-        assert!(s.context_gap && s.oversized_chain.is_none());
-    }
+fn assert_tool_lifecycle(out: &[ObservationRecord]) {
+    assert!(
+        out.iter()
+            .any(|v| matches!(v.body.kind, ObservationKind::ToolStarted { .. }))
+    );
+    assert!(
+        out.iter()
+            .any(|v| matches!(v.body.kind, ObservationKind::ToolResult { .. }))
+    );
 }

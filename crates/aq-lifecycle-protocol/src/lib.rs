@@ -269,106 +269,94 @@ pub fn negotiate(required: &[Capability], advertised: &[Capability]) -> Result<(
         required.len() <= 8 && advertised.len() <= 16,
         "capability bound",
     )?;
-    for list in [required, advertised] {
-        let mut ids = BTreeSet::new();
-        for c in list {
-            c.validate()?;
-            ensure(ids.insert(c.id.clone()), "duplicate capability")?;
-        }
-    }
+    validate_capabilities(required)?;
+    validate_capabilities(advertised)?;
     for c in required {
-        if c.version != 1
-            || !matches!(
-                c.id.as_str(),
-                OBSERVATION_CAPABILITY
-                    | USAGE_CAPABILITY
-                    | SUSPENSION_CAPABILITY
-                    | CONTINUATION_CAPABILITY
-            )
-            || !advertised.contains(c)
-        {
+        if !known_capability(c) || !advertised.contains(c) {
             return Err(ContractError::Unsupported);
         }
     }
     Ok(())
 }
-fn schema_for<T: JsonSchema>() -> serde_json::Value {
-    fn bounds(value: &mut serde_json::Value) {
-        if let Some(object) = value.as_object_mut() {
-            match object.get("format").and_then(|v| v.as_str()) {
-                Some("uint64") => {
-                    object.insert("maximum".into(), serde_json::json!(u64::MAX));
-                }
-                Some("uint32") => {
-                    object.insert("maximum".into(), serde_json::json!(u32::MAX));
-                }
-                _ => {}
-            }
-            if let Some(properties) = object.get_mut("properties").and_then(|p| p.as_object_mut()) {
-                for (field, shape) in properties {
-                    if matches!(
-                        field.as_str(),
-                        "required_capabilities"
-                            | "events"
-                            | "context_references"
-                            | "pending_operation_ids"
-                            | "operation_ids"
-                            | "central_receipts"
-                            | "retained"
-                            | "held_task_message_ids"
-                    ) {
-                        shape["maxItems"] =
-                            serde_json::json!(if field == "required_capabilities" {
-                                8
-                            } else if field == "events" {
-                                MAX_EVENTS
-                            } else {
-                                MAX_REFS
-                            });
-                        if field == "required_capabilities" {
-                            shape["minItems"] = serde_json::json!(1);
-                        }
-                        if field == "events" {
-                            shape["minItems"] = serde_json::json!(1);
-                        }
-                    }
-                    if matches!(
-                        field.as_str(),
-                        "attempt_generation"
-                            | "generation"
-                            | "source_generation"
-                            | "counter_generation"
-                            | "revision"
-                            | "sequence"
-                            | "first_sequence"
-                            | "last_sequence"
-                    ) {
-                        shape["minimum"] = serde_json::json!(1);
-                    }
-                    if field == "schema_version" {
-                        shape["const"] = serde_json::json!(SCHEMA_VERSION);
-                    }
-                    if field == "writer_count" {
-                        shape["maximum"] = serde_json::json!(65536);
-                    }
-                    if field == "currency" {
-                        shape["pattern"] = serde_json::json!("^[A-Z]{3}$");
-                    }
-                    if field == "max_summary_bytes" {
-                        shape["minimum"] = serde_json::json!(1);
-                        shape["maximum"] = serde_json::json!(16384);
-                    }
-                }
-            }
-            for child in object.values_mut() {
-                bounds(child);
-            }
-        } else if let Some(array) = value.as_array_mut() {
-            for child in array {
-                bounds(child);
-            }
+fn validate_capabilities(list: &[Capability]) -> Result<(), ContractError> {
+    let mut ids = BTreeSet::new();
+    for c in list {
+        c.validate()?;
+        ensure(ids.insert(c.id.clone()), "duplicate capability")?;
+    }
+    Ok(())
+}
+
+fn known_capability(c: &Capability) -> bool {
+    c.version == 1
+        && matches!(
+            c.id.as_str(),
+            OBSERVATION_CAPABILITY
+                | USAGE_CAPABILITY
+                | SUSPENSION_CAPABILITY
+                | CONTINUATION_CAPABILITY
+        )
+}
+
+fn property_bounds(field: &str, shape: &mut serde_json::Value) {
+    use serde_json::json;
+    match field {
+        "required_capabilities" | "events" => {
+            shape["maxItems"] = json!(if field == "events" { MAX_EVENTS } else { 8 });
+            shape["minItems"] = json!(1);
+        }
+        "context_references"
+        | "pending_operation_ids"
+        | "operation_ids"
+        | "central_receipts"
+        | "retained"
+        | "held_task_message_ids" => shape["maxItems"] = json!(MAX_REFS),
+        "attempt_generation" | "generation" | "source_generation" | "counter_generation"
+        | "revision" | "sequence" | "first_sequence" | "last_sequence" => {
+            shape["minimum"] = json!(1)
+        }
+        "schema_version" => shape["const"] = json!(SCHEMA_VERSION),
+        "writer_count" => shape["maximum"] = json!(65536),
+        "currency" => shape["pattern"] = json!("^[A-Z]{3}$"),
+        "max_summary_bytes" => {
+            shape["minimum"] = json!(1);
+            shape["maximum"] = json!(16384);
+        }
+        _ => {}
+    }
+}
+
+fn object_bounds(object: &mut serde_json::Map<String, serde_json::Value>) {
+    use serde_json::{Value, json};
+    match object.get("format").and_then(Value::as_str) {
+        Some("uint64") => {
+            object.insert("maximum".into(), json!(u64::MAX));
+        }
+        Some("uint32") => {
+            object.insert("maximum".into(), json!(u32::MAX));
+        }
+        _ => {}
+    }
+    if let Some(properties) = object.get_mut("properties").and_then(Value::as_object_mut) {
+        for (field, shape) in properties {
+            property_bounds(field, shape);
         }
     }
+}
+
+fn bounds(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    match value {
+        Value::Object(object) => {
+            object_bounds(object);
+            object.values_mut().for_each(bounds);
+        }
+        Value::Array(array) => array.iter_mut().for_each(bounds),
+        _ => {}
+    }
+}
+
+fn schema_for<T: JsonSchema>() -> serde_json::Value {
     let mut schema = serde_json::to_value(schemars::schema_for!(T)).expect("schema serialization");
     bounds(&mut schema);
     if let Some(defs) = schema["$defs"].as_object_mut() {

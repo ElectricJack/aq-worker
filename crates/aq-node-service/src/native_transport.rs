@@ -91,8 +91,20 @@ pub async fn phase_terminal_response(
     request: reqwest::RequestBuilder,
     endpoint: &str,
 ) -> Result<Response> {
+    let response = send_terminal_report(request, endpoint).await?;
+    if !response.status().is_success() {
+        return Err(refused(response).await);
+    }
+    check_terminal_headers(response.headers())?;
+    Ok(response)
+}
+
+async fn send_terminal_report(
+    request: reqwest::RequestBuilder,
+    endpoint: &str,
+) -> Result<Response> {
     let mut tries = 0;
-    let response = loop {
+    loop {
         let next = request
             .try_clone()
             .ok_or_else(|| anyhow::anyhow!("terminal request body is not replayable"))?;
@@ -110,25 +122,21 @@ pub async fn phase_terminal_response(
         if endpoint == "stopped" && retry_same(&response, &mut tries, u64::MAX, boot_ns()?).await {
             continue;
         }
-        break response;
-    };
-    if !response.status().is_success() {
-        return Err(refused(response).await);
+        return Ok(response);
     }
-    let mut versions = response
-        .headers()
-        .get_all("aq-phase-terminal-api-version")
-        .iter();
+}
+
+fn check_terminal_headers(headers: &header::HeaderMap) -> Result<()> {
+    let mut versions = headers.get_all("aq-phase-terminal-api-version").iter();
     ensure!(
         versions.next().is_some_and(|v| v == "1")
             && versions.next().is_none()
-            && response
-                .headers()
+            && headers
                 .get(header::CONTENT_TYPE)
                 .is_some_and(|v| v == "application/json"),
         "phase terminal response version/type"
     );
-    Ok(response)
+    Ok(())
 }
 /// A read-only preparation fetch gives up only after `FETCH_TRIES` tries and `FETCH_SPAN`
 /// (deadline permitting); its backoff (equal jitter) starts at 500 ms and is capped at 8 s.

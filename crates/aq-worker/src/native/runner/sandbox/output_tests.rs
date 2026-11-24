@@ -78,6 +78,56 @@ async fn exchange(State(p): State<Peer>, uri: Uri, h: HeaderMap, body: Bytes) ->
     .into_response()
 }
 
+pub(super) fn blank_output(session: aq_session_protocol::SessionIdentity) -> TerminalOutput {
+    let terminal = TerminalIdentity {
+        session,
+        terminal_id: Uuid::new_v4(),
+        epoch: 1,
+    };
+    let policy = TerminalPolicy {
+        host: TerminalHost::Tmux,
+        input_enabled: false,
+        max_input_bytes: 1,
+        max_pending_input_bytes: 1,
+        max_frame_bytes: 4,
+        replay_bytes: 8,
+    };
+    let artifact = ArtifactRef {
+        id: Text::new("aq-terminal-renderer").unwrap(),
+        version: Text::new("0.1.0").unwrap(),
+        digest: Digest::of(b"fixture"),
+    };
+    TerminalOutput::from_blank(terminal, &policy, artifact, (40, 4)).unwrap()
+}
+
+async fn renew(
+    http: &super::auth::RunnerHttp,
+    binding: &aq_admission_sandbox::sandbox::PermitBinding,
+) {
+    let fixture = renewal_fixture();
+    let request: aq_admission_sandbox::sandbox::RunnerRenewalRequest =
+        serde_json::from_value(fixture["request"].clone()).unwrap();
+    let sent = super::boot_ns().unwrap();
+    let response = http
+        .post(RunnerRoute::Renew, binding, &request)
+        .await
+        .unwrap();
+    let received = super::boot_ns().unwrap();
+    let delivery = super::RenewalDelivery {
+        response: serde_json::from_slice(&response).unwrap(),
+        context: serde_json::from_value(fixture["context"].clone()).unwrap(),
+        server_now_ms: fixture["now_ms"].as_u64().unwrap(),
+    };
+    http.accept_renewal(
+        &request,
+        &delivery,
+        serde_json::from_value(fixture["nonce"].clone()).unwrap(),
+        sent,
+        received,
+    )
+    .unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn output_flood_does_not_delay_renewal() {
     let _clock = crate::native::http::test_clock::TestClock::new();
@@ -101,25 +151,7 @@ async fn output_flood_does_not_delay_renewal() {
             controllers: 0,
         })
         .unwrap();
-    let terminal = TerminalIdentity {
-        session: http.launch_binding().session,
-        terminal_id: Uuid::new_v4(),
-        epoch: 1,
-    };
-    let policy = TerminalPolicy {
-        host: TerminalHost::Tmux,
-        input_enabled: false,
-        max_input_bytes: 1,
-        max_pending_input_bytes: 1,
-        max_frame_bytes: 4,
-        replay_bytes: 8,
-    };
-    let artifact = ArtifactRef {
-        id: Text::new("aq-terminal-renderer").unwrap(),
-        version: Text::new("0.1.0").unwrap(),
-        digest: Digest::of(b"fixture"),
-    };
-    let output = TerminalOutput::from_blank(terminal, &policy, artifact, 40, 4).unwrap();
+    let output = blank_output(http.launch_binding().session);
     let lane = channels.output_from(output).unwrap();
     lane.accept(&ControlEvent::Bytes(b"before".to_vec()))
         .unwrap();
@@ -137,28 +169,7 @@ async fn output_flood_does_not_delay_renewal() {
     assert!(lane.has_gap().unwrap());
     assert!(!held.is_finished());
     // Same delegated authority, independent pool and no output lock.
-    let fixture = renewal_fixture();
-    let request: aq_admission_sandbox::sandbox::RunnerRenewalRequest =
-        serde_json::from_value(fixture["request"].clone()).unwrap();
-    let sent = super::boot_ns().unwrap();
-    let response = http
-        .post(RunnerRoute::Renew, &permit.binding, &request)
-        .await
-        .unwrap();
-    let received = super::boot_ns().unwrap();
-    let delivery = super::RenewalDelivery {
-        response: serde_json::from_slice(&response).unwrap(),
-        context: serde_json::from_value(fixture["context"].clone()).unwrap(),
-        server_now_ms: fixture["now_ms"].as_u64().unwrap(),
-    };
-    http.accept_renewal(
-        &request,
-        &delivery,
-        serde_json::from_value(fixture["nonce"].clone()).unwrap(),
-        sent,
-        received,
-    )
-    .unwrap();
+    renew(&http, &permit.binding).await;
     assert_eq!(*state.renewals.lock().unwrap(), 1);
     assert!(!held.is_finished(), "renewal waited for terminal upload");
     state.output_release.add_permits(1);

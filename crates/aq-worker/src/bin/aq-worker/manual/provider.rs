@@ -81,11 +81,7 @@ pub(super) fn available(config: &ServiceConfig) -> Vec<&'static str> {
     }
     out
 }
-pub(super) fn plan(
-    config: &ServiceConfig,
-    settings: &ClaudeDockerSettings,
-    spec: &Value,
-) -> Result<Plan> {
+fn validated_model(spec: &Value) -> Result<&str> {
     let model = spec["model"].as_str().context("interactive model")?;
     ensure!(
         !model.is_empty()
@@ -96,6 +92,14 @@ pub(super) fn plan(
                 .all(|b| b.is_ascii_alphanumeric() || b"-._:/".contains(&b)),
         "invalid interactive model"
     );
+    Ok(model)
+}
+pub(super) fn plan(
+    config: &ServiceConfig,
+    settings: &ClaudeDockerSettings,
+    spec: &Value,
+) -> Result<Plan> {
+    let model = validated_model(spec)?;
     let effort = spec["reasoning"].as_str().unwrap_or("default");
     let (exe, secret, script) = match spec["provider"].as_str() {
         Some("anthropic") => {

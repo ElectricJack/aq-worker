@@ -70,31 +70,7 @@ fn serve(response: Vec<u8>) -> (String, Arc<AtomicUsize>, std::thread::JoinHandl
             match l.accept() {
                 Ok((mut s, _)) => {
                     c.fetch_add(1, Ordering::SeqCst);
-                    s.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-                    let mut b = [0; 2048];
-                    let mut bytes = vec![];
-                    loop {
-                        let n = s.read(&mut b).unwrap();
-                        if n == 0 {
-                            break;
-                        }
-                        bytes.extend_from_slice(&b[..n]);
-                        if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
-                            let header = String::from_utf8_lossy(&bytes[..end]);
-                            let len = header
-                                .lines()
-                                .find_map(|s| {
-                                    s.split_once(':')
-                                        .filter(|(k, _)| k.eq_ignore_ascii_case("content-length"))
-                                        .map(|(_, v)| v.trim().parse::<usize>().unwrap())
-                                })
-                                .unwrap_or(0);
-                            if bytes.len() >= end + 4 + len {
-                                break;
-                            }
-                        }
-                    }
-                    captured = bytes;
+                    captured = read_request(&mut s);
                     s.write_all(&response).ok();
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -215,4 +191,36 @@ fn unsafe_origin_private_input_and_cross_node_requests_refused_without_network()
     cfg.credential_file = t.path().join("linked");
     std::os::unix::fs::symlink(token, &cfg.credential_file).unwrap();
     assert!(HttpOwnerPeer::from_config(&cfg).is_err());
+}
+fn read_request(s: &mut std::net::TcpStream) -> Vec<u8> {
+    s.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    let mut b = [0; 2048];
+    let mut bytes = vec![];
+    loop {
+        let n = s.read(&mut b).unwrap();
+        if n == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&b[..n]);
+        if complete_request(&bytes) {
+            break;
+        }
+    }
+    bytes
+}
+
+fn complete_request(bytes: &[u8]) -> bool {
+    let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") else {
+        return false;
+    };
+    let header = String::from_utf8_lossy(&bytes[..end]);
+    let len = header
+        .lines()
+        .find_map(|s| {
+            s.split_once(':')
+                .filter(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+                .map(|(_, v)| v.trim().parse::<usize>().unwrap())
+        })
+        .unwrap_or(0);
+    bytes.len() >= end + 4 + len
 }

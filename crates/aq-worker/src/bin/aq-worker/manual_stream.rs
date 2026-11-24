@@ -2,6 +2,9 @@
 //! Hand-started agents are attached through their sandbox's own tmux; queued
 //! (sandboxed) attempts through the attempt's session-host tmux, whose pane shows
 //! the harness TUI that the node driver relays from the sandbox.
+mod connection;
+mod discovery;
+use connection::relay;
 pub(crate) mod pty;
 use anyhow::{Context, Result, ensure};
 use aq_node_service::{
@@ -56,35 +59,28 @@ pub async fn run(path: &Path) -> Result<()> {
         enrollments.insert(e.node_id, p);
     }
     let root = config.state_root.join("manual-agents");
-    let mut tasks = BTreeMap::<Uuid, JoinHandle<()>>::new();
+    let mut relays = discovery::Relays {
+        enrollments,
+        tasks: BTreeMap::new(),
+    };
     let tmux = settings.host.tmux.path.clone();
     let runtime = config.runtime_root();
     let mut interval = tokio::time::interval(Duration::from_secs(1));
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     loop {
-        tokio::select! {_=terminate.recv()=>break,_=tokio::signal::ctrl_c()=>break,_=interval.tick()=>{
-                tasks.retain(|_,task|!task.is_finished());
-                for attempt in attempts(&runtime) {
-                    let Some(enrollment)=enrollments.get(&attempt.node) else{continue};
-                    if tasks.contains_key(&attempt.id)||tasks.len()>=32{continue;}
-                    let (tmux,enrollment)=(tmux.clone(),enrollment.clone());
-                    tasks.insert(attempt.id,tokio::spawn(async move{while attempt.live(){
-                        if let Ok(file)=EnrollmentFile::load(&enrollment)&&let Ok(link)=ServerLink::from_enrollment(&file)&&let Ok(socket)=link.attempt_terminal_stream(attempt.id).await{
-                            let _=relay(socket,attempt.id,Attachment::Attempt { attempt: &attempt, tmux: &tmux }).await;}
-                        tokio::time::sleep(Duration::from_secs(1)).await;}}));
+        tokio::select! {
+            _ = terminate.recv() => break,
+            _ = tokio::signal::ctrl_c() => break,
+            _ = interval.tick() => {
+                relays.tasks.retain(|_, task| !task.is_finished());
+                relays.start_attempts(&runtime, &tmux);
+                if let Some(manual) = manual {
+                    relays.start_manual(&root, &manual.podman_executable, &settings.host.docker_local.socket)?;
                 }
-                let Some(manual)=manual else{continue};
-                for entry in std::fs::read_dir(&root).into_iter().flatten() {let state=entry?.path().join("state.json");let Ok(text)=aq_handoff_note::read_private(&state, 65536) else{continue};let Ok(local)=serde_json::from_slice::<Local>(&text) else{continue};if tasks.contains_key(&local.id)||local.status!="running"||!local.desired_running||local.sandbox.is_none(){continue;}
-                 let Some(enrollment)=enrollments.get(&local.node_id) else{continue};if tasks.len()>=32{break;}
-                 let (id,exe,docker,enrollment)=(local.id,manual.podman_executable.clone(),settings.host.docker_local.clone(),enrollment.clone());
-                 tasks.insert(id,tokio::spawn(async move{loop{let Ok(text)=aq_handoff_note::read_private(&state, 65536) else{break};let Ok(local)=serde_json::from_slice::<Local>(&text) else{break};if local.status!="running"||!local.desired_running{break;}let Some(sandbox)=local.sandbox else{break};if sandbox.owner.node_id!=local.node_id||sandbox.owner.attempt_id!=local.id||sandbox.owner.boot_id!=local.id||sandbox.backend_id!=sandbox.owner.deterministic_name(){break;}
-        if let Ok(file)=EnrollmentFile::load(&enrollment)&&let Ok(link)=ServerLink::from_enrollment(&file)&&let Ok(socket)=link.terminal_stream(id).await{let _=relay(socket,id,Attachment::Manual {
-                executable: &exe, socket: &docker.socket, container: &sandbox.backend_id,
-            }).await;}tokio::time::sleep(Duration::from_secs(1)).await;}}));
-                }
-               }}
+            }
+        }
     }
-    for (_, task) in tasks {
+    for (_, task) in relays.tasks {
         task.abort();
     }
     drop(lock);
@@ -92,6 +88,7 @@ pub async fn run(path: &Path) -> Result<()> {
 }
 /// A running queued attempt on this machine: its session-host directory holds the
 /// tmux socket, and the driver directory beside it names the attempt.
+#[derive(Clone)]
 struct Attempt {
     id: Uuid,
     node: Uuid,
@@ -250,71 +247,11 @@ impl Attachment<'_> {
                 container,
             } => {
                 let (columns, rows) = size.context("manual terminal size")?;
-                let pty = pty::Pty::attach(executable, socket, container, columns, rows)?;
+                let pty = pty::Pty::attach(executable, socket, container, (columns, rows))?;
                 Ok((pty, (columns, rows)))
             }
         }
     }
-}
-async fn relay(
-    socket: tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
-    id: Uuid,
-    target: Attachment<'_>,
-) -> Result<()> {
-    tracing::info!(session_id=%id,"manual terminal relay connected");
-    let fixed = matches!(target, Attachment::Attempt { .. });
-    let (mut sink, mut source) = socket.split();
-    let mut attach: Option<(Uuid, u64, pty::Pty)> = None;
-    let mut redactor = redact::Redactor::default();
-    let mut read_only = false;
-    loop {
-        tokio::select! {
-         frame=source.next()=>{let text=match frame{Some(Ok(Message::Text(text)))=>text,Some(Ok(Message::Ping(_)))=>{sink.flush().await?;continue},Some(Ok(Message::Pong(_)))=>continue,_=>break};let v:Value=serde_json::from_str(&text)?;let connection:Uuid=serde_json::from_value(v["connection_id"].clone())?;let generation=v["generation"].as_u64().context("terminal generation")?;
-          let current = attach.as_ref().is_some_and(|(id, g, _)| *id == connection && *g == generation);
-          match v["kind"].as_str() {
-            Some("attach") | Some("repaint") if v["kind"] == "attach" || (fixed && current) => {
-                let size = if fixed { None } else { Some(size(&v)?) };
-                if fixed && v["kind"] == "attach" {
-                    read_only = v["read_only"].as_bool().context("attempt viewer mode")?;
-                }
-                drop(attach.take());
-                redactor = redact::Redactor::default();
-                let (p, (columns, rows)) = target.open(size, read_only).await?;
-                attach = Some((connection, generation, p));
-                sink.send(Message::Text(json!({"kind":"ready","connection_id":connection,"columns":columns,"rows":rows}).to_string().into())).await?;
-            }
-            Some(kind) if current => {
-                let p = &attach.as_ref().unwrap().2;
-                match kind {
-                    "input" if !read_only => {
-                        let bytes = v["bytes"].as_array().context("terminal bytes")?;
-                        ensure!(bytes.len() <= aq_session_protocol::MAX_INPUT_BYTES, "terminal input bound");
-                        let bytes = bytes.iter().map(|b| b.as_u64().filter(|n| *n <= 255).map(|n| n as u8).context("terminal byte")).collect::<Result<Vec<_>>>()?;
-                        ensure!(!fixed || complete_terminal_input(&bytes, false), "incomplete terminal input");
-                        p.write(&bytes).await?;
-                    }
-                    "escape" if fixed && !read_only => p.write(b"\x1b").await?,
-                    "resize" if !fixed => { let (c,r) = size(&v)?; p.resize(c,r)?; }
-                    // Only the current writable controller may change the shared pane.
-                    "resize" if !read_only => {
-                        let (c, r) = size(&v)?;
-                        let Attachment::Attempt { attempt, tmux } = &target else { continue };
-                        let (c, r) = attempt.resize_pane(tmux, c, r).await?;
-                        p.resize(c, r)?;
-                    }
-                    "detach" => attach = None,
-                    _ => {}
-                }
-            }
-            _ => {}
-          }
-         }
-         output=async{match &attach{Some((connection,_,p))=>p.read().await.map(|bytes|(*connection,bytes)),None=>std::future::pending().await}}=>{let(connection,bytes)=output?;let mut data=connection.as_bytes().to_vec();data.extend_from_slice(&redactor.frame(&bytes));tokio::time::timeout(Duration::from_secs(2),sink.send(Message::Binary(data.into()))).await??;}
-        }
-    }
-    Ok(())
 }
 fn size(v: &Value) -> Result<(u16, u16)> {
     let (c, r) = (
@@ -380,22 +317,13 @@ mod tests {
     async fn pane(attempt: &Attempt) -> (u16, u16) {
         attempt.pane_size(Path::new("/usr/bin/tmux")).await.unwrap()
     }
-    /// A real tmux pane: only the current writable controller changes its dimensions;
-    /// stale connections or generations and watchers (attach, repaint, reconnect) never do.
-    #[tokio::test]
-    async fn managed_pane_resizes_only_for_its_current_writable_controller() {
-        let tmux = Path::new("/usr/bin/tmux");
-        let root = tempfile::tempdir().unwrap();
-        let attempt = Attempt {
-            id: Uuid::from_u128(3),
-            node: Uuid::from_u128(1),
-            host: root.path().to_path_buf(),
-            driver: root.path().join("driver"),
-        };
+    type Server = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
+
+    async fn start_pane(root: &Path, tmux: &Path) {
         // `Attempt::tmux` passes -N (never start a server), so start it directly.
         let started = tokio::process::Command::new(tmux)
             .arg("-S")
-            .arg(root.path().join("tmux.sock"))
+            .arg(root.join("tmux.sock"))
             .args([
                 "new-session",
                 "-d",
@@ -411,6 +339,8 @@ mod tests {
             .await
             .unwrap();
         assert!(started.status.success());
+    }
+    async fn serve_pane(attempt: Attempt) -> (Server, JoinHandle<Result<()>>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}", listener.local_addr().unwrap());
         let client = tokio::spawn(async move {
@@ -418,40 +348,50 @@ mod tests {
             socket
         });
         let (stream, _) = listener.accept().await.unwrap();
-        let mut server = tokio_tungstenite::accept_async(stream).await.unwrap();
+        let server = tokio_tungstenite::accept_async(stream).await.unwrap();
         let socket = client.await.unwrap();
-        let relay_task = {
-            let (host, driver) = (attempt.host.clone(), attempt.driver.clone());
-            tokio::spawn(async move {
-                let attempt = Attempt {
-                    id: Uuid::from_u128(3),
-                    node: Uuid::from_u128(1),
-                    host,
-                    driver,
-                };
-                relay(
-                    socket,
-                    attempt.id,
-                    Attachment::Attempt {
-                        attempt: &attempt,
-                        tmux: Path::new("/usr/bin/tmux"),
-                    },
-                )
+        let task = tokio::spawn(async move {
+            relay(
+                socket,
+                attempt.id,
+                Attachment::Attempt {
+                    attempt: &attempt,
+                    tmux: Path::new("/usr/bin/tmux"),
+                },
+            )
+            .await
+        });
+        (server, task)
+    }
+    async fn expect_ready(server: &mut Server, dimensions: (u64, u64)) {
+        loop {
+            let next = tokio::time::timeout(Duration::from_secs(5), server.next())
                 .await
-            })
-        };
-        async fn ready(
-            server: &mut tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>,
-        ) -> Value {
-            loop {
-                let next = tokio::time::timeout(Duration::from_secs(5), server.next())
-                    .await
-                    .unwrap();
-                if let Some(Ok(Message::Text(text))) = next {
-                    return serde_json::from_str(&text).unwrap();
-                }
+                .unwrap();
+            if let Some(Ok(Message::Text(text))) = next {
+                let reply: Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(
+                    (reply["columns"].as_u64(), reply["rows"].as_u64()),
+                    (Some(dimensions.0), Some(dimensions.1))
+                );
+                return;
             }
         }
+    }
+    /// A real tmux pane: only the current writable controller changes its dimensions;
+    /// stale connections or generations and watchers (attach, repaint, reconnect) never do.
+    #[tokio::test]
+    async fn managed_pane_resizes_only_for_its_current_writable_controller() {
+        let tmux = Path::new("/usr/bin/tmux");
+        let root = tempfile::tempdir().unwrap();
+        let attempt = Attempt {
+            id: Uuid::from_u128(3),
+            node: Uuid::from_u128(1),
+            host: root.path().to_path_buf(),
+            driver: root.path().join("driver"),
+        };
+        start_pane(root.path(), tmux).await;
+        let (mut server, relay_task) = serve_pane(attempt.clone()).await;
         let (controller, watcher) = (Uuid::from_u128(10), Uuid::from_u128(11));
         let resize = |c, g, columns: u64, rows: u64| {
             frame("resize", c, g, json!({"columns": columns, "rows": rows}))
@@ -460,11 +400,7 @@ mod tests {
             .send(frame("attach", controller, 1, json!({"read_only": false})))
             .await
             .unwrap();
-        let r = ready(&mut server).await;
-        assert_eq!(
-            (r["columns"].as_u64(), r["rows"].as_u64()),
-            (Some(80), Some(24))
-        );
+        expect_ready(&mut server, (80, 24)).await;
         // Controller resize reaches the real pane.
         server.send(resize(controller, 1, 100, 30)).await.unwrap();
         // Stale generation and an unattached connection change nothing.
@@ -475,32 +411,20 @@ mod tests {
             .send(frame("repaint", controller, 1, json!({})))
             .await
             .unwrap();
-        let r = ready(&mut server).await;
-        assert_eq!(
-            (r["columns"].as_u64(), r["rows"].as_u64()),
-            (Some(100), Some(30))
-        );
+        expect_ready(&mut server, (100, 30)).await;
         assert_eq!(pane(&attempt).await, (100, 30));
         // A view-only watcher observes the pane unchanged and cannot resize it.
         server
             .send(frame("attach", watcher, 2, json!({"read_only": true})))
             .await
             .unwrap();
-        let r = ready(&mut server).await;
-        assert_eq!(
-            (r["columns"].as_u64(), r["rows"].as_u64()),
-            (Some(100), Some(30))
-        );
+        expect_ready(&mut server, (100, 30)).await;
         server.send(resize(watcher, 2, 60, 20)).await.unwrap();
         server
             .send(frame("repaint", watcher, 2, json!({})))
             .await
             .unwrap();
-        let r = ready(&mut server).await;
-        assert_eq!(
-            (r["columns"].as_u64(), r["rows"].as_u64()),
-            (Some(100), Some(30))
-        );
+        expect_ready(&mut server, (100, 30)).await;
         assert_eq!(pane(&attempt).await, (100, 30));
         // The old controller connection was replaced by the watcher: no resize either.
         server.send(resize(controller, 1, 70, 25)).await.unwrap();
@@ -509,21 +433,13 @@ mod tests {
             .send(frame("attach", controller, 3, json!({"read_only": false})))
             .await
             .unwrap();
-        let r = ready(&mut server).await;
-        assert_eq!(
-            (r["columns"].as_u64(), r["rows"].as_u64()),
-            (Some(100), Some(30))
-        );
+        expect_ready(&mut server, (100, 30)).await;
         server.send(resize(controller, 3, 90, 33)).await.unwrap();
         server
             .send(frame("repaint", controller, 3, json!({})))
             .await
             .unwrap();
-        let r = ready(&mut server).await;
-        assert_eq!(
-            (r["columns"].as_u64(), r["rows"].as_u64()),
-            (Some(90), Some(33))
-        );
+        expect_ready(&mut server, (90, 33)).await;
         assert_eq!(pane(&attempt).await, (90, 33));
         drop(server);
         let _ = relay_task.await;
