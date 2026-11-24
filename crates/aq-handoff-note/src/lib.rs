@@ -7,7 +7,7 @@ mod secret_file;
 pub use preserve::{
     CopyBackIncomplete, PRESERVED_MARKER, driver_exit_success, platform_failed, preserved,
     preserved_claim, preserved_claim_bytes, preserved_conclusion, write_exit,
-    write_platform_failure,
+    write_platform_failure, write_transcript,
 };
 pub mod claim;
 pub mod final_message;
