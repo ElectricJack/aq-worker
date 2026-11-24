@@ -47,15 +47,18 @@ static void file(const char *path, char *body, size_t bytes) {
     close(fd);
 }
 
+static unsigned hex_digit(char c) {
+    if (c >= '0' && c <= '9') return (unsigned)(c - '0');
+    if (c >= 'a' && c <= 'f') return (unsigned)(c - 'a' + 10);
+    if (c >= 'A' && c <= 'F') return (unsigned)(c - 'A' + 10);
+    fail(__LINE__);
+    return 0;
+}
+
 static size_t chunk_length(const char *start, const char *end, size_t limit) {
     size_t length = 0;
     for (const char *c = start; c < end; c++) {
-        unsigned digit;
-        if (*c >= '0' && *c <= '9') digit = (unsigned)(*c - '0');
-        else if (*c >= 'a' && *c <= 'f') digit = (unsigned)(*c - 'a' + 10);
-        else if (*c >= 'A' && *c <= 'F') digit = (unsigned)(*c - 'A' + 10);
-        else { fail(__LINE__); return 0; }
-        length = length * 16 + digit;
+        length = length * 16 + hex_digit(*c);
         CHECK(length < limit);
     }
     return length;
@@ -163,27 +166,36 @@ static void receive_response(int fd, int positive) {
     }
 }
 
+static size_t format_request(char *request, size_t capacity, int port, const char *cap, const char *model) {
+    char body[1024];
+    int count = snprintf(body, sizeof(body), "{\"model\":\"%s\",\"stream\":true,\"store\":false,\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"finite capsule input\"}],\"reasoning\":{\"effort\":\"medium\"},\"tools\":[]}", model);
+    CHECK(count > 0 && (size_t)count < sizeof(body));
+    int bytes = snprintf(request, capacity, "POST /v1/responses HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", port, cap, count, body);
+    CHECK(bytes > 0 && (size_t)bytes < capacity);
+    return (size_t)bytes;
+}
+
+static const char *request_model(const char *mode, char *cap) {
+    int wrong_key = !strcmp(mode, "wrong-key");
+    int wrong_model = !strcmp(mode, "wrong-model");
+    CHECK(wrong_key || wrong_model || !strcmp(mode, "positive") || !strcmp(mode, "cancel") || !strcmp(mode, "expiry"));
+    if (wrong_key) cap[76] = cap[76] == '0' ? '1' : '0';
+    return wrong_model ? "other-model" : "offline-model";
+}
+
 int main(int argc, char **argv) {
     const char *origin = check_launch(argc, argv);
     char auth[256] = {0}, cap[78] = {0};
     load_capability(origin, auth, sizeof(auth), cap);
     await_send();
-    int wrong_key = !strcmp(argv[1], "wrong-key");
-    int wrong_model = !strcmp(argv[1], "wrong-model");
+    const char *model = request_model(argv[1], cap);
     int positive = !strcmp(argv[1], "positive");
-    CHECK(wrong_key || wrong_model || positive || !strcmp(argv[1], "cancel") || !strcmp(argv[1], "expiry"));
-    if (wrong_key) cap[76] = cap[76] == '0' ? '1' : '0';
-    const char *model = wrong_model ? "other-model" : "offline-model";
-    char body[1024];
-    int count = snprintf(body, sizeof(body), "{\"model\":\"%s\",\"stream\":true,\"store\":false,\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":\"finite capsule input\"}],\"reasoning\":{\"effort\":\"medium\"},\"tools\":[]}", model);
-    CHECK(count > 0 && (size_t)count < sizeof(body));
     int port = 0;
     int fd = connect_origin(origin, &port);
     char request[2048];
-    int bytes = snprintf(request, sizeof(request), "POST /v1/responses HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", port, cap, count, body);
-    CHECK(bytes > 0 && (size_t)bytes < sizeof(request));
+    size_t bytes = format_request(request, sizeof(request), port, cap, model);
     marker("request-attempt", "one finite request\n");
-    send_all(fd, request, (size_t)bytes);
+    send_all(fd, request, bytes);
     memset(cap, 0, sizeof(cap));
     memset(auth, 0, sizeof(auth));
     memset(request, 0, sizeof(request));

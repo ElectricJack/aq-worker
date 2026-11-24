@@ -9,13 +9,19 @@
 #include <sys/wait.h>
 
 /* Explicit static physical fixture. No agent, provider, auth, shell or network. */
-static int inspect_image(char *path, size_t capacity, struct stat *image) {
+static int canonical_image_path(char *path, size_t capacity) {
     ssize_t n = readlink("/proc/self/exe", path, capacity - 1);
     if (n < 0) return 60;
     path[n] = 0;
     char *canonical = realpath(path, NULL);
     if (!canonical || strcmp(path, canonical) || strcmp(path, "/opt/aq-qualification/codex")) return 61;
     free(canonical);
+    return 0;
+}
+
+static int inspect_image(char *path, size_t capacity, struct stat *image) {
+    int result = canonical_image_path(path, capacity);
+    if (result) return result;
     struct statvfs fs;
     int self = open(path, O_RDONLY | O_NOFOLLOW);
     if (self < 0 || fstat(self, image) || fstatvfs(self, &fs) || !(fs.f_flag & ST_RDONLY)) return 62;
@@ -47,13 +53,19 @@ static int check_stdin(void) {
     return 0;
 }
 
-static int run_helper(const char *path, const struct stat *image) {
+static int prepare_helper(const char *path, char *helper, size_t capacity) {
     const char *home = getenv("CODEX_HOME");
     if (!home || strncmp(home, "/var/lib/aq-qualification/", strlen("/var/lib/aq-qualification/"))) return 67;
     if (mkdir(home, 0700)) return 68;
-    char helper[4096], device[40], inode[40];
-    if (snprintf(helper, sizeof(helper), "%s/peer-helper", home) < 0) return 69;
+    if (snprintf(helper, capacity, "%s/peer-helper", home) < 0) return 69;
     if (symlink(path, helper)) return 70;
+    return 0;
+}
+
+static int run_helper(const char *path, const struct stat *image) {
+    char helper[4096], device[40], inode[40];
+    int result = prepare_helper(path, helper, sizeof(helper));
+    if (result) return result;
     snprintf(device, sizeof(device), "%llu", (unsigned long long)image->st_dev);
     snprintf(inode, sizeof(inode), "%llu", (unsigned long long)image->st_ino);
     pid_t child = fork();
