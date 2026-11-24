@@ -598,3 +598,28 @@ fn the_final_result_push_still_succeeds_after_a_checkpoint() {
     assert_eq!(tree(&commit), tree(&second));
     node.end(&wt).unwrap();
 }
+
+#[test]
+fn test_git_prefers_the_pinned_sandbox_git_then_the_native_runtime() {
+    let all = |_: &Path| true;
+    assert_eq!(
+        select_git(&GIT_CANDIDATES, all),
+        Some("/opt/git/bin/git"),
+        "the pinned sandbox Git wins"
+    );
+    let native_and_system = |p: &Path| p != Path::new("/opt/git/bin/git");
+    assert_eq!(
+        select_git(&GIT_CANDIDATES, native_and_system),
+        Some("/opt/aq-git-runtime/bin/git")
+    );
+    let system_only = |p: &Path| p == Path::new("/usr/bin/git");
+    assert_eq!(select_git(&GIT_CANDIDATES, system_only), Some("/usr/bin/git"));
+    assert_eq!(select_git(&GIT_CANDIDATES, |_| false), None);
+}
+
+#[test]
+fn test_git_is_an_existing_candidate() {
+    let selected = git_executable();
+    assert!(GIT_CANDIDATES.contains(&selected));
+    assert!(Path::new(selected).is_file(), "{selected} must exist");
+}
