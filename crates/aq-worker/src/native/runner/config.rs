@@ -184,7 +184,7 @@ impl NativeConfig {
             ensure!(
                 fs2::available_space(self.state_dir.join("journal"))
                     .context("native_journal_storage_unmeasurable")?
-                    >= crate::journal::MINIMUM_FREE_DISK_BYTES,
+                    >= crate::config::MINIMUM_FREE_JOURNAL_BYTES,
                 "native_journal_disk_headroom_unavailable"
             );
             settings.host.docker_local.check_admission().await?;
