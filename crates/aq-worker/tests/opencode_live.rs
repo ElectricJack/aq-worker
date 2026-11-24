@@ -416,6 +416,34 @@ struct Rows {
     tables: BTreeMap<aq_observation_engine::rows::Table, BTreeMap<String, Value>>,
     display: BTreeMap<u64, String>,
 }
+impl Rows {
+    fn apply(
+        &mut self,
+        table: aq_observation_engine::rows::Table,
+        key: String,
+        value: Option<Value>,
+    ) {
+        use aq_observation_engine::rows::Table;
+        if table == Table::DisplayByOrdinal {
+            let ordinal = key.parse().unwrap();
+            match &value {
+                Some(v) => {
+                    self.display
+                        .insert(ordinal, serde_json::from_value(v.clone()).unwrap());
+                }
+                None => {
+                    self.display.remove(&ordinal);
+                }
+            }
+        }
+        let map = self.tables.entry(table).or_default();
+        match value {
+            Some(v) => map.insert(key, v),
+            None => map.remove(&key),
+        };
+    }
+}
+
 impl aq_observation_engine::rows::ReadView for Rows {
     fn get(&self, t: aq_observation_engine::rows::Table, k: &str) -> anyhow::Result<Option<Value>> {
         Ok(self.tables.get(&t).and_then(|v| v.get(k)).cloned())
@@ -434,7 +462,7 @@ impl aq_observation_engine::rows::ReadView for Rows {
 }
 
 fn read_with_engine(export: &Value, session: &str) -> Read {
-    use aq_observation_engine::{self as obs, rows::Table};
+    use aq_observation_engine as obs;
     let source = obs::Source {
         binding: serde_json::from_value(binding()).unwrap(),
         source_id: Uuid::from_u128(8),
@@ -460,27 +488,26 @@ fn read_with_engine(export: &Value, session: &str) -> Read {
         let delta = obs::normalize(&context, &rows, &frame, 100).unwrap();
         context = delta.context;
         for ((table, key), value) in delta.rows.writes {
-            if table == Table::DisplayByOrdinal {
-                let ordinal = key.parse().unwrap();
-                match &value {
-                    Some(v) => {
-                        rows.display
-                            .insert(ordinal, serde_json::from_value(v.clone()).unwrap());
-                    }
-                    None => {
-                        rows.display.remove(&ordinal);
-                    }
-                }
-            }
-            let map = rows.tables.entry(table).or_default();
-            match value {
-                Some(v) => map.insert(key, v),
-                None => map.remove(&key),
-            };
+            rows.apply(table, key, value);
         }
         out.extend(delta.events);
     }
     tally!(out, obs)
+}
+
+#[test]
+fn live_readers_agree_on_the_qualified_session_export() {
+    let export: Value = serde_json::from_slice(include_bytes!(
+        "../../aq-observation/tests/fixtures/opencode-1.18.35-session.json"
+    ))
+    .unwrap();
+    let session = export["session_id"].as_str().unwrap();
+    let observation = read_with_observation(&export, session);
+    assert_eq!(observation, read_with_engine(&export, session));
+    assert!(observation.usages > 0);
+    assert!(observation.started > 0);
+    assert_eq!(observation.started, observation.results);
+    assert_eq!(observation.turns, 1);
 }
 
 #[test]
