@@ -55,8 +55,7 @@ fn reference(id: &str, path: &Path) -> ArtifactRef {
         digest: Digest::of(&std::fs::read(path).unwrap()),
     }
 }
-fn fixture_with_lifetime(lifetime_ms: u64) -> Fixture {
-    let root = tempfile::tempdir().unwrap();
+fn fixture_directories(root: &Path) {
     for name in [
         "root",
         "workspace",
@@ -65,11 +64,14 @@ fn fixture_with_lifetime(lifetime_ms: u64) -> Fixture {
         "git",
         "private-node",
     ] {
-        let path = root.path().join(name);
+        let path = root.join(name);
         std::fs::create_dir(&path).unwrap();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
-    let program = root.path().join("peer");
+}
+
+fn compile_static_peer(root: &Path) -> PathBuf {
+    let program = root.join("peer");
     assert!(
         std::process::Command::new("/usr/bin/cc")
             .args(["-static", "-O2", "-Wall", "-Wextra"])
@@ -82,6 +84,13 @@ fn fixture_with_lifetime(lifetime_ms: u64) -> Fixture {
             .unwrap()
             .success()
     );
+    program
+}
+
+fn fixture_with_lifetime(lifetime_ms: u64) -> Fixture {
+    let root = tempfile::tempdir().unwrap();
+    fixture_directories(root.path());
+    let program = compile_static_peer(root.path());
     std::fs::write(
         root.path().join("auth/auth.json"),
         b"derived-local-canary\n",
