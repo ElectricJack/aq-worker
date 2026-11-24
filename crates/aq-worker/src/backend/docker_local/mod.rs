@@ -29,7 +29,6 @@ use policy::{
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::Path,
     sync::Arc,
     time::Duration,
 };
@@ -45,6 +44,8 @@ const MAX_JSON_BYTES: usize = 8 * 1024 * 1024;
 const READ_ARCHIVE_SLACK: usize = 64 * 1024;
 /// Image pulls stream progress and may take minutes on a cold cache.
 const PULL_TIMEOUT: Duration = Duration::from_secs(600);
+pub(crate) const MISSING_TEMPLATE: BackendError =
+    BackendError::InvalidRequest("template image not present on sandbox daemon");
 
 /// Confinement modes this backend can provide (0005 §14.14). Native execution
 /// on the host is never offered by docker-local.
@@ -93,16 +94,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             statvfs: Arc::new(HostStatvfs),
         };
         let info = backend.get_json("/info").await?;
-        let rootless = info
-            .get("SecurityOptions")
-            .and_then(|options| options.as_array())
-            .is_some_and(|options| {
-                options
-                    .iter()
-                    .filter_map(|o| o.as_str())
-                    .any(|option| option.split(',').any(|part| part == "name=rootless"))
-            });
-        if !rootless {
+        if !transport::daemon_is_rootless(&info) {
             return Err(BackendError::InvalidRequest(
                 "sandbox daemon must be rootless",
             ));
@@ -152,7 +144,14 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             body,
             max_response_bytes,
         };
-        transport::call(&self.transport, request, timeout).await
+        let result = transport::call(&self.transport, request, timeout).await;
+        if matches!(result, Err(CallError::Timeout)) {
+            let operation = path
+                .split_once('?')
+                .map_or(path, |(operation, _)| operation);
+            tracing::warn!(?method, operation, "sandbox daemon operation timed out");
+        }
+        result
     }
 
     /// GET returning parsed JSON; anything but 200 is uncertainty.
@@ -581,12 +580,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     /// libpod `store.graphRoot`). It must be an absolute host path.
     async fn graph_root_stats(&self) -> Option<crate::backend::FsStats> {
         let info = self.get_json("/info").await.ok()?;
-        let root = info
-            .get("DockerRootDir")
-            .or_else(|| info.pointer("/store/graphRoot"))
-            .and_then(Value::as_str)
-            .map(Path::new)
-            .filter(|root| root.is_absolute())?;
+        let root = transport::graph_root(&info)?;
         self.statvfs.statvfs(root).ok()
     }
 
@@ -715,9 +709,7 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         match response.status {
             201 => Ok(identity),
             409 => same(self.get_optional(&inspect).await?),
-            404 => Err(BackendError::InvalidRequest(
-                "template image not present on sandbox daemon",
-            )),
+            404 => Err(MISSING_TEMPLATE),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
     }

@@ -176,6 +176,22 @@ pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 impl NativeConfig {
+    pub(super) async fn check_backend_admission(&self) -> Result<()> {
+        if let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal {
+            settings, ..
+        }) = &self.executor
+        {
+            ensure!(
+                fs2::available_space(self.state_dir.join("journal"))
+                    .context("native_journal_storage_unmeasurable")?
+                    >= crate::journal::MINIMUM_FREE_DISK_BYTES,
+                "native_journal_disk_headroom_unavailable"
+            );
+            settings.host.docker_local.check_admission().await?;
+        }
+        Ok(())
+    }
+
     /// The slot's aq-git and, when `node_git` is configured, the node's git with its remote.
     pub fn git_client(&self, worker: &crate::config::WorkerConfig) -> Result<GitClient> {
         let mut git = GitClient::new(&self.git_socket, &self.git_root)?;

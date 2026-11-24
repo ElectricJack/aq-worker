@@ -24,7 +24,9 @@
 //! socket directory at `/aq/channel` and sets `AQ_CHANNEL`. No channel socket,
 //! no launch (`agent_channel_unavailable`).
 use crate::backend::docker_local::tar::{TreeEntry, read_tree, tree_archive};
-use crate::backend::docker_local::{DockerLocalBackend, DockerLocalConfig, DockerTransport};
+use crate::backend::docker_local::{
+    DockerLocalBackend, DockerLocalConfig, DockerTransport, MISSING_TEMPLATE,
+};
 use crate::backend::{
     BackendError, CreateRequest, Ownership, PlacementBackend, PrivateMaterial, ResourceLimits,
     RunnerExit, SandboxIdentity, TemplateDigest,
@@ -214,13 +216,17 @@ where
     let hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut signals = drive::Signals { term, hup };
     let (docker, request, cache) = config.sandbox_request()?;
-    let mut backend = connect(docker).await?;
+    let mut backend = connect(docker).await.context("connect sandbox daemon")?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
-        Err(_) => {
-            backend.pull_template(&config.template).await?;
-            backend.create(&request).await?
+        Err(MISSING_TEMPLATE) => {
+            backend
+                .pull_template(&config.template)
+                .await
+                .context("pull sandbox template")?;
+            backend.create(&request).await.context("create sandbox")?
         }
+        Err(e) => return Err(e).context("create sandbox"),
     };
     println!("aq-sandbox-harness: sandbox {} created", sandbox.backend_id);
     let handoff = config_path.with_file_name(HANDOFF_MARKER);

@@ -1,5 +1,26 @@
 //! Capability and filesystem checks on the Engine information response.
 use serde_json::Value;
+use std::path::Path;
+
+pub fn daemon_is_rootless(info: &Value) -> bool {
+    info.get("SecurityOptions")
+        .and_then(Value::as_array)
+        .is_some_and(|options| {
+            options
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|option| option.split(',').any(|part| part == "name=rootless"))
+        })
+}
+
+pub fn graph_root(info: &Value) -> Option<&Path> {
+    info.get("DockerRootDir")
+        .or_else(|| info.pointer("/Store/GraphRoot"))
+        .or_else(|| info.pointer("/store/graphRoot"))
+        .and_then(Value::as_str)
+        .map(Path::new)
+        .filter(|path| path.is_absolute())
+}
 
 /// SBX10: per-sandbox CPU, memory and PID limits must be enforced. A daemon
 /// without a cgroup driver (e.g. `docker:dind-rootless`) or on cgroup v1 (no
@@ -27,13 +48,9 @@ pub fn require_enforced_limits(info: &Value) -> Result<(), &'static str> {
 /// unreadable root cannot be proven distinct and counts as shared.
 pub fn storage_shares_root(info: &Value) -> bool {
     use std::os::unix::fs::MetadataExt;
-    let root = info
-        .get("DockerRootDir")
-        .or_else(|| info.pointer("/Store/GraphRoot"))
-        .or_else(|| info.pointer("/store/graphRoot"))
-        .and_then(Value::as_str)
-        .filter(|root| root.starts_with('/'));
-    let Some(root) = root else { return true };
+    let Some(root) = graph_root(info) else {
+        return true;
+    };
     match (std::fs::metadata(root), std::fs::metadata("/")) {
         (Ok(storage), Ok(host)) => storage.dev() == host.dev(),
         _ => true,

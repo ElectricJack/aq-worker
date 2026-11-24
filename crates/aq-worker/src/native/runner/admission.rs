@@ -133,6 +133,9 @@ impl Admission {
         executor: &mut E,
         found: Found,
     ) -> Result<RunDisposition> {
+        if !self.backend_ready().await {
+            return Ok(RunDisposition::PollingPaused);
+        }
         let Self {
             config,
             git,

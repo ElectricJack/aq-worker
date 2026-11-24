@@ -34,6 +34,7 @@ impl Admission {
         if let Some(h) = &self.heartbeat {
             h.check()?;
         }
+        let offers = offers && self.backend_ready().await;
         let _inventory = self.pipeline.inventory.gate.lock().await;
         let need = self
             .pipeline
@@ -81,5 +82,10 @@ impl Admission {
                 self.pipeline.inventory.flight(),
             )
         }))
+    }
+    pub(super) async fn backend_ready(&self) -> bool {
+        let readiness = self.config.check_backend_admission().await;
+        aq_node_service::layout::report_admission_wait(&self.config.state_dir, &readiness);
+        readiness.is_ok()
     }
 }

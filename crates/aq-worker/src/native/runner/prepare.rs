@@ -72,6 +72,9 @@ macro_rules! collect_profile {
                 let workspace = pipeline
                     .$hydrate(id, preparation.clone(), spec, git)
                     .await?;
+                let readiness = config.check_backend_admission().await;
+                aq_node_service::layout::report_admission_wait(&config.state_dir, &readiness);
+                readiness.context("native grant withheld")?;
                 let _inventory = pipeline.inventory.gate.lock().await;
                 // The execution request needs a live report, not a new one: a third of the TTL.
                 let (ttl, need) = (config.inventory_ttl_ms, config.inventory_ttl_ms * 333_333);

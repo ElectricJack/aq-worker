@@ -18,6 +18,7 @@ mod source;
 pub const STATE_FORMAT: u32 = 4;
 pub const MAX_JOURNAL_BYTES: u64 = 32 * 1024 * 1024;
 pub const MAX_DIRECTIVES_PER_ATTEMPT: usize = 64;
+pub(crate) const MINIMUM_FREE_DISK_BYTES: u64 = 16 * 1024 * 1024;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
