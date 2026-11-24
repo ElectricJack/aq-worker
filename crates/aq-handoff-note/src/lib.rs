@@ -5,8 +5,9 @@ use std::path::Path;
 mod preserve;
 mod secret_file;
 pub use preserve::{
-    CopyBackIncomplete, PRESERVED_MARKER, preserved, preserved_claim, preserved_claim_bytes,
-    preserved_conclusion, write_exit,
+    CopyBackIncomplete, PRESERVED_MARKER, driver_exit_success, platform_failed, preserved,
+    preserved_claim, preserved_claim_bytes, preserved_conclusion, write_exit,
+    write_platform_failure,
 };
 pub mod claim;
 pub mod final_message;
@@ -215,6 +216,25 @@ pub fn handoff_note(
         ));
     }
     fold_claim(note)
+}
+
+/// Omit agent text if any credential in this login would appear in the note.
+pub fn handoff_note_for_login(
+    reason: Stop,
+    changed: &[String],
+    stream: &[u8],
+    secrets: &[zeroize::Zeroizing<Vec<u8>>],
+) -> String {
+    let note = handoff_note(reason, changed, stream, &secrets[0]);
+    if secrets
+        .iter()
+        .skip(1)
+        .any(|token| holds_token(note.as_bytes(), token))
+    {
+        handoff_note(reason, changed, &[], &[])
+    } else {
+        note
+    }
 }
 
 /// A salvaged handoff's note, with the interrupted host's recorded stop reason, if any.

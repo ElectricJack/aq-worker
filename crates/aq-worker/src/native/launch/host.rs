@@ -54,13 +54,6 @@ impl LocalPhaseHost {
 pub fn claude_driver_dir(host_root: &std::path::Path, launch_id: Uuid) -> std::path::PathBuf {
     host_root.join(format!("driver-{launch_id}"))
 }
-/// The driver's exit record. Missing, unreadable or malformed is None
-/// (Unknown): only an explicit `{"success": true}` can report Success.
-pub fn driver_exit_success(path: &std::path::Path) -> Option<bool> {
-    let bytes = std::fs::read(path).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    value["success"].as_bool()
-}
 /// MS1 review S3a: after the host stopped, the launch's leased token file is
 /// removed whatever happened to the driver (it normally deleted it itself).
 pub fn wipe_claude_driver_secrets(dir: &std::path::Path) {

@@ -1,38 +1,21 @@
 use super::*;
 impl Drove {
     pub(super) fn handoff_note(&self, secrets: &[Zeroizing<Vec<u8>>]) -> Option<String> {
-        let Self {
-            handoff,
-            leak,
-            changed,
-            stream,
-            ..
-        } = self;
-        let (handoff, leak) = (*handoff, *leak);
-        let note = match (handoff, leak) {
-            (Some(reason), None) => Some(handoff_note(reason, changed, stream, &secrets[0])),
-            _ => None,
-        };
-        // A login of several secrets: a note that holds any other one keeps no agent text.
-        note.map(|text| match (handoff, secrets.get(1..)) {
-            (Some(reason), Some(rest)) if rest.iter().any(|t| holds_token(text.as_bytes(), t)) => {
-                handoff_note(reason, changed, &[], &[])
-            }
-            _ => text,
-        })
+        let reason = self.handoff.filter(|_| self.leak.is_none())?;
+        Some(aq_handoff_note::handoff_note_for_login(
+            reason,
+            &self.changed,
+            &self.stream,
+            secrets,
+        ))
     }
     pub(super) fn write_transcript(&self, config_path: &Path, config: &DriverConfig) {
-        // Non-secret transcript beside the driver config (evidence),
-        // in the private driver directory, and never when it held the token.
-        if let Some(dir) = config_path.parent()
-            && self.leak.is_none()
-        {
-            let _ = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(dir.join(config.harness.transcript_file()))
-                .and_then(|mut f| f.write_all(&self.stream));
+        if self.leak.is_none() {
+            aq_handoff_note::write_transcript(
+                config_path,
+                config.harness.transcript_file(),
+                &self.stream,
+            );
         }
     }
     /// Writes the exit record, then the claim (the node may stop this pane as soon as the claim
@@ -54,7 +37,16 @@ impl Drove {
         if let Some(note) = note {
             // The work is in the node worktree; the executor sees a recorded
             // failure and the pipeline checkpoints, retains and reports it.
-            write_exit(config_path, false);
+            if matches!(
+                self.handoff,
+                Some(aq_handoff_note::Stop::Handoff(
+                    aq_protocol::HandoffReason::ServiceStop
+                ))
+            ) {
+                aq_handoff_note::write_platform_failure(config_path);
+            } else {
+                write_exit(config_path, false);
+            }
             submit_claim(config, note);
             return 4;
         }

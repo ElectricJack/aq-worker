@@ -43,8 +43,6 @@ pub use aq_sandbox_archive::pane::{self, Pane};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -232,6 +230,7 @@ where
         sandbox: &sandbox,
         login: &login,
         handoff: &handoff,
+        runner_may_have_started: false,
         cache: cache.as_ref(),
     };
     let drove = match drive.run(&prompt, terminal, &mut signals).await {
