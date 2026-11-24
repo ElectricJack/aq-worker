@@ -24,70 +24,80 @@ const AGENT: AgentIdentity = AgentIdentity {
 };
 fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().collect();
-    if matches!(args.get(1).map(String::as_str), Some("guardian" | "pane")) {
-        return helper_main();
+    match args.get(1).map(String::as_str) {
+        Some("guardian" | "pane") => helper_main(),
+        Some("agent-probe") => exec_agent_probe(&args),
+        Some("suid-exec-probe") => verify_setuid_exec(),
+        Some("harness") => run_harness(&args),
+        _ => run_fixture(),
     }
-    if args.get(1).is_some_and(|s| s == "agent-probe") {
-        // Like a tmux pane, the standalone probe must have its own session:
-        // Linux permits cross-UID SIGCONT within a shared session.
-        ensure!(unsafe { libc::setsid() } >= 0, "fixture agent session");
-        AGENT.drop_privileges()?;
-        agent_probe(Path::new(&args[2]), args[3].parse()?)?;
-        return Err(std::process::Command::new(&args[4])
-            .arg("suid-exec-probe")
-            .env_clear()
-            .exec()
-            .into());
-    }
-    if args.get(1).is_some_and(|s| s == "suid-exec-probe") {
-        ensure!(
-            unsafe { libc::getuid() } == AGENT.uid && unsafe { libc::geteuid() } == AGENT.uid,
-            "setuid exec regained root identity"
-        );
-        let status = fs::read_to_string("/proc/self/status")?;
-        ensure!(
-            status.lines().any(|line| line == "NoNewPrivs:\t1"),
-            "exec lost no_new_privs"
-        );
-        for field in ["CapInh", "CapPrm", "CapEff", "CapAmb"] {
-            ensure!(
-                status
-                    .lines()
-                    .any(|line| line == format!("{field}:\t0000000000000000")),
-                "setuid exec regained capabilities"
-            );
-        }
-        return Ok(());
-    }
-    if args.get(1).is_some_and(|s| s == "harness") {
-        let runner_pid = args[3].parse()?;
-        agent_probe(Path::new(&args[2]), runner_pid)?;
-        let input = std::env::var_os("AQ_SESSION_DIRECTORY")
-            .ok_or_else(|| anyhow::anyhow!("missing startup context directory"))?;
-        ensure!(
-            fs::read(Path::new(&input).join("context-0.bin"))? == b"fixture",
-            "required startup context unavailable"
-        );
+}
 
-        // Escaped writer exercises guardian stop across UID transition.
-        let child = unsafe { libc::fork() };
-        ensure!(child >= 0, "fixture fork");
-        if child == 0 {
-            unsafe {
-                libc::setsid();
-                libc::signal(libc::SIGTERM, libc::SIG_IGN);
-                libc::signal(libc::SIGHUP, libc::SIG_IGN);
-            }
-            loop {
-                fs::write("counter", format!("{:?}", std::time::Instant::now()))?;
-                std::thread::sleep(Duration::from_millis(10));
-            }
+fn exec_agent_probe(args: &[String]) -> Result<()> {
+    // Like a tmux pane, the standalone probe must have its own session:
+    // Linux permits cross-UID SIGCONT within a shared session.
+    ensure!(unsafe { libc::setsid() } >= 0, "fixture agent session");
+    AGENT.drop_privileges()?;
+    agent_probe(Path::new(&args[2]), args[3].parse()?)?;
+    Err(std::process::Command::new(&args[4])
+        .arg("suid-exec-probe")
+        .env_clear()
+        .exec()
+        .into())
+}
+
+fn verify_setuid_exec() -> Result<()> {
+    ensure!(
+        unsafe { libc::getuid() } == AGENT.uid && unsafe { libc::geteuid() } == AGENT.uid,
+        "setuid exec regained root identity"
+    );
+    let status = fs::read_to_string("/proc/self/status")?;
+    ensure!(
+        status.lines().any(|line| line == "NoNewPrivs:\t1"),
+        "exec lost no_new_privs"
+    );
+    for field in ["CapInh", "CapPrm", "CapEff", "CapAmb"] {
+        ensure!(
+            status
+                .lines()
+                .any(|line| line == format!("{field}:\t0000000000000000")),
+            "setuid exec regained capabilities"
+        );
+    }
+    Ok(())
+}
+
+fn run_harness(args: &[String]) -> Result<()> {
+    let runner_pid = args[3].parse()?;
+    agent_probe(Path::new(&args[2]), runner_pid)?;
+    let input = std::env::var_os("AQ_SESSION_DIRECTORY")
+        .ok_or_else(|| anyhow::anyhow!("missing startup context directory"))?;
+    ensure!(
+        fs::read(Path::new(&input).join("context-0.bin"))? == b"fixture",
+        "required startup context unavailable"
+    );
+
+    // Escaped writer exercises guardian stop across UID transition.
+    let child = unsafe { libc::fork() };
+    ensure!(child >= 0, "fixture fork");
+    if child == 0 {
+        unsafe {
+            libc::setsid();
+            libc::signal(libc::SIGTERM, libc::SIG_IGN);
+            libc::signal(libc::SIGHUP, libc::SIG_IGN);
         }
-        fs::write("started", b"agent started")?;
         loop {
+            fs::write("counter", format!("{:?}", std::time::Instant::now()))?;
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+    fs::write("started", b"agent started")?;
+    loop {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn run_fixture() -> Result<()> {
     // One privileged exec proves no_new_privs suppresses a real root-owned
     // setuid binary. The fixture is prepared before dropping root, without
     // granting any capability beyond the original KILL/SETGID/SETUID set.
