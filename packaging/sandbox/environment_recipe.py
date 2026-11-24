@@ -23,24 +23,55 @@ LABEL = r'[A-Za-z0-9_.@:-]+'
 LIMIT_KEYS = ('max_install_steps', 'max_step_args', 'max_arg_bytes', 'max_recipe_bytes')
 
 
+def _require(condition, error):
+    if not condition:
+        raise ValueError(error)
+
+
+def _safe_field(value, limit):
+    if not isinstance(value, str) or not 1 <= len(value.encode()) <= limit:
+        return False
+    return all(char >= " " and char != "\x7f" for char in value) and not scan.secret_shaped(value)
+
+
 def _text(value, limit, pattern=None):
-    if (not isinstance(value, str) or not 1 <= len(value.encode()) <= limit
-            or any(ord(c) < 32 or ord(c) == 127 for c in value)
-            or scan.secret_shaped(value) or (pattern and not re.fullmatch(pattern, value))):
-        raise ValueError('invalid or secret-shaped recipe field')
+    error = 'invalid or secret-shaped recipe field'
+    _require(_safe_field(value, limit), error)
+    _require(not pattern or re.fullmatch(pattern, value), error)
     return value
 
 
+def _positive_limit(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
 def _limits(limits):
-    if not isinstance(limits, dict):
-        raise ValueError('recipe limits are required')
+    _require(isinstance(limits, dict), 'recipe limits are required')
     for key in LIMIT_KEYS:
-        if not isinstance(limits.get(key), int) or isinstance(limits[key], bool) or limits[key] < 1:
-            raise ValueError('invalid recipe limit: ' + key)
+        _require(_positive_limit(limits.get(key)), 'invalid recipe limit: ' + key)
     return limits
 
 
-def _front_matter(lines, limits):
+def _add_field(fields, line):
+    key, separator, value = line.partition(':')
+    _require(separator and key, 'invalid front matter line')
+    _require(key == key.strip(), 'invalid front matter line')
+    _require(key != 'parent', 'a recipe cannot name a parent; AQ supplies the base template')
+    _require(key in FRONT_MATTER_KEYS, 'unknown front matter key')
+    _require(key not in fields, 'duplicate front matter key')
+    fields[key] = value.strip()
+
+
+def _provides(fields):
+    value = fields.get('provides', '[]')
+    _require(value.startswith('[') and value.endswith(']'), 'provides must be a list')
+    inner = value[1:-1].strip()
+    provides = [_text(item.strip(), 128, LABEL) for item in inner.split(',')] if inner else []
+    _require(len(set(provides)) == len(provides), 'duplicate provides label')
+    return provides
+
+
+def _front_matter(lines):
     if not lines or lines[0] != '---':
         raise ValueError('recipe must start with front matter')
     try:
@@ -51,34 +82,20 @@ def _front_matter(lines, limits):
     for line in lines[1:end]:
         if not line.strip():
             continue
-        key, separator, value = line.partition(':')
-        if not separator or key != key.strip() or not key:
-            raise ValueError('invalid front matter line')
-        if key == 'parent':
-            raise ValueError('a recipe cannot name a parent; AQ supplies the base template')
-        if key not in FRONT_MATTER_KEYS:
-            raise ValueError('unknown front matter key')
-        if key in fields:
-            raise ValueError('duplicate front matter key')
-        fields[key] = value.strip()
-    if 'name' not in fields:
-        raise ValueError('recipe name is required')
+        _add_field(fields, line)
+    _require('name' in fields, 'recipe name is required')
     name = _text(fields['name'], 64, NAME)
     flag = fields.get('default', 'false')
-    if flag not in ('true', 'false'):
-        raise ValueError('default must be true or false')
-    provides = []
-    if 'provides' in fields:
-        value = fields['provides']
-        if not (value.startswith('[') and value.endswith(']')):
-            raise ValueError('provides must be a list')
-        inner = value[1:-1].strip()
-        provides = [item.strip() for item in inner.split(',')] if inner else []
-        for label in provides:
-            _text(label, 128, LABEL)
-        if len(set(provides)) != len(provides):
-            raise ValueError('duplicate provides label')
-    return name, flag == 'true', provides, end + 1
+    _require(flag in ('true', 'false'), 'default must be true or false')
+    return name, flag == 'true', _provides(fields), end + 1
+
+
+def _new_section(sections, line):
+    _require(line.startswith('## ') and line[3:] in SECTIONS, 'unknown recipe section')
+    name = line[3:]
+    _require(name not in sections, 'duplicate recipe section')
+    sections[name] = []
+    return name
 
 
 def _sections(lines, start):
@@ -86,21 +103,38 @@ def _sections(lines, start):
     current = None
     for line in lines[start:]:
         if line.startswith('#'):
-            if not line.startswith('## ') or line[3:] not in SECTIONS:
-                raise ValueError('unknown recipe section')
-            current = line[3:]
-            if current in sections:
-                raise ValueError('duplicate recipe section')
-            sections[current] = []
+            current = _new_section(sections, line)
         elif not line.strip():
             continue
         elif current is None or not line.startswith('- '):
             raise ValueError('recipe content must be a list item inside a section')
         else:
             sections[current].append(line[2:])
-    if 'Install' not in sections:
-        raise ValueError('recipe needs an Install section')
+    _require('Install' in sections, 'recipe needs an Install section')
     return sections
+
+
+def _install_steps(items, limits):
+    arg_bytes = limits['max_arg_bytes']
+    _require(len(items) <= limits['max_install_steps'], 'too many install steps')
+    install_steps = []
+    for item in items:
+        _text(item, arg_bytes * limits['max_step_args'])
+        step = shlex.split(item)
+        _require(1 <= len(step) <= limits['max_step_args'], 'install step has too many or no arguments')
+        for arg in step:
+            _text(arg, arg_bytes)
+        _require(not step[0].startswith('-'), 'invalid install executable')
+        install_steps.append(step)
+    return install_steps
+
+
+def _lines(data):
+    try:
+        content = data.decode('utf-8')
+    except UnicodeError:
+        raise ValueError('recipe must be UTF-8') from None
+    return content.split('\n')
 
 
 def parse_environment(path, limits):
@@ -108,36 +142,16 @@ def parse_environment(path, limits):
     limits = _limits(limits)
     with Path(path).open('rb') as stream:
         data = stream.read(limits['max_recipe_bytes'] + 1)
-    if len(data) > limits['max_recipe_bytes']:
-        raise ValueError('recipe is over the byte limit')
-    try:
-        content = data.decode('utf-8')
-    except UnicodeError:
-        raise ValueError('recipe must be UTF-8') from None
-    lines = content.split('\n')
-    if lines and lines[-1] == '':
-        lines.pop()
-    name, default, provides, start = _front_matter(lines, limits)
+    _require(len(data) <= limits['max_recipe_bytes'], 'recipe is over the byte limit')
+    lines = _lines(data)
+    name, default, provides, start = _front_matter(lines)
     sections = _sections(lines, start)
+    install_steps = _install_steps(sections['Install'], limits)
     arg_bytes = limits['max_arg_bytes']
-    if len(sections['Install']) > limits['max_install_steps']:
-        raise ValueError('too many install steps')
-    install_steps = []
-    for item in sections['Install']:
-        _text(item, arg_bytes * limits['max_step_args'])
-        step = shlex.split(item)
-        if not 1 <= len(step) <= limits['max_step_args']:
-            raise ValueError('install step has too many or no arguments')
-        for arg in step:
-            _text(arg, arg_bytes)
-        if step[0].startswith('-'):
-            raise ValueError('invalid install executable')
-        install_steps.append(step)
     commands = {}
     for section in ('Check', 'Warm'):
         items = sections.get(section, [])
-        if len(items) > limits['max_install_steps']:
-            raise ValueError('too many ' + section.lower() + ' commands')
+        _require(len(items) <= limits['max_install_steps'], 'too many ' + section.lower() + ' commands')
         commands[section] = [_text(item, arg_bytes) for item in items]
     return {'name': name, 'default': default, 'provides': provides,
             'install_steps': install_steps, 'checks': commands['Check'],

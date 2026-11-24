@@ -72,7 +72,8 @@ impl ControlDecoder {
         result
     }
     pub fn finish(&mut self) -> Result<()> {
-        if self.failed || !self.pending.is_empty() || self.block.is_some() {
+        let truncated = !self.pending.is_empty() || self.block.is_some();
+        if self.failed || truncated {
             self.failed = true;
             self.pending.clear();
             bail!("truncated control stream");
@@ -107,13 +108,53 @@ impl ControlDecoder {
     fn line(&mut self, line: &[u8]) -> Result<Option<ControlEvent>> {
         if let Some(header) = line.strip_prefix(b"%begin ") {
             ensure!(self.block.is_none(), "nested control block");
-            validate_header(header)?;
+            WireBytes(header).validate_header()?;
             self.block = Some(header.to_vec());
             return Ok(None);
         }
+        if let Some(event) = self.close_block(line)? {
+            return Ok(Some(event));
+        }
+        if self.block.is_some() {
+            return Ok(None);
+        }
+        self.notification(line)
+    }
+
+    fn notification(&self, line: &[u8]) -> Result<Option<ControlEvent>> {
+        let mut fields = line.splitn(2, |b| *b == b' ');
+        let command = fields.next().unwrap_or_default();
+        let event = match (command, fields.next()) {
+            (b"%output", Some(rest)) => {
+                let (pane, value) = WireBytes(rest).split_field()?;
+                self.check_pane(pane)?;
+                ControlEvent::Bytes(WireBytes(value).unescape()?)
+            }
+            (b"%extended-output", Some(rest)) => self.extended_output(rest)?,
+            (b"%pause", Some(pane)) => self.pane_event(pane, ControlEvent::Paused)?,
+            (b"%continue", Some(pane)) => self.pane_event(pane, ControlEvent::Continued)?,
+            (b"%exit", _) => ControlEvent::Exited,
+            (b"%layout-change", Some(_)) => ControlEvent::LayoutChanged,
+            _ => {
+                ensure!(
+                    WireBytes(line).valid_notification(),
+                    "unexpected control framing"
+                );
+                return Ok(None);
+            }
+        };
+        Ok(Some(event))
+    }
+
+    fn pane_event(&self, pane: &[u8], event: ControlEvent) -> Result<ControlEvent> {
+        self.check_pane(pane)?;
+        Ok(event)
+    }
+
+    fn close_block(&mut self, line: &[u8]) -> Result<Option<ControlEvent>> {
         for prefix in [b"%end ".as_slice(), b"%error ".as_slice()] {
             if let Some(header) = line.strip_prefix(prefix) {
-                validate_header(header)?;
+                WireBytes(header).validate_header()?;
                 ensure!(
                     self.block.as_deref() == Some(header),
                     "control block boundary mismatch"
@@ -126,113 +167,100 @@ impl ControlDecoder {
                 }));
             }
         }
-        if self.block.is_some() {
-            return Ok(None);
-        }
-        if let Some(rest) = line.strip_prefix(b"%output ") {
-            let (pane, value) = field(rest)?;
-            self.check_pane(pane)?;
-            return Ok(Some(ControlEvent::Bytes(unescape(value)?)));
-        }
-        if let Some(rest) = line.strip_prefix(b"%extended-output ") {
-            let (pane, rest) = field(rest)?;
-            self.check_pane(pane)?;
-            let (age, rest) = field(rest)?;
-            number(age)?;
-            let value = if let Some(value) = rest.strip_prefix(b": ") {
-                value
-            } else {
-                let at = rest
-                    .windows(3)
-                    .position(|v| v == b" : ")
-                    .context("extended output separator")?;
-                ensure!(at <= 128, "extended output header bound");
-                &rest[at + 3..]
-            };
-            return Ok(Some(ControlEvent::Bytes(unescape(value)?)));
-        }
-        for (prefix, event) in [
-            (b"%pause ".as_slice(), ControlEvent::Paused),
-            (b"%continue ".as_slice(), ControlEvent::Continued),
-        ] {
-            if let Some(pane) = line.strip_prefix(prefix) {
-                self.check_pane(pane)?;
-                return Ok(Some(event));
-            }
-        }
-        if line == b"%exit" || line.starts_with(b"%exit ") {
-            return Ok(Some(ControlEvent::Exited));
-        }
-        if line.starts_with(b"%layout-change ") {
-            return Ok(Some(ControlEvent::LayoutChanged));
-        }
-        ensure!(
-            line.is_empty()
-                || (line.first() == Some(&b'%') && !line.iter().any(|b| *b < 0x20 || *b == 0x7f)),
-            "unexpected control framing"
-        );
         Ok(None)
     }
+
+    fn extended_output(&self, rest: &[u8]) -> Result<ControlEvent> {
+        let (pane, rest) = WireBytes(rest).split_field()?;
+        self.check_pane(pane)?;
+        let (age, rest) = WireBytes(rest).split_field()?;
+        WireBytes(age).number()?;
+        let value = if let Some(value) = rest.strip_prefix(b": ") {
+            value
+        } else {
+            let at = rest
+                .windows(3)
+                .position(|v| v == b" : ")
+                .context("extended output separator")?;
+            ensure!(at <= 128, "extended output header bound");
+            &rest[at + 3..]
+        };
+        Ok(ControlEvent::Bytes(WireBytes(value).unescape()?))
+    }
+
     fn check_pane(&self, pane: &[u8]) -> Result<()> {
         ensure!(pane == self.pane, "foreign control pane");
         Ok(())
     }
 }
-fn field(bytes: &[u8]) -> Result<(&[u8], &[u8])> {
-    let at = bytes
-        .iter()
-        .position(|b| *b == b' ')
-        .context("control field missing")?;
-    ensure!(at > 0, "empty control field");
-    Ok((&bytes[..at], &bytes[at + 1..]))
-}
-fn number(bytes: &[u8]) -> Result<u64> {
-    ensure!(
-        !bytes.is_empty() && bytes.len() <= 20 && bytes.iter().all(u8::is_ascii_digit),
-        "control numeric field"
-    );
-    std::str::from_utf8(bytes)?
-        .parse()
-        .context("control number overflow")
-}
-fn validate_header(bytes: &[u8]) -> Result<()> {
-    let values: Vec<_> = bytes.split(|b| *b == b' ').collect();
-    ensure!(values.len() == 3, "control block fields");
-    for value in values {
-        number(value)?;
+/// Borrowed tmux wire text before octal escapes or numeric fields are decoded.
+struct WireBytes<'a>(&'a [u8]);
+
+impl<'a> WireBytes<'a> {
+    fn valid_notification(self) -> bool {
+        let line = self.0;
+        line.is_empty() || (line.starts_with(b"%") && line.iter().all(|b| *b >= 0x20 && *b != 0x7f))
     }
-    Ok(())
-}
-fn unescape(bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    while at < bytes.len() {
-        let byte = bytes[at];
-        if byte == b'\\' {
-            let digits = bytes
-                .get(at + 1..at + 4)
-                .context("truncated control escape")?;
-            ensure!(
-                digits.iter().all(|b| (b'0'..=b'7').contains(b)),
-                "invalid control escape"
-            );
-            let value = (u16::from(digits[0] - b'0') << 6)
-                | (u16::from(digits[1] - b'0') << 3)
-                | u16::from(digits[2] - b'0');
-            ensure!(value <= 255, "control escape overflow");
-            out.push(value as u8);
-            at += 4;
-        } else {
-            ensure!(byte >= 0x20 && byte != 0x7f, "unescaped control byte");
-            out.push(byte);
-            at += 1;
-        }
+
+    fn split_field(self) -> Result<(&'a [u8], &'a [u8])> {
+        let bytes = self.0;
+        let at = bytes
+            .iter()
+            .position(|b| *b == b' ')
+            .context("control field missing")?;
+        ensure!(at > 0, "empty control field");
+        Ok((&bytes[..at], &bytes[at + 1..]))
+    }
+    fn number(self) -> Result<u64> {
+        let bytes = self.0;
         ensure!(
-            out.len() <= MAX_CONTROL_READ,
-            "decoded control output bound"
+            !bytes.is_empty() && bytes.len() <= 20 && bytes.iter().all(u8::is_ascii_digit),
+            "control numeric field"
         );
+        std::str::from_utf8(bytes)?
+            .parse()
+            .context("control number overflow")
     }
-    Ok(out)
+    fn validate_header(self) -> Result<()> {
+        let values: Vec<_> = self.0.split(|b| *b == b' ').collect();
+        ensure!(values.len() == 3, "control block fields");
+        for value in values {
+            WireBytes(value).number()?;
+        }
+        Ok(())
+    }
+    fn unescape(self) -> Result<Vec<u8>> {
+        let bytes = self.0;
+        let mut out = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            let byte = bytes[at];
+            if byte == b'\\' {
+                let digits = bytes
+                    .get(at + 1..at + 4)
+                    .context("truncated control escape")?;
+                ensure!(
+                    digits.iter().all(|b| (b'0'..=b'7').contains(b)),
+                    "invalid control escape"
+                );
+                let value = (u16::from(digits[0] - b'0') << 6)
+                    | (u16::from(digits[1] - b'0') << 3)
+                    | u16::from(digits[2] - b'0');
+                ensure!(value <= 255, "control escape overflow");
+                out.push(value as u8);
+                at += 4;
+            } else {
+                ensure!(byte >= 0x20 && byte != 0x7f, "unescaped control byte");
+                out.push(byte);
+                at += 1;
+            }
+            ensure!(
+                out.len() <= MAX_CONTROL_READ,
+                "decoded control output bound"
+            );
+        }
+        Ok(out)
+    }
 }
 
 /// A guardian-owned read-only client, not renderer state or stop proof by itself.
@@ -378,11 +406,17 @@ mod tests {
             let mut decoder = ControlDecoder::new("%0").unwrap();
             let mut bytes = vec![];
             for chunk in wire.chunks(size) {
-                for event in decoder.feed(chunk).unwrap() {
-                    if let ControlEvent::Bytes(v) = event {
-                        bytes.extend(v);
-                    }
-                }
+                bytes.extend(
+                    decoder
+                        .feed(chunk)
+                        .unwrap()
+                        .into_iter()
+                        .filter_map(|event| match event {
+                            ControlEvent::Bytes(bytes) => Some(bytes),
+                            _ => None,
+                        })
+                        .flatten(),
+                );
             }
             decoder.finish().unwrap();
             assert_eq!(bytes, "\x1b[?1049h雪🙂\\\r\n".as_bytes());
@@ -428,20 +462,7 @@ mod tests {
             let mut decoded = vec![];
             let mut count = 0;
             for chunk in wire.chunks(size) {
-                let mut suffix = chunk;
-                while !suffix.is_empty() {
-                    let (consumed, events) = decoder.feed_bounded(suffix).unwrap();
-                    assert!(consumed > 0 && consumed <= suffix.len());
-                    assert!(events.len() <= MAX_CONTROL_EVENTS);
-                    count += events.len();
-                    for event in events {
-                        let ControlEvent::Bytes(bytes) = event else {
-                            panic!("wrong event");
-                        };
-                        decoded.extend(bytes);
-                    }
-                    suffix = &suffix[consumed..];
-                }
+                count += append_chunk(&mut decoder, chunk, &mut decoded);
             }
             decoder.finish().unwrap();
             assert_eq!(count, 1000);
@@ -452,6 +473,25 @@ mod tests {
         assert!(strict.feed(&line.repeat(MAX_CONTROL_EVENTS + 1)).is_err());
         assert!(strict.feed(line).is_err());
     }
+    fn append_chunk(decoder: &mut ControlDecoder, chunk: &[u8], decoded: &mut Vec<u8>) -> usize {
+        let mut count = 0;
+        let mut suffix = chunk;
+        while !suffix.is_empty() {
+            let (consumed, events) = decoder.feed_bounded(suffix).unwrap();
+            assert!(consumed > 0 && consumed <= suffix.len());
+            assert!(events.len() <= MAX_CONTROL_EVENTS);
+            count += events.len();
+            for event in events {
+                let ControlEvent::Bytes(bytes) = event else {
+                    panic!("wrong event");
+                };
+                decoded.extend(bytes);
+            }
+            suffix = &suffix[consumed..];
+        }
+        count
+    }
+
     #[test]
     fn bounded_continuation_does_not_widen_line_decoded_byte_or_eof_bounds() {
         let mut line = ControlDecoder::new("%0").unwrap();

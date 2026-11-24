@@ -367,21 +367,14 @@ fn prepare(
 ) -> Result<Option<Pending>> {
     tail.prepare(peer, through, fresh)
 }
+struct RetainedOutput {
+    baseline: crate::native::journal::launch::NativeBaseline,
+    policy: TerminalPolicy,
+    peer: Peer,
+    started: RetainedStarted,
+}
 impl InputPipeline {
-    /// Start draining genuine local Running immediately. Upload waits for its actual
-    /// persisted Started ACK. Repeated attachment refuses; reconnect keeps this handle.
-    pub fn start_phase_output(
-        self: &Arc<Self>,
-        host: &LocalPhaseHost,
-        http: RelayHttp,
-    ) -> Result<PhaseOutputRelay> {
-        ensure!(
-            Arc::ptr_eq(&self.owned, &host.owner)
-                && Arc::ptr_eq(&self.launch.entry(host.entry.id)?, &host.entry),
-            "native output foreign host"
-        );
-        let runtime = tokio::runtime::Handle::try_current()
-            .context("native output requires async runtime")?;
+    fn retained_output(&self, host: &LocalPhaseHost) -> Result<RetainedOutput> {
         let owner = self
             .owned
             .try_lock()
@@ -410,7 +403,6 @@ impl InputPipeline {
                 && baseline.rows == history.intent.rows,
             "native output baseline binding mismatch"
         );
-        let terminal = history.intent.terminal.clone();
         let policy = a.reservation.offer.offered.offer.manifest.terminal.clone();
         // Output is still Watch-only, even when the separately owned finite
         // control bridge is attached to an explicitly input-enabled profile.
@@ -423,7 +415,30 @@ impl InputPipeline {
             node_id: owner.journal.state().identity.node_id,
             boot_id: owner.journal.state().identity.boot_id,
         };
-        drop(owner);
+        Ok(RetainedOutput {
+            baseline,
+            policy,
+            peer,
+            started: started_request,
+        })
+    }
+    /// Start draining genuine local Running immediately. Upload waits for its actual
+    /// persisted Started ACK. Repeated attachment refuses; reconnect keeps this handle.
+    pub fn start_phase_output(
+        self: &Arc<Self>,
+        host: &LocalPhaseHost,
+        http: RelayHttp,
+    ) -> Result<PhaseOutputRelay> {
+        ensure!(
+            Arc::ptr_eq(&self.owned, &host.owner)
+                && Arc::ptr_eq(&self.launch.entry(host.entry.id)?, &host.entry),
+            "native output foreign host"
+        );
+        let runtime = tokio::runtime::Handle::try_current()
+            .context("native output requires async runtime")?;
+        let retained = self.retained_output(host)?;
+        let baseline = retained.baseline;
+        let terminal = baseline.terminal;
         let mut outputs = lock(&self.launch.output)?;
         ensure!(
             !outputs.owners.contains_key(&host.entry.id),
@@ -433,19 +448,21 @@ impl InputPipeline {
         // installed. A prior drain has already lost the baseline's prefix.
         lock(&host.entry.physical)?.ensure_complete_output_available()?;
         outputs.tails.attach_blank(
-            terminal.clone(),
-            &local_framing(&policy),
+            aq_terminal_renderer::AssumedBlank {
+                terminal: terminal.clone(),
+                columns: baseline.columns,
+                rows: baseline.rows,
+            },
+            &local_framing(&retained.policy),
             baseline.renderer,
-            baseline.columns,
-            baseline.rows,
         )?;
         let relay = Arc::new(Relay {
-            terminal: terminal.clone(),
+            terminal,
             attempt: host.entry.id,
             journal: Arc::downgrade(&self.owned),
-            peer,
-            started: started_request,
-            policy,
+            peer: retained.peer,
+            started: retained.started,
+            policy: retained.policy,
             polling: tokio::sync::Mutex::new(OutputPoll {
                 http: http.clone(),
                 cursor: 0,
@@ -468,7 +485,7 @@ impl InputPipeline {
         let weak_outputs = Arc::downgrade(&self.launch.output);
         let weak_entry = Arc::downgrade(&host.entry);
         let weak_relay = Arc::downgrade(&relay);
-        let task = runtime.spawn(async move { drain(weak_outputs, weak_entry, weak_relay).await });
+        let task = runtime.spawn(drain(weak_outputs, weak_entry, weak_relay));
         *lock(&relay.task)? = Some(task.abort_handle());
         Ok(PhaseOutputRelay {
             owner: relay,
@@ -502,26 +519,33 @@ async fn drain(outputs: Weak<Mutex<Outputs>>, entry: Weak<Entry>, relay: Weak<Re
                 relay.draining.store(false, Ordering::SeqCst);
                 return;
             };
-            match physical.poll_output() {
-                Ok(events) => {
-                    let empty = events.is_empty();
-                    for event in events {
-                        if tail.state() != TailState::Discontinuous && tail.accept(&event).is_err()
-                        {
-                            let _ = tail.accept(&ControlEvent::CommandError);
-                        }
-                    }
-                    stopped && empty
-                }
-                Err(_) => {
-                    let _ = tail.accept(&ControlEvent::CommandError);
-                    stopped
-                }
-            }
+            append_available_output(tail, physical.poll_output(), stopped)
         };
         if stop {
             relay.draining.store(false, Ordering::SeqCst);
             return;
+        }
+    }
+}
+
+fn append_available_output(
+    tail: &mut TerminalOutput,
+    events: Result<Vec<ControlEvent>>,
+    stopped: bool,
+) -> bool {
+    match events {
+        Ok(events) => {
+            let empty = events.is_empty();
+            for event in events {
+                if tail.state() != TailState::Discontinuous && tail.accept(&event).is_err() {
+                    let _ = tail.accept(&ControlEvent::CommandError);
+                }
+            }
+            stopped && empty
+        }
+        Err(_) => {
+            let _ = tail.accept(&ControlEvent::CommandError);
+            stopped
         }
     }
 }

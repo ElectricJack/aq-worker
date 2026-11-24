@@ -12,6 +12,15 @@ pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<
         std::env::var("AQ_NATIVE_FIXTURE_CONFINED").as_deref() == Ok("v1"),
         "{refusal}"
     );
+    process_namespace(refusal)?;
+    root_view(refusal)?;
+    user_namespace(refusal)?;
+    loopback(refusal)?;
+    private_state(refusal)?;
+    fixture_images(expected_binary, refusal)?;
+    Ok(())
+}
+fn process_namespace(refusal: &str) -> anyhow::Result<()> {
     let pid_namespace = fs::read_link("/proc/thread-self/ns/pid")?;
     let outer_namespace = std::env::var("AQ_NATIVE_OUTER_PIDNS")?;
     anyhow::ensure!(
@@ -28,6 +37,9 @@ pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<
             && !Path::new(&format!("/proc/{outer}/fd")).exists(),
         "{refusal}: outside process aliases visible"
     );
+    Ok(())
+}
+fn root_view(refusal: &str) -> anyhow::Result<()> {
     let expected = [
         "group",
         "hosts",
@@ -57,6 +69,9 @@ pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<
             "{refusal}: proc root exposes operator homes"
         );
     }
+    Ok(())
+}
+fn user_namespace(refusal: &str) -> anyhow::Result<()> {
     let map = fs::read_to_string("/proc/thread-self/uid_map")?;
     let rows: Vec<Vec<u64>> = map
         .lines()
@@ -70,6 +85,9 @@ pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<
         rows.len() == 1 && rows[0].len() == 3 && rows[0][2] == 1,
         "{refusal}: dedicated user namespace absent"
     );
+    Ok(())
+}
+fn loopback(refusal: &str) -> anyhow::Result<()> {
     let devices = fs::read_to_string("/proc/net/dev")?;
     let names: Vec<_> = devices
         .lines()
@@ -84,6 +102,9 @@ pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<
             .all(|l| l.split_whitespace().nth(1) != Some("00000000")),
         "{refusal}: default route exists"
     );
+    Ok(())
+}
+fn private_state(refusal: &str) -> anyhow::Result<()> {
     for home in ["/home", "/root"] {
         anyhow::ensure!(
             fs::read_dir(home)?.next().is_none(),
@@ -105,6 +126,9 @@ pub(super) fn require_confined_binary(expected_binary: &Path) -> anyhow::Result<
             && std::env::var_os("TMPDIR").as_deref() == Some(state.as_os_str()),
         "{refusal}: private state identity differs"
     );
+    Ok(())
+}
+fn fixture_images(expected_binary: &Path, refusal: &str) -> anyhow::Result<()> {
     for (name, expected) in [
         ("AQ_NATIVE_CODEX_BINARY", "/opt/aq-qualification/codex"),
         (

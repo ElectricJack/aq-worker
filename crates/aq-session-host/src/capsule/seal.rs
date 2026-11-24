@@ -84,18 +84,21 @@ pub(super) fn source(
     }
     bytes(&body, true)
 }
+impl Pin {
+    fn matches(&self, metadata: &std::fs::Metadata, bound: u64) -> bool {
+        metadata.is_file()
+            && metadata.len() == self.bytes
+            && self.bytes > 0
+            && self.bytes <= bound
+            && metadata.dev() == self.device
+            && metadata.ino() == self.inode
+    }
+}
 pub(super) fn verify(file: &mut File, pin: &Pin, bound: u64) -> Result<()> {
     let metadata = file.metadata()?;
     let seals = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GET_SEALS) };
     ensure!(
-        metadata.is_file()
-            && metadata.len() == pin.bytes
-            && pin.bytes > 0
-            && pin.bytes <= bound
-            && metadata.dev() == pin.device
-            && metadata.ino() == pin.inode
-            && seals >= 0
-            && seals & SEALS == SEALS,
+        pin.matches(&metadata, bound) && seals >= 0 && seals & SEALS == SEALS,
         "capsule sealed descriptor mismatch"
     );
     ensure!(

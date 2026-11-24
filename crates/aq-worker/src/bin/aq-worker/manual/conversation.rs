@@ -74,43 +74,46 @@ async fn archive(
     Ok(())
 }
 
-pub(super) async fn run(
-    root: PathBuf,
-    node: Uuid,
-    link: ServerLink,
-    cfg: DockerLocalConfig,
-    mut shutdown: watch::Receiver<bool>,
-) {
-    let mut warned = std::collections::HashSet::new();
-    while !*shutdown.borrow() {
-        if let Ok(entries) = std::fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                let dir = entry.path();
-                let Ok(bytes) = std::fs::read(dir.join("state.json")) else {
-                    continue;
-                };
-                let Ok(agent) = serde_json::from_slice::<Agent>(&bytes) else {
-                    continue;
-                };
-                if agent.node_id != node
-                    || agent.status != "stopped"
-                    || dir.file_name().and_then(|s| s.to_str()) != Some(&agent.id.to_string())
-                {
-                    continue;
-                }
-                tokio::select! {
-                    result = archive(&dir, &agent, &link, &cfg) => {
-                        if result.is_err() && warned.insert(agent.id) {
-                            tracing::warn!(session_id = %agent.id, "native conversation archive will be retried");
+pub(super) struct Archiver {
+    pub root: PathBuf,
+    pub node: Uuid,
+    pub link: ServerLink,
+    pub cfg: DockerLocalConfig,
+}
+
+impl Archiver {
+    fn stopped_agent(&self, directory: &Path) -> Option<Agent> {
+        let bytes = std::fs::read(directory.join("state.json")).ok()?;
+        let agent: Agent = serde_json::from_slice(&bytes).ok()?;
+        if agent.node_id != self.node || agent.status != "stopped" {
+            return None;
+        }
+        let directory_id = directory.file_name()?.to_str()?;
+        (directory_id == agent.id.to_string()).then_some(agent)
+    }
+    pub async fn run(self, mut shutdown: watch::Receiver<bool>) {
+        let mut warned = std::collections::HashSet::new();
+        while !*shutdown.borrow() {
+            if let Ok(entries) = std::fs::read_dir(&self.root) {
+                for entry in entries.flatten() {
+                    let dir = entry.path();
+                    let Some(agent) = self.stopped_agent(&dir) else {
+                        continue;
+                    };
+                    tokio::select! {
+                        result = archive(&dir, &agent, &self.link, &self.cfg) => {
+                            if result.is_err() && warned.insert(agent.id) {
+                                tracing::warn!(session_id = %agent.id, "native conversation archive will be retried");
+                            }
                         }
+                        _ = shutdown.changed() => return,
                     }
-                    _ = shutdown.changed() => return,
                 }
             }
-        }
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {},
-            _ = shutdown.changed() => return,
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(10)) => {},
+                _ = shutdown.changed() => return,
+            }
         }
     }
 }

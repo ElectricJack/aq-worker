@@ -36,6 +36,7 @@
 //!   the web tools, whose egress would bypass the proxy.
 //! - Confinement: OpenCode has no OS sandbox of its own, so only `container`
 //!   mode is qualified; `native` is refused.
+use super::recipe;
 use crate::native::runner::sandbox::confinement::ConfinementMode;
 use anyhow::{Context, Result, ensure};
 use aq_session_protocol::{
@@ -44,7 +45,7 @@ use aq_session_protocol::{
 use std::{
     collections::BTreeMap,
     net::Ipv4Addr,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 /// The OpenCode CLI version this recipe was qualified against.
@@ -124,9 +125,10 @@ fn reasoning_effort(model: &ModelSettings) -> Result<Option<&str>> {
     }
 }
 
-/// Crate-private: callers reach it only through `OpenCodeAgentHome::install`,
+/// Public only for tests/native_cli/opencode_adapter.rs. It maps metadata and
+/// launches nothing; launches reach it only through `OpenCodeAgentHome::install`,
 /// which requires an `AuthorizedConfinement`.
-pub(crate) fn map(
+pub fn map(
     harness: &HarnessSettings,
     model: &ModelSettings,
     paths: OpenCodePaths<'_>,
@@ -145,12 +147,48 @@ pub(crate) fn map(
         "OpenCode recipe unsupported settings"
     );
     let effort = reasoning_effort(model)?;
-    let declares = |id: &str| {
-        harness
-            .required_capabilities
-            .iter()
-            .any(|c| c.id.as_str() == id && c.version == 1)
-    };
+    validate_route(harness, mode, route)?;
+    let OpenCodePaths {
+        executable,
+        workspace,
+        private_home,
+    } = paths;
+    for path in [executable, workspace, private_home] {
+        ensure!(
+            recipe::normalized(path),
+            "OpenCode recipe requires absolute normalized paths"
+        );
+    }
+    ensure!(
+        recipe::disjoint(private_home, workspace),
+        "OpenCode private home must be disjoint from the workspace"
+    );
+    let home = private_home.to_str().context("OpenCode home UTF8")?;
+    let model_ref = format!("{}/{}", route.provider(), model.model.as_str());
+    let arguments = vec![
+        "run".to_owned(),
+        "--format".to_owned(),
+        "json".to_owned(),
+        "--pure".to_owned(),
+        "--model".to_owned(),
+        model_ref.clone(),
+    ];
+    let environment = environment(home, model, route);
+    Ok(OpenCodeRecipe {
+        executable: executable.to_owned(),
+        arguments,
+        environment,
+        working_directory: workspace.to_owned(),
+        config_json: serde_json::to_vec_pretty(&config(model, effort, &model_ref, route))?,
+    })
+}
+
+fn validate_route(
+    harness: &HarnessSettings,
+    mode: ConfinementMode,
+    route: OpenCodeRoute,
+) -> Result<()> {
+    let declares = |id| recipe::declares(harness, id);
     ensure!(
         mode == ConfinementMode::Container
             && declares(CONTAINER_CONFINEMENT_CAPABILITY)
@@ -167,35 +205,13 @@ pub(crate) fn map(
         ),
         OpenCodeRoute::Subscription => {}
     }
-    let OpenCodePaths {
-        executable,
-        workspace,
-        private_home,
-    } = paths;
-    for path in [executable, workspace, private_home] {
-        ensure!(
-            path.is_absolute()
-                && path
-                    .components()
-                    .all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
-                && !path.as_os_str().as_encoded_bytes().contains(&0),
-            "OpenCode recipe requires absolute normalized paths"
-        );
-    }
-    ensure!(
-        !private_home.starts_with(workspace) && !workspace.starts_with(private_home),
-        "OpenCode private home must be disjoint from the workspace"
-    );
-    let home = private_home.to_str().context("OpenCode home UTF8")?;
-    let model_ref = format!("{}/{}", route.provider(), model.model.as_str());
-    let arguments = vec![
-        "run".to_owned(),
-        "--format".to_owned(),
-        "json".to_owned(),
-        "--pure".to_owned(),
-        "--model".to_owned(),
-        model_ref.clone(),
-    ];
+    Ok(())
+}
+fn environment(
+    home: &str,
+    model: &ModelSettings,
+    route: OpenCodeRoute,
+) -> BTreeMap<String, String> {
     let sub = |name: &str| format!("{home}/{name}");
     let mut environment: BTreeMap<String, String> = [
         ("HOME", home.to_owned()),
@@ -229,13 +245,7 @@ pub(crate) fn map(
             "1".to_owned(),
         );
     }
-    Ok(OpenCodeRecipe {
-        executable: executable.to_owned(),
-        arguments,
-        environment,
-        working_directory: workspace.to_owned(),
-        config_json: serde_json::to_vec_pretty(&config(model, effort, &model_ref, route))?,
-    })
+    environment
 }
 
 fn config(
@@ -286,6 +296,10 @@ fn config(
     })
 }
 
+fn valid_token(token: &str) -> bool {
+    !token.is_empty() && token.len() <= 16 * 1024 && token.bytes().all(|b| b.is_ascii_graphic())
+}
+
 /// Largest leased OpenCode login accepted (C5b's material bound).
 pub const MAX_AUTH_BYTES: usize = 64 * 1024;
 
@@ -328,19 +342,14 @@ pub fn validate_chatgpt_auth_json(bytes: &[u8]) -> Result<i64> {
     let auth: Auth = serde_json::from_slice(bytes)
         .map_err(|_| anyhow::anyhow!("unsupported OpenCode login JSON"))?;
     let o = auth.openai;
-    let token =
-        |t: &str| !t.is_empty() && t.len() <= 16 * 1024 && t.bytes().all(|b| b.is_ascii_graphic());
     ensure!(
         o.r#type == "oauth"
-            && token(&o.refresh)
-            && token(&o.access)
+            && valid_token(&o.refresh)
+            && valid_token(&o.access)
             && o.expires > 0
             && o.enterprise_url.is_none()
-            && o.account_id.as_deref().is_none_or(token),
+            && o.account_id.as_deref().is_none_or(valid_token),
         "OpenCode ChatGPT subscription login required"
     );
     Ok(o.expires)
 }
-
-#[cfg(test)]
-mod tests;

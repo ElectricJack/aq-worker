@@ -8,10 +8,13 @@
 pub mod config;
 pub mod policy;
 pub mod tar;
-pub mod transport;
+pub use aq_sandbox_archive::docker_engine as transport;
 
 pub use config::*;
-pub use transport::*;
+pub use transport::{
+    DockerMethod, DockerRequest, DockerResponse, DockerTransport, TransportError,
+    TransportErrorKind, UnixSocketTransport,
+};
 
 use crate::backend::{
     BackendDiskUsage, BackendError, BackendKind, Capability, ConfinementMode, Confirmation,
@@ -30,6 +33,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
+use transport::CallError;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -54,12 +58,6 @@ pub fn require_confinement(mode: ConfinementMode) -> Result<(), BackendError> {
     }
 }
 
-#[derive(Debug)]
-enum CallError {
-    Timeout,
-    Transport,
-    TooLarge,
-}
 impl From<CallError> for BackendError {
     fn from(error: CallError) -> Self {
         BackendError::Uncertain(match error {
@@ -116,7 +114,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
                 "sandbox daemon storage shares the root filesystem; set shared_root_fs to override",
             ));
         }
-        if backend.config.hard_disk_limit && !backing_filesystem_is_xfs(&info) {
+        if backend.config.hard_disk_limit && !transport::backing_filesystem_is_xfs(&info) {
             return Err(BackendError::InvalidRequest(
                 "hard disk limit requires XFS (prjquota) sandbox storage",
             ));
@@ -154,14 +152,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             body,
             max_response_bytes,
         };
-        match tokio::time::timeout(timeout, self.transport.send(request)).await {
-            Err(_) => Err(CallError::Timeout),
-            Ok(Err(error)) if error.kind == TransportErrorKind::TooLarge => {
-                Err(CallError::TooLarge)
-            }
-            Ok(Err(_)) => Err(CallError::Transport),
-            Ok(Ok(response)) => Ok(response),
-        }
+        transport::call(&self.transport, request, timeout).await
     }
 
     /// GET returning parsed JSON; anything but 200 is uncertainty.
@@ -183,54 +174,10 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     }
 }
 
-/// SBX10: per-sandbox CPU, memory and PID limits must be enforced. A daemon
-/// without a cgroup driver (e.g. `docker:dind-rootless`) or on cgroup v1 (no
-/// rootless delegation) accepts `NanoCpus`/`Memory`/`PidsLimit` and silently
-/// drops them, so it is refused rather than launching unlimited sandboxes. A
-/// missing field is treated as unenforced.
+pub use transport::storage_shares_root;
+
 pub fn require_enforced_limits(info: &Value) -> Result<(), BackendError> {
-    let field = |name: &str| info.get(name).and_then(Value::as_str);
-    match field("CgroupDriver") {
-        None | Some("") | Some("none") => {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon reports no cgroup driver; resource limits would be silently dropped",
-            ));
-        }
-        Some(_) => {}
-    }
-    if field("CgroupVersion") != Some("2") {
-        return Err(BackendError::InvalidRequest(
-            "sandbox daemon must use cgroup v2; resource limits would be silently dropped",
-        ));
-    }
-    Ok(())
-}
-
-/// SBX20 admission: the daemon's storage root (graphroot) must be on a
-/// filesystem distinct from `/`, compared by `st_dev`. A missing or
-/// unreadable root cannot be proven distinct and counts as shared.
-pub fn storage_shares_root(info: &Value) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    let root = info
-        .get("DockerRootDir")
-        .or_else(|| info.pointer("/Store/GraphRoot"))
-        .or_else(|| info.pointer("/store/graphRoot"))
-        .and_then(Value::as_str)
-        .filter(|root| root.starts_with('/'));
-    let Some(root) = root else { return true };
-    match (std::fs::metadata(root), std::fs::metadata("/")) {
-        (Ok(storage), Ok(host)) => storage.dev() == host.dev(),
-        _ => true,
-    }
-}
-
-/// `DriverStatus` is a list of `[key, value]` pairs.
-fn backing_filesystem_is_xfs(info: &Value) -> bool {
-    info["DriverStatus"].as_array().is_some_and(|pairs| {
-        pairs.iter().any(|pair| {
-            pair[0].as_str() == Some("Backing Filesystem") && pair[1].as_str() == Some("xfs")
-        })
-    })
+    transport::require_enforced_limits(info).map_err(BackendError::InvalidRequest)
 }
 
 fn parse_json(body: &[u8]) -> Result<serde_json::Value, BackendError> {
@@ -252,6 +199,17 @@ struct Observed {
     entry: InventoryEntry,
     container: bool,
     exit: Option<RunnerExit>,
+}
+
+/// `/images/<reference>`: a reference's `/`, `:` and `@` stay as the daemon's
+/// route expects; anything else outside the unreserved set is percent-encoded.
+fn image_path(image: &str) -> String {
+    let keep = |c: u8| c.is_ascii_alphanumeric() || b"-._~/:@".contains(&c);
+    let encoded = image.bytes().map(|c| match keep(c) {
+        true => (c as char).to_string(),
+        false => format!("%{c:02X}"),
+    });
+    format!("/images/{}", encoded.collect::<String>())
 }
 
 impl<T: DockerTransport> DockerLocalBackend<T> {
@@ -402,9 +360,51 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         let path = format!("/images/create?fromImage={}", encode(&image));
         self.send_with(DockerMethod::Post, &path, None, PULL_TIMEOUT)
             .await?;
-        match self.get_optional(&format!("/images/{image}/json")).await? {
+        match self
+            .get_optional(&format!("{}/json", image_path(&image)))
+            .await?
+        {
             Some(_) => Ok(()),
             None => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        }
+    }
+
+    /// Spec 0017 §6.7: removes a template image no container (running, stopped
+    /// or preserved) uses. A template this configuration allowlists is never removed.
+    #[cfg(feature = "project_environments")]
+    pub async fn remove_template(
+        &mut self,
+        digest: &TemplateDigest,
+        image: &str,
+    ) -> Result<aq_environment_builder::node::Removal, BackendError> {
+        use aq_environment_builder::node::Removal;
+        if self.config.template_image(digest).is_some() {
+            return Ok(Removal::Kept);
+        }
+        // The image comes from the server: checked before any daemon call.
+        if !config::pinned_reference(image, digest) {
+            return Err(BackendError::InvalidRequest(
+                "template image must be a reference pinned to its digest",
+            ));
+        }
+        let path = image_path(image);
+        let Some(found) = self.get_optional(&format!("{path}/json")).await? else {
+            return Ok(Removal::Removed);
+        };
+        let containers = self.get_json("/containers/json?all=true").await?;
+        let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
+        let uses = |c: &Value| {
+            [&c["Image"], &c["ImageID"]]
+                .iter()
+                .any(|v| **v == image || **v == found["Id"])
+        };
+        if containers.as_array().ok_or(unknown)?.iter().any(uses) {
+            return Ok(Removal::InUse);
+        }
+        match self.send(DockerMethod::Delete, &path, None).await?.status {
+            200 | 404 => Ok(Removal::Removed),
+            409 => Ok(Removal::InUse),
+            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
     }
 
@@ -456,7 +456,31 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         sandbox: &SandboxIdentity,
         archive: Vec<u8>,
     ) -> Result<(), BackendError> {
-        let observed = self.observe(sandbox).await?;
+        self.put_preparation_archive(
+            sandbox,
+            Zeroizing::new(archive),
+            self.api_timeout().max(Duration::from_secs(60)),
+        )
+        .await
+    }
+
+    async fn observe_preparation(
+        &self,
+        sandbox: &SandboxIdentity,
+    ) -> Result<Observed, BackendError> {
+        match self.observe(sandbox).await {
+            Err(BackendError::Uncertain(UnconfirmedReason::Timeout)) => self.observe(sandbox).await,
+            result => result,
+        }
+    }
+
+    async fn put_preparation_archive(
+        &self,
+        sandbox: &SandboxIdentity,
+        archive: Zeroizing<Vec<u8>>,
+        timeout: Duration,
+    ) -> Result<(), BackendError> {
+        let observed = self.observe_preparation(sandbox).await?;
         if !observed.container || observed.entry.state != SandboxState::Created {
             return Err(BackendError::InvalidState);
         }
@@ -466,9 +490,9 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
                 DockerMethod::Put,
                 &path,
                 Some("application/x-tar"),
-                Zeroizing::new(archive),
+                archive,
                 MAX_JSON_BYTES,
-                self.api_timeout().max(Duration::from_secs(60)),
+                timeout,
             )
             .await?;
         match response.status {
@@ -488,32 +512,55 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         if !self.observe(sandbox).await?.container {
             return Err(BackendError::NotFound);
         }
-        let request = format!(
-            "/containers/{}/archive?path={}",
+        let path = format!(
+            "{API_VERSION}/containers/{}/archive?path={}",
             sandbox.backend_id,
             encode(path)
         );
-        let response = match self
-            .call(
-                DockerMethod::Get,
-                &request,
-                None,
-                Zeroizing::default(),
-                max_bytes,
-                self.api_timeout().max(Duration::from_secs(60)),
-            )
-            .await
-        {
-            Err(CallError::TooLarge) => {
-                return Err(BackendError::InvalidRequest("archive exceeds read cap"));
-            }
-            other => other?,
-        };
-        match response.status {
-            200 => Ok(response.body.to_vec()),
-            404 => Err(BackendError::NotFound),
-            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
+        self.download_archive(path, max_bytes)
+            .await?
+            .ok_or(BackendError::NotFound)
+    }
+
+    pub async fn stopped_work_tree(
+        &self,
+        sandbox: &SandboxIdentity,
+        max: u64,
+    ) -> Result<Vec<tar::TreeEntry>, BackendError> {
+        let observed = self.observe(sandbox).await?;
+        if observed.entry.state != SandboxState::Stopped {
+            return Err(BackendError::InvalidState);
         }
+        let id = &sandbox.backend_id;
+        let path = transport::workspace_archive_path(
+            API_VERSION,
+            id,
+            &volume_name(id),
+            observed.container,
+        );
+        let raw = self
+            .download_archive(path, max.saturating_mul(2).try_into().unwrap_or(usize::MAX))
+            .await?
+            .ok_or(BackendError::NotFound)?;
+        let after = self.observe(sandbox).await?;
+        if after.entry.state != SandboxState::Stopped || after.container != observed.container {
+            return Err(BackendError::InvalidState);
+        }
+        aq_sandbox_archive::tar::read_workspace_tree(&raw, max, observed.container)
+            .map_err(|error| BackendError::InvalidRequest(error.0))
+    }
+
+    async fn download_archive(
+        &self,
+        path: String,
+        max: usize,
+    ) -> Result<Option<Vec<u8>>, BackendError> {
+        transport::archive(&self.transport, path, max, self.api_timeout())
+            .await
+            .map_err(|error| match error {
+                CallError::TooLarge => BackendError::InvalidRequest("archive exceeds read cap"),
+                other => other.into(),
+            })
     }
 
     /// Sets the size of a running sandbox's terminal (`runner_tty`).
@@ -680,10 +727,6 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         sandbox: &SandboxIdentity,
         material: PrivateMaterial,
     ) -> Result<(), BackendError> {
-        let observed = self.observe(sandbox).await?;
-        if !observed.container || observed.entry.state != SandboxState::Created {
-            return Err(BackendError::InvalidState);
-        }
         let archive = tar::material_archive(
             &self.config.material_path,
             material.expose_for_control_channel(),
@@ -691,32 +734,31 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             self.config.material_gid,
         )?;
         drop(material);
-        let path = format!("/containers/{}/archive?path=%2F", sandbox.backend_id);
-        let response = self
-            .call(
-                DockerMethod::Put,
-                &path,
-                Some("application/x-tar"),
-                archive,
-                MAX_JSON_BYTES,
-                self.api_timeout(),
-            )
-            .await?;
-        match response.status {
-            200 => Ok(()),
-            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
-        }
+        self.put_preparation_archive(sandbox, archive, self.api_timeout())
+            .await
     }
 
     async fn start_runner(&mut self, sandbox: &SandboxIdentity) -> Result<(), BackendError> {
-        let observed = self.observe(sandbox).await?;
+        let observed = self.observe_preparation(sandbox).await?;
         match observed.entry.state {
             SandboxState::Created if observed.container => {}
             SandboxState::Running => return Ok(()),
             _ => return Err(BackendError::InvalidState),
         }
         let path = format!("/containers/{}/start", sandbox.backend_id);
-        let response = self.send(DockerMethod::Post, &path, None).await?;
+        let response = match self.send(DockerMethod::Post, &path, None).await {
+            // The start may have applied. A read can confirm it without risking
+            // starting a second runner after a first runner exits.
+            Err(BackendError::Uncertain(_))
+                if self
+                    .observe_preparation(sandbox)
+                    .await
+                    .is_ok_and(|seen| seen.entry.state == SandboxState::Running) =>
+            {
+                return Ok(());
+            }
+            result => result?,
+        };
         match response.status {
             204 | 304 => Ok(()),
             404 => Err(BackendError::NotFound),

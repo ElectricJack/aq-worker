@@ -99,36 +99,7 @@ impl CheckClient {
             .send()
             .await
             .map_err(|e| CheckCallError::Transient(error_chain(e)))?;
-        let status = response.status();
-        if status.is_server_error()
-            || matches!(
-                status,
-                StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
-            )
-        {
-            return Err(CheckCallError::Transient(format!(
-                "server returned {status}"
-            )));
-        }
-        if status == StatusCode::CONFLICT {
-            return Err(CheckCallError::Conflict);
-        }
-        if status == StatusCode::NOT_FOUND {
-            return Err(CheckCallError::NotFound);
-        }
-        if status == StatusCode::BAD_REQUEST {
-            return Err(CheckCallError::Invalid(format!("server returned {status}")));
-        }
-        let html = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("text/html"));
-        if !status.is_success() || html {
-            return Err(CheckCallError::Rejected(format!(
-                "server returned {status}"
-            )));
-        }
+        check_status(&response)?;
         let mut response = response;
         let mut bytes = Vec::new();
         while let Some(chunk) = response
@@ -144,6 +115,40 @@ impl CheckClient {
         serde_json::from_slice(&bytes)
             .map_err(|_| CheckCallError::Rejected("unreadable response".into()))
     }
+}
+
+fn check_status(response: &reqwest::Response) -> Result<(), CheckCallError> {
+    let status = response.status();
+    if status.is_server_error()
+        || matches!(
+            status,
+            StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
+        )
+    {
+        return Err(CheckCallError::Transient(format!(
+            "server returned {status}"
+        )));
+    }
+    if status == StatusCode::CONFLICT {
+        return Err(CheckCallError::Conflict);
+    }
+    if status == StatusCode::NOT_FOUND {
+        return Err(CheckCallError::NotFound);
+    }
+    if status == StatusCode::BAD_REQUEST {
+        return Err(CheckCallError::Invalid(format!("server returned {status}")));
+    }
+    let html = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim_start().to_ascii_lowercase().starts_with("text/html"));
+    if !status.is_success() || html {
+        return Err(CheckCallError::Rejected(format!(
+            "server returned {status}"
+        )));
+    }
+    Ok(())
 }
 
 impl CheckTransport for CheckClient {

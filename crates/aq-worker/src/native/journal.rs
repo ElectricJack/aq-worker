@@ -214,70 +214,164 @@ fn kernel_boot_id() -> Result<Uuid> {
 fn same(a: &impl Serialize, b: &impl Serialize) -> Result<bool> {
     Ok(canonical_bytes(a)? == canonical_bytes(b)?)
 }
+fn validate_inline_receipts(offer: &NativeOffer) -> Result<()> {
+    let artifacts = &offer.offered.artifacts;
+    ensure!(
+        artifacts.len() <= 126
+            && artifacts
+                .iter()
+                .map(|a| a.artifact.digest.as_str())
+                .collect::<BTreeSet<_>>()
+                .len()
+                == artifacts.len(),
+        "native inline receipt set cannot satisfy Prepare"
+    );
+    Ok(())
+}
+impl Reservation {
+    fn validate(
+        &self,
+        id: Uuid,
+        owner: &WorkerIdentity,
+        identities: &mut BTreeSet<Uuid>,
+    ) -> Result<()> {
+        self.offer.validate()?;
+        self.git_author
+            .as_ref()
+            .map(GitAuthor::validate)
+            .transpose()?;
+        validate_inline_receipts(&self.offer)?;
+        let offered = &self.offer.offered;
+        for reference in [&self.runtime.runtime, &self.runtime.qualification] {
+            reference.id.validate()?;
+            reference.version.validate()?;
+        }
+        let binding = &offered.offer.binding;
+        ensure!(
+            id == binding.attempt_id
+                && matches!(binding.session, SessionIdentity::Remote { node_id, boot_id, .. } if node_id == owner.node_id && boot_id == owner.boot_id),
+            "native reservation owner"
+        );
+        ensure!(
+            self.reserved_at_ns < self.deadline_ns
+                && self.deadline_ns - self.reserved_at_ns
+                    <= offered
+                        .reservation_ttl_ms
+                        .checked_mul(1_000_000)
+                        .context("reservation duration overflow")?
+                && self.disk_bytes > 0,
+            "reservation deadline/disk"
+        );
+        ensure!(
+            [
+                self.reservation_id,
+                self.reservation_operation_id,
+                self.accept_operation_id,
+                self.guardian_id,
+                self.launch_id
+            ]
+            .iter()
+            .all(|id| !id.is_nil() && identities.insert(*id)),
+            "reservation identifiers"
+        );
+        Ok(())
+    }
+}
+impl Attempt {
+    fn validate_acceptance(&self, state: &State) -> Result<()> {
+        let r = &self.reservation;
+        if let Some(request) = &self.acceptance {
+            ensure!(
+                self.acceptance_digest.as_ref() == Some(&canonical_digest(request)?),
+                "acceptance request digest"
+            );
+            TransportDocument::Accept(request.clone()).validate()?;
+            request
+                .acceptance
+                .validate_against(&r.offer.offered.offer)?;
+            ensure!(
+                request.identity == state.identity
+                    && (request.operation_id, request.guardian_id, request.launch_id)
+                        == (r.accept_operation_id, r.guardian_id, r.launch_id)
+                    && request.reservation.reservation_id == r.reservation_id
+                    && request.reservation.reservation_operation_id == r.reservation_operation_id
+                    && request.reservation.reservation_journal_digest == canonical_digest(r)?
+                    && request.journal_revision < state.revision,
+                "acceptance journal association"
+            );
+            ensure!(
+                canonical_bytes(request)?.len() <= 65_536,
+                "acceptance bytes bound"
+            );
+        }
+        ensure!(
+            self.acceptance.is_some() == self.acceptance_digest.is_some(),
+            "orphan acceptance digest"
+        );
+        Ok(())
+    }
+    fn validate_preparation(&self) -> Result<()> {
+        if let Some(record) = &self.preparation {
+            let request = self
+                .acceptance
+                .as_ref()
+                .context("preparation without acceptance")?;
+            record
+                .delivery
+                .validate_for(request, record.delivery.delivery.nonce)?;
+            let maximum = record.delivery.delivery.client_deadline_ns(
+                record.sent_ns,
+                record.received_ns,
+                Some(self.reservation.deadline_ns),
+            )?;
+            ensure!(
+                record.received_ns >= record.sent_ns
+                    && record.received_ns < record.deadline_ns
+                    && record.deadline_ns <= maximum,
+                "preparation delivery clocks"
+            );
+        }
+        Ok(())
+    }
+    fn new(reservation: Reservation) -> Self {
+        Self {
+            reservation,
+            acceptance: None,
+            acceptance_digest: None,
+            preparation: None,
+            downloads: BTreeMap::new(),
+            material_downloads: BTreeMap::new(),
+            source: None,
+            prepared: None,
+            initial_grant: None,
+            phase_acceptance: None,
+            phase_preparation: None,
+            phase_prepared: None,
+            phase_execution: None,
+            refresh_acceptance: None,
+            refresh_preparation: None,
+            refresh_prepared: None,
+            refresh_execution: None,
+            native_host: None,
+            result: None,
+        }
+    }
+}
 impl State {
+    fn attempt_mut(&mut self, id: Uuid) -> Result<&mut Attempt> {
+        self.attempts.get_mut(&id).context("unknown native attempt")
+    }
     fn validate(&self, limits: &Limits) -> Result<()> {
         limits.validate()?;
         self.identity.validate()?;
-        ensure!(
-            self.format == FORMAT
-                && self.revision > 0
-                && !self.kernel_boot_id.is_nil()
-                && self.attempts.len() <= MAX_ATTEMPTS,
-            "native journal version/shape"
-        );
+        self.validate_header()?;
         let mut used = (0u32, 0u64, 0u64, 0u64);
         let mut identities = BTreeSet::new();
         let mut download_records = 0usize;
         let mut download_requests = 0usize;
         for (id, attempt) in &self.attempts {
             let r = &attempt.reservation;
-            r.offer.validate()?;
-            r.git_author.as_ref().map(GitAuthor::validate).transpose()?;
-            ensure!(
-                r.offer.offered.artifacts.len() <= 126
-                    && r.offer
-                        .offered
-                        .artifacts
-                        .iter()
-                        .map(|a| a.artifact.digest.as_str())
-                        .collect::<BTreeSet<_>>()
-                        .len()
-                        == r.offer.offered.artifacts.len(),
-                "native inline receipt set cannot satisfy Prepare"
-            );
-            for reference in [&r.runtime.runtime, &r.runtime.qualification] {
-                reference.id.validate()?;
-                reference.version.validate()?;
-            }
-            let binding = &r.offer.offered.offer.binding;
-            ensure!(
-                *id == binding.attempt_id
-                    && matches!(binding.session, SessionIdentity::Remote { node_id, boot_id, .. } if node_id == self.identity.node_id && boot_id == self.identity.boot_id),
-                "native reservation owner"
-            );
-            ensure!(
-                r.reserved_at_ns < r.deadline_ns
-                    && r.deadline_ns - r.reserved_at_ns
-                        <= r.offer
-                            .offered
-                            .reservation_ttl_ms
-                            .checked_mul(1_000_000)
-                            .context("reservation duration overflow")?
-                    && r.disk_bytes > 0,
-                "reservation deadline/disk"
-            );
-            ensure!(
-                [
-                    r.reservation_id,
-                    r.reservation_operation_id,
-                    r.accept_operation_id,
-                    r.guardian_id,
-                    r.launch_id
-                ]
-                .iter()
-                .all(|id| !id.is_nil() && identities.insert(*id)),
-                "reservation identifiers"
-            );
+            r.validate(*id, &self.identity, &mut identities)?;
             let resource = &r.offer.offered.offer.manifest.resources;
             used.0 = used.0.checked_add(1).context("slot overflow")?;
             used.1 = used
@@ -289,101 +383,7 @@ impl State {
                 .checked_add(resource.cpu_millis)
                 .context("cpu overflow")?;
             used.3 = used.3.checked_add(r.disk_bytes).context("disk overflow")?;
-            if let Some(request) = &attempt.acceptance {
-                ensure!(
-                    attempt.acceptance_digest.as_ref() == Some(&canonical_digest(request)?),
-                    "acceptance request digest"
-                );
-                TransportDocument::Accept(request.clone()).validate()?;
-                request
-                    .acceptance
-                    .validate_against(&r.offer.offered.offer)?;
-                ensure!(
-                    request.identity == self.identity
-                        && request.operation_id == r.accept_operation_id
-                        && request.guardian_id == r.guardian_id
-                        && request.launch_id == r.launch_id
-                        && request.reservation.reservation_id == r.reservation_id
-                        && request.reservation.reservation_operation_id
-                            == r.reservation_operation_id
-                        && request.reservation.reservation_journal_digest == canonical_digest(r)?
-                        && request.journal_revision < self.revision,
-                    "acceptance journal association"
-                );
-                ensure!(
-                    canonical_bytes(request)?.len() <= 65_536,
-                    "acceptance bytes bound"
-                );
-            }
-            ensure!(
-                attempt.acceptance.is_some() == attempt.acceptance_digest.is_some(),
-                "orphan acceptance digest"
-            );
-            // Validate the one saved phase owner before checking any physical
-            // input copies. InputOrigin equality relies on this shared check;
-            // repeated proposal validation per input would be quadratic.
-            preparation_v2::validate(attempt, &self.identity, self.revision)?;
-            preparation_refresh_v1::validate(attempt, &self.identity, self.revision)?;
-            ensure!(
-                attempt.native_host.is_none()
-                    || attempt.phase_execution.is_some()
-                    || attempt.refresh_execution.is_some(),
-                "host without actual phase execution"
-            );
-            if let Some(record) = &attempt.preparation {
-                let request = attempt
-                    .acceptance
-                    .as_ref()
-                    .context("preparation without acceptance")?;
-                record
-                    .delivery
-                    .validate_for(request, record.delivery.delivery.nonce)?;
-                let maximum = record.delivery.delivery.client_deadline_ns(
-                    record.sent_ns,
-                    record.received_ns,
-                    Some(r.deadline_ns),
-                )?;
-                ensure!(
-                    record.received_ns >= record.sent_ns
-                        && record.received_ns < record.deadline_ns
-                        && record.deadline_ns <= maximum,
-                    "preparation delivery clocks"
-                );
-            }
-            source::validate(attempt, self.revision, &mut identities)?;
-            prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
-            phase_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
-            refresh_prepared::validate(attempt, &self.identity, self.revision, &mut identities)?;
-            granted::validate(attempt, self.revision)?;
-            phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
-            refresh_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
-            launch::validate(attempt, self.revision, &mut identities)?;
-            result::validate(attempt, self, &mut identities)?;
-            phase_terminal::validate(attempt, self.revision)?;
-            refresh_terminal::validate(attempt, self.revision)?;
-            if let Some(h) = &attempt.native_host {
-                let mut base = h.clone();
-                base.terminal = None;
-                base.refresh_terminal = None;
-                ensure!(
-                    canonical_bytes(&base)?.len() <= phase_terminal_budget::BASE_HISTORY_MAX,
-                    "native base host history bound"
-                );
-            }
-            ensure!(
-                attempt
-                    .initial_grant
-                    .as_ref()
-                    .is_none_or(|g| g.kernel_boot_id == self.kernel_boot_id),
-                "received grant kernel clock namespace"
-            );
-            inputs::validate(
-                attempt,
-                &self.identity,
-                self.kernel_boot_id,
-                self.revision,
-                &mut identities,
-            )?;
+            self.validate_history(attempt, &mut identities)?;
             download_records += attempt.downloads.len() + attempt.material_downloads.len();
             download_requests += attempt
                 .downloads
@@ -403,6 +403,63 @@ impl State {
                 && used.3 <= limits.disk_bytes,
             "native capacity exhausted"
         );
+        self.validate_reserved_capacity()
+    }
+    fn validate_history(&self, attempt: &Attempt, identities: &mut BTreeSet<Uuid>) -> Result<()> {
+        attempt.validate_acceptance(self)?;
+        // Validate the one saved phase owner before checking any physical
+        // input copies. InputOrigin equality relies on this shared check;
+        // repeated proposal validation per input would be quadratic.
+        preparation_v2::validate(attempt, &self.identity, self.revision)?;
+        preparation_refresh_v1::validate(attempt, &self.identity, self.revision)?;
+        ensure!(
+            attempt.native_host.is_none()
+                || attempt.phase_execution.is_some()
+                || attempt.refresh_execution.is_some(),
+            "host without actual phase execution"
+        );
+        attempt.validate_preparation()?;
+        source::validate(attempt, self.revision, identities)?;
+        prepared::validate(attempt, &self.identity, self.revision, identities)?;
+        phase_prepared::validate(attempt, &self.identity, self.revision, identities)?;
+        refresh_prepared::validate(attempt, &self.identity, self.revision, identities)?;
+        granted::validate(attempt, self.revision)?;
+        phase_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
+        refresh_execution::validate(attempt, self.kernel_boot_id, self.revision)?;
+        launch::validate(attempt, self.revision, identities)?;
+        result::validate(attempt, self, identities)?;
+        phase_terminal::validate(attempt, self.revision)?;
+        refresh_terminal::validate(attempt, self.revision)?;
+        if let Some(h) = &attempt.native_host {
+            let mut base = h.clone();
+            base.terminal = None;
+            base.refresh_terminal = None;
+            ensure!(
+                canonical_bytes(&base)?.len() <= phase_terminal_budget::BASE_HISTORY_MAX,
+                "native base host history bound"
+            );
+        }
+        ensure!(
+            attempt
+                .initial_grant
+                .as_ref()
+                .is_none_or(|g| g.kernel_boot_id == self.kernel_boot_id),
+            "received grant kernel clock namespace"
+        );
+        inputs::validate(attempt, self, identities)?;
+        Ok(())
+    }
+    fn validate_header(&self) -> Result<()> {
+        ensure!(
+            self.format == FORMAT
+                && self.revision > 0
+                && !self.kernel_boot_id.is_nil()
+                && self.attempts.len() <= MAX_ATTEMPTS,
+            "native journal version/shape"
+        );
+        Ok(())
+    }
+    fn validate_reserved_capacity(&self) -> Result<()> {
         // Do not add whole-state encoding work to non-host legacy/phase input paths.
         if self
             .attempts
@@ -516,6 +573,12 @@ impl Journal {
             pause: None,
         })
     }
+    fn attempt(&self, id: Uuid) -> Result<&Attempt> {
+        self.state
+            .attempts
+            .get(&id)
+            .context("unknown native attempt")
+    }
     pub fn state(&self) -> &State {
         &self.state
     }
@@ -615,18 +678,7 @@ impl Journal {
         let now = self.live()?;
         let AttemptOffer { offer, git_author } = offer.into();
         offer.validate()?;
-        ensure!(
-            offer.offered.artifacts.len() <= 126
-                && offer
-                    .offered
-                    .artifacts
-                    .iter()
-                    .map(|a| a.artifact.digest.as_str())
-                    .collect::<BTreeSet<_>>()
-                    .len()
-                    == offer.offered.artifacts.len(),
-            "native inline receipt set cannot satisfy Prepare"
-        );
+        validate_inline_receipts(&offer)?;
         let id = offer.offered.offer.binding.attempt_id;
         ensure!(
             !self.state.attempts.contains_key(&id),
@@ -659,30 +711,7 @@ impl Journal {
             launch_id: Uuid::new_v4(),
         };
         let mut state = self.next()?;
-        state.attempts.insert(
-            id,
-            Attempt {
-                reservation,
-                acceptance: None,
-                acceptance_digest: None,
-                preparation: None,
-                downloads: BTreeMap::new(),
-                material_downloads: BTreeMap::new(),
-                source: None,
-                prepared: None,
-                initial_grant: None,
-                phase_acceptance: None,
-                phase_preparation: None,
-                phase_prepared: None,
-                phase_execution: None,
-                refresh_acceptance: None,
-                refresh_preparation: None,
-                refresh_prepared: None,
-                refresh_execution: None,
-                native_host: None,
-                result: None,
-            },
-        );
+        state.attempts.insert(id, Attempt::new(reservation));
         self.persist(state)?;
         Ok(id)
     }
@@ -719,11 +748,7 @@ impl Journal {
         advertised_capabilities: Vec<Capability>,
     ) -> Result<Accept> {
         let now = self.live()?;
-        let attempt = self
-            .state
-            .attempts
-            .get(&id)
-            .context("unknown native attempt")?;
+        let attempt = self.attempt(id)?;
         let r = &attempt.reservation;
         ensure!(
             attempt.phase_acceptance.is_none() && attempt.refresh_acceptance.is_none(),
@@ -745,7 +770,7 @@ impl Journal {
         let request = self.accept_for(r, acceptance, r.deadline_ns - now)?;
         TransportDocument::Accept(request.clone()).validate()?;
         let mut state = self.next()?;
-        let attempt = state.attempts.get_mut(&id).unwrap();
+        let attempt = state.attempt_mut(id)?;
         attempt.acceptance_digest = Some(canonical_digest(&request)?);
         attempt.acceptance = Some(request.clone());
         self.persist(state)?;
@@ -753,11 +778,7 @@ impl Journal {
     }
     pub fn record_preparation(&mut self, id: Uuid, observed: &Preparation) -> Result<()> {
         let now = self.live()?;
-        let attempt = self
-            .state
-            .attempts
-            .get(&id)
-            .context("unknown native attempt")?;
+        let attempt = self.attempt(id)?;
         let request = attempt
             .acceptance
             .as_ref()
@@ -788,7 +809,7 @@ impl Journal {
                 .validate_after(&previous.delivery.versions)?;
         }
         let mut state = self.next()?;
-        state.attempts.get_mut(&id).unwrap().preparation = Some(RecordedPreparation {
+        state.attempt_mut(id)?.preparation = Some(RecordedPreparation {
             delivery: observed.message().clone(),
             sent_ns: observed.sent_ns(),
             received_ns: observed.received_ns(),

@@ -93,81 +93,13 @@ fn run(near: bool) -> Value {
         .unwrap();
     let journal = spool.path().join("spool.json");
     drop(spool);
-    let mut envelope: Value = serde_json::from_slice(&std::fs::read(&journal).unwrap()).unwrap();
-    let state = &mut envelope["state"];
-    let key = Uuid::from_u128(8).to_string();
-    let template = state["sources"][&key].clone();
-    let seen = template["normalizer"]["seen"]
-        .as_object()
-        .unwrap()
-        .values()
-        .next()
-        .unwrap()
-        .clone();
-    let event = state["outbox"][0].clone();
-    let sources = if near { 8 } else { 1 };
-    let entries = if near { 640 } else { 4 };
-    let queued = if near { 192 } else { 4 };
-    for source_index in 0..sources {
-        let id = Uuid::from_u128(8 + source_index as u128).to_string();
-        let mut entry = template.clone();
-        entry["normalizer"]["source"]["source_id"] = json!(id);
-        entry["normalizer"]["maximum_tracked"] = json!(4096);
-        entry["normalizer"]["next_sequence"] = json!(queued + 1);
-        entry["cursor"] = json!(Cursor::default());
-        if source_index > 0 {
-            entry["permit"] = Value::Null;
-        }
-        let mut records = serde_json::Map::new();
-        for index in 0..entries {
-            let mut record = seen.clone();
-            record["raw_record_digests"] = json!(vec![
-                Digest::of(format!("{index}").as_bytes());
-                if near { 32 } else { 1 }
-            ]);
-            records.insert(format!("synthetic-retained-{index}"), record);
-        }
-        entry["normalizer"]["seen"] = Value::Object(records);
-        state["sources"][&id] = entry;
-    }
-    let mut out = vec![];
-    for index in 0..queued {
-        let mut e = event.clone();
-        e["event_id"] = json!(Uuid::from_u128(1000 + index as u128));
-        e["body"]["sequence"] = json!(index + 1);
-        e["body_digest"] = json!(Digest::of(&serde_json::to_vec(&e["body"]).unwrap()));
-        out.push(e);
-    }
-    state["outbox"] = json!(out);
-    state["next_sequence"] = json!(queued + 1);
-    envelope["digest"] = json!(Digest::of(&serde_json::to_vec(&envelope["state"]).unwrap()));
-    std::fs::write(&journal, serde_json::to_vec(&envelope).unwrap()).unwrap();
+    let (sources, entries, queued) = populate_history(&journal, near);
     std::fs::write(&path, b"").unwrap();
     let initial_bytes = std::fs::metadata(&journal).unwrap().len();
     let mut spool = Spool::open(&temp.path().join("spool"), node(), limits).unwrap();
-    let mut idle = vec![];
-    for _ in 0..5 {
-        idle.push(
-            elapsed(|| {
-                spool
-                    .collect(Uuid::from_u128(8), &source, 101, OverflowPolicy::Hold)
-                    .unwrap()
-            })
-            .1,
-        );
-    }
+    let idle = collect_samples(&mut spool, &source, 101);
     std::fs::write(&path, b"{").unwrap();
-    let mut partial = vec![];
-    for _ in 0..5 {
-        partial.push(
-            elapsed(|| {
-                spool
-                    .collect(Uuid::from_u128(8), &source, 102, OverflowPolicy::Hold)
-                    .unwrap()
-            })
-            .1,
-        );
-    }
+    let partial = collect_samples(&mut spool, &source, 102);
     let mut burst = vec![];
     for i in 0..32 {
         let mut row = rows()[0].clone();
@@ -193,4 +125,74 @@ fn main() {
         "{}",
         serde_json::to_string_pretty(&json!({"small":run(false),"near":run(true)})).unwrap()
     );
+}
+
+fn populate_history(journal: &std::path::Path, near: bool) -> (usize, usize, usize) {
+    let mut envelope: Value = serde_json::from_slice(&std::fs::read(journal).unwrap()).unwrap();
+    let state = &mut envelope["state"];
+    let key = Uuid::from_u128(8).to_string();
+    let template = state["sources"][&key].clone();
+    let seen = template["normalizer"]["seen"]
+        .as_object()
+        .unwrap()
+        .values()
+        .next()
+        .unwrap()
+        .clone();
+    let event = state["outbox"][0].clone();
+    let sources = if near { 8 } else { 1 };
+    let entries = if near { 640 } else { 4 };
+    let queued = if near { 192 } else { 4 };
+    for source_index in 0..sources {
+        let id = Uuid::from_u128(8 + source_index as u128).to_string();
+        let mut entry = template.clone();
+        entry["normalizer"]["source"]["source_id"] = json!(id);
+        entry["normalizer"]["maximum_tracked"] = json!(4096);
+        entry["normalizer"]["next_sequence"] = json!(queued + 1);
+        entry["cursor"] = json!(Cursor::default());
+        if source_index > 0 {
+            entry["permit"] = Value::Null;
+        }
+        entry["normalizer"]["seen"] = retained_records(&seen, entries, near);
+        state["sources"][&id] = entry;
+    }
+    let mut out = vec![];
+    for index in 0..queued {
+        let mut e = event.clone();
+        e["event_id"] = json!(Uuid::from_u128(1000 + index as u128));
+        e["body"]["sequence"] = json!(index + 1);
+        e["body_digest"] = json!(Digest::of(&serde_json::to_vec(&e["body"]).unwrap()));
+        out.push(e);
+    }
+    state["outbox"] = json!(out);
+    state["next_sequence"] = json!(queued + 1);
+    envelope["digest"] = json!(Digest::of(&serde_json::to_vec(&envelope["state"]).unwrap()));
+    std::fs::write(journal, serde_json::to_vec(&envelope).unwrap()).unwrap();
+    (sources, entries, queued)
+}
+
+fn retained_records(seen: &Value, entries: usize, near: bool) -> Value {
+    let mut records = serde_json::Map::new();
+    for index in 0..entries {
+        let mut record = seen.clone();
+        record["raw_record_digests"] = json!(vec![
+            Digest::of(format!("{index}").as_bytes());
+            if near { 32 } else { 1 }
+        ]);
+        records.insert(format!("synthetic-retained-{index}"), record);
+    }
+    Value::Object(records)
+}
+
+fn collect_samples(spool: &mut Spool, source: &SourceFile, now: u64) -> Vec<f64> {
+    (0..5)
+        .map(|_| {
+            elapsed(|| {
+                spool
+                    .collect(Uuid::from_u128(8), source, now, OverflowPolicy::Hold)
+                    .unwrap()
+            })
+            .1
+        })
+        .collect()
 }

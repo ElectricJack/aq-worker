@@ -56,6 +56,11 @@ fn pure_recipe_does_not_require_remote_identity_or_existing_filesystem() {
         recipe.environment["CODEX_HOME"],
         "/aq-pure-mapper-fixture/private-home"
     );
+}
+
+#[test]
+fn relative_executable_is_refused() {
+    let (harness, model) = settings();
     assert!(
         map(
             selected(&harness, &model),
@@ -174,24 +179,24 @@ fn scoped_endpoint_accepts_only_nonzero_port_and_emits_metadata() {
 }
 
 #[test]
-fn interactive_tui_uses_v1_model_prompt_mode_and_preserves_exec_recipe() {
+fn exec_recipe_uses_json_and_reads_stdin() {
     let (harness, model) = settings();
-    let paths = || Paths {
-        executable: Path::new("/installed/codex"),
-        workspace: Path::new("/worktree"),
-        private_home: Path::new("/private/home"),
-    };
-    let old = map(selected(&harness, &model), paths()).unwrap();
+    let old = map(selected(&harness, &model), fixture_paths()).unwrap();
     assert_eq!(old.arguments[1], "exec");
     assert_eq!(old.arguments.last().unwrap(), "-");
     assert!(old.arguments.iter().any(|a| a == "--json"));
     assert!(!old.environment.contains_key("HOME"));
+}
+
+#[test]
+fn interactive_tui_uses_v1_model_prompt_mode() {
+    let (harness, model) = settings();
     let interactive = Settings {
         harness: &harness,
         model: &model,
         terminal_input_enabled: true,
     };
-    let tui = map_interactive(interactive, paths()).unwrap();
+    let tui = map_interactive(interactive, fixture_paths()).unwrap();
     for forbidden in ["exec", "--json", "--ephemeral", "-"] {
         assert!(!tui.arguments.iter().any(|a| a == forbidden));
     }
@@ -206,29 +211,39 @@ fn interactive_tui_uses_v1_model_prompt_mode_and_preserves_exec_recipe() {
             .iter()
             .any(|a| a == "cli_auth_credentials_store=\"file\"")
     );
-    assert_eq!(tui.environment["CODEX_HOME"], "/private/home");
-    assert_eq!(tui.environment["HOME"], "/private/home");
-    assert!(map(interactive, paths()).is_err());
-    assert!(map_interactive(selected(&harness, &model), paths()).is_err());
+    assert_eq!(
+        tui.environment,
+        BTreeMap::from([
+            ("CODEX_HOME".into(), "/home/agent/.aq/codex".into()),
+            ("HOME".into(), "/home/agent/.aq/codex".into()),
+        ])
+    );
+}
+
+#[test]
+fn terminal_input_must_match_the_selected_mode() {
+    let (harness, model) = settings();
+    let interactive = Settings {
+        harness: &harness,
+        model: &model,
+        terminal_input_enabled: true,
+    };
+    assert!(map(interactive, fixture_paths()).is_err());
+    assert!(map_interactive(selected(&harness, &model), fixture_paths()).is_err());
 }
 #[test]
 fn interactive_v1_composer_and_auth_dialog_rules_keep_no_escape_behavior() {
-    assert_eq!(
-        classify_current_viewport("status\n› "),
-        InteractiveViewport::Ready
-    );
-    assert_eq!(
-        classify_current_viewport("› Sign in with ChatGPT"),
-        InteractiveViewport::AuthenticationRequired
-    );
-    assert_eq!(
-        classify_current_viewport("Trust this folder?"),
-        InteractiveViewport::TrustDirectory
-    );
-    assert_eq!(
-        classify_current_viewport("working..."),
-        InteractiveViewport::Waiting
-    );
+    for (view, expected) in [
+        ("status\n› ", InteractiveViewport::Ready),
+        (
+            "› Sign in with ChatGPT",
+            InteractiveViewport::AuthenticationRequired,
+        ),
+        ("Trust this folder?", InteractiveViewport::TrustDirectory),
+        ("working...", InteractiveViewport::Waiting),
+    ] {
+        assert_eq!(classify_current_viewport(view), expected, "{view}");
+    }
     assert_eq!(READY_DELAY_MS, 3000);
     assert_eq!(COMPOSER_CLEAR, &[0x15]);
     assert!(std::hint::black_box(SKIP_ESCAPE_BEFORE_ENTER));

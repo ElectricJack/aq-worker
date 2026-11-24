@@ -221,3 +221,62 @@ fn the_driver_is_the_running_executable_and_cannot_be_configured() {
         .unwrap();
     assert!(refused.to_string().contains("driver"), "{refused}");
 }
+
+/// Spec 0017: an offer in an admitted environment carries that environment's result
+/// adapter Definition (`harness.adapter`, retained in the offer) and the environment's
+/// definition (`harness.environment`). Its pins are the node's installed pins for that
+/// adapter and environment: exactly what the result channel derives from the offer's
+/// Definition. A Definition that differs in anything the node installed is refused there,
+/// before launch.
+#[cfg(feature = "project_environments")]
+#[test]
+fn an_offer_in_an_admitted_environment_takes_the_pins_of_its_definition() {
+    use aq_worker::native::adapter::result_profile::{ResultAdapterDefinition, ResultAdapterKind};
+    use aq_worker::native::runner::offered_pins;
+    let plan = Digest::of(b"plan");
+    let boot = ResultAdapterDefinition {
+        schema_version: 1,
+        profile: ResultAdapterKind::Claude2318DockerLocalV1,
+        runtime: reference("runtime"),
+        environment: reference("environment"),
+        client_manifest: reference("aq.agent-result-client-installation"),
+        client_executable: reference("client"),
+        contract: aq_agent_result_local::artifact(),
+        recipe: aq_worker::native::adapter::claude::docker_local_recipe_artifact(),
+        permission_digest: plan.clone(),
+        additional_permission_digests: vec![],
+        reserved_client_bytes: 64 * 1024 * 1024,
+    };
+    let revision = aq_session_protocol::Text::new("1").unwrap();
+    let adapter = |d: &ResultAdapterDefinition| d.artifact_at_revision(&revision).unwrap();
+    let installed = ResultInstallationPins::of(&adapter(&boot), &boot, plan.clone());
+    let harness = |d: &ResultAdapterDefinition| aq_session_protocol::HarnessSettings {
+        harness: aq_session_protocol::Text::new("claude").unwrap(),
+        cli_version: aq_session_protocol::Text::new("2.1.318").unwrap(),
+        adapter: adapter(d),
+        environment: d.environment.clone(),
+        required_capabilities: vec![],
+    };
+    // The boot environment keeps the installed pins.
+    assert_eq!(offered_pins(&installed, &harness(&boot)), installed);
+    let web = ResultAdapterDefinition {
+        environment: reference("proj.web"),
+        ..boot.clone()
+    };
+    let pins = offered_pins(&installed, &harness(&web));
+    assert_ne!(pins.adapter, installed.adapter);
+    assert_eq!(
+        pins,
+        ResultInstallationPins::of(&adapter(&web), &web, plan.clone())
+    );
+    // A client this node has not installed: the channel's pins differ, so it is refused.
+    let foreign = ResultAdapterDefinition {
+        client_executable: reference("another-client"),
+        ..web
+    };
+    let pins = offered_pins(&installed, &harness(&foreign));
+    assert_ne!(
+        pins,
+        ResultInstallationPins::of(&adapter(&foreign), &foreign, plan)
+    );
+}

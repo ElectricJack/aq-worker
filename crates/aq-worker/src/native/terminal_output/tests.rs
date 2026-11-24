@@ -36,7 +36,7 @@ fn artifact() -> ArtifactRef {
     }
 }
 fn fixture() -> TerminalOutput {
-    TerminalOutput::from_blank(terminal(), &policy(), artifact(), 40, 4).unwrap()
+    TerminalOutput::from_blank(terminal(), &policy(), artifact(), (40, 4)).unwrap()
 }
 fn text(renderer: &Renderer) -> String {
     renderer
@@ -135,8 +135,9 @@ fn snapshot_restore_checks_epoch_watermark_and_digest() {
     snapshot.through_sequence -= 1;
     snapshot.terminal.epoch += 1;
     assert!(TerminalOutput::restore(&snapshot).is_err());
-    let fresh = TerminalOutput::from_blank(snapshot.terminal.clone(), &policy(), artifact(), 40, 4)
-        .unwrap();
+    let fresh =
+        TerminalOutput::from_blank(snapshot.terminal.clone(), &policy(), artifact(), (40, 4))
+            .unwrap();
     assert_eq!(fresh.snapshot().unwrap().through_sequence, 0);
     assert_eq!(
         text(&TerminalOutput::restore(&fresh.snapshot().unwrap()).unwrap()),

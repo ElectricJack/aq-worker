@@ -10,6 +10,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from typing import NamedTuple
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +57,18 @@ def artifact(name, version, path):
             'sha256': 'c' * 64, 'bytes': 4}
 
 
-def oci(path, layers=None, env=None, corrupt=False, compressed=False, media=None):
+class OciFormat(NamedTuple):
+    compressed: bool = False
+    media: str = ""
+    corrupt: bool = False
+
+    def layer_blob(self, blob, raw):
+        media = self.media or ('application/vnd.oci.image.layer.v1.tar+gzip' if self.compressed
+                               else 'application/vnd.oci.image.layer.v1.tar')
+        return blob(gzip.compress(raw) if self.compressed else raw, media)
+
+
+def oci(path, layers=None, env=None, encoding=OciFormat()):
     blobs = {}
 
     def blob(value, media):
@@ -68,16 +80,14 @@ def oci(path, layers=None, env=None, corrupt=False, compressed=False, media=None
     if layers is None:
         layers = [{'opt/aq/manifest.json': json.dumps(bundle()).encode()}]
     raw_layers = [layer(files) for files in layers]
-    descriptors = [blob(gzip.compress(raw) if compressed else raw,
-                        media or ('application/vnd.oci.image.layer.v1.tar' + ('+gzip' if compressed else '')))
-                   for raw in raw_layers]
+    descriptors = [encoding.layer_blob(blob, raw) for raw in raw_layers]
     config = blob({'architecture': 'amd64', 'os': 'linux', 'config': {'Env': env or []},
                    'rootfs': {'type': 'layers', 'diff_ids': ['sha256:' + hashlib.sha256(raw).hexdigest() for raw in raw_layers]}},
                   'application/vnd.oci.image.config.v1+json')
     manifest = blob({'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.manifest.v1+json',
                      'config': config, 'layers': descriptors}, 'application/vnd.oci.image.manifest.v1+json')
     index = {'schemaVersion': 2, 'manifests': [manifest]}
-    if corrupt:
+    if encoding.corrupt:
         blobs[config['digest'].replace('sha256:', 'blobs/sha256/')] = b'{}'
     with tarfile.open(path, 'w') as archive:
         for name, value in {'oci-layout': b'{"imageLayoutVersion":"1.0.0"}',
@@ -177,7 +187,7 @@ class TemplateTests(unittest.TestCase):
             oci(archive, [{'tmp/link': ('/root/.ssh/id_rsa',)}])
             with self.assertRaisesRegex(ValueError, 'credential'):
                 scanner.scan_oci(archive)
-            oci(archive, corrupt=True)
+            oci(archive, encoding=OciFormat(corrupt=True))
             with self.assertRaisesRegex(ValueError, 'descriptor|digest'):
                 scanner.scan_oci(archive)
             oci(archive, [{'../../escape': b''}])
@@ -201,9 +211,9 @@ class TemplateTests(unittest.TestCase):
         scanner = load('credential_scan')
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / 'image.tar'
-            digest = oci(archive, compressed=True)
+            digest = oci(archive, encoding=OciFormat(compressed=True))
             self.assertEqual(scanner.scan_oci(archive)['image_digest'], digest)
-            oci(archive, media='application/vnd.oci.image.layer.v1.tar+zstd')
+            oci(archive, encoding=OciFormat(media='application/vnd.oci.image.layer.v1.tar+zstd'))
             with self.assertRaisesRegex(ValueError, 'compression'):
                 scanner.scan_oci(archive)
 

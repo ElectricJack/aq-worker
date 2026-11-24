@@ -1,4 +1,6 @@
 //! The production run command must report startup failures before B2 admission.
+#[path = "controller_cli/admission.rs"]
+mod admission;
 use aq_worker::config::WorkerConfig;
 use std::process::Command;
 use uuid::Uuid;

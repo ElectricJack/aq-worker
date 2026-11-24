@@ -129,36 +129,65 @@ fn map_mode(
                 && declares(settings, aq_session_protocol::NATIVE_CONFINEMENT_CAPABILITY)),
         "Codex confinement mode does not match the declared manifest mode"
     );
+    paths.validate()?;
+    let workspace = paths.workspace.to_str().context("Codex workspace UTF8")?;
     let sandbox = if container {
         "danger-full-access"
     } else {
         "workspace-write"
     };
-    let Paths {
-        executable,
+    let mut arguments = launch_arguments(
+        interactive,
+        sandbox,
+        settings.model.model.as_str(),
         workspace,
-        private_home,
-    } = paths;
-    ensure!(
-        executable.is_absolute() && workspace.is_absolute() && private_home.is_absolute(),
-        "Codex recipe requires absolute paths"
     );
-    ensure!(
-        [executable, workspace, private_home]
-            .iter()
-            .all(|path| !path.as_os_str().as_encoded_bytes().contains(&0)),
-        "Codex recipe path contains NUL"
+    append_config(
+        &mut arguments,
+        workspace,
+        interactive,
+        reasoning_effort(&settings)?,
     );
-    let executable = executable.to_owned();
-    let mut arguments = if interactive {
+    let private_home = paths.private_home.to_str().context("Codex home UTF8")?;
+    let mut environment = BTreeMap::from([("CODEX_HOME".into(), private_home.into())]);
+    if interactive {
+        environment.insert("HOME".into(), private_home.into());
+    }
+    Ok(Recipe {
+        executable: paths.executable.to_owned(),
+        arguments,
+        environment,
+    })
+}
+
+impl Paths<'_> {
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            [self.executable, self.workspace, self.private_home]
+                .iter()
+                .all(|path| path.is_absolute()),
+            "Codex recipe requires absolute paths"
+        );
+        ensure!(
+            [self.executable, self.workspace, self.private_home]
+                .iter()
+                .all(|path| !path.as_os_str().as_encoded_bytes().contains(&0)),
+            "Codex recipe path contains NUL"
+        );
+        Ok(())
+    }
+}
+
+fn launch_arguments(interactive: bool, sandbox: &str, model: &str, workspace: &str) -> Vec<String> {
+    if interactive {
         vec![
             "--no-daemon".into(),
             "--sandbox".into(),
             sandbox.into(),
             "-m".into(),
-            settings.model.model.as_str().into(),
+            model.into(),
             "--cd".into(),
-            workspace.to_str().context("Codex workspace UTF8")?.into(),
+            workspace.into(),
         ]
     } else {
         vec![
@@ -173,12 +202,20 @@ fn map_mode(
             "--sandbox".into(),
             sandbox.into(),
             "--model".into(),
-            settings.model.model.as_str().into(),
+            model.into(),
             "--cd".into(),
-            workspace.to_str().context("Codex workspace UTF8")?.into(),
+            workspace.into(),
         ]
-    };
-    let effort = reasoning_effort(&settings)?.map(|value| {
+    }
+}
+
+fn append_config(
+    arguments: &mut Vec<String>,
+    workspace: &str,
+    interactive: bool,
+    effort: Option<&str>,
+) {
+    let effort = effort.map(|value| {
         format!(
             "model_reasoning_effort={}",
             toml::Value::String(value.into())
@@ -220,7 +257,7 @@ fn map_mode(
         "web_search=\"disabled\"".into(),
         format!(
             "projects.{}.trust_level={}",
-            toml::Value::String(workspace.to_str().unwrap().into()),
+            toml::Value::String(workspace.into()),
             toml::Value::String(if interactive { "trusted" } else { "untrusted" }.into())
         ),
     ];
@@ -237,18 +274,6 @@ fn map_mode(
     } else {
         arguments.push("-".into());
     }
-    let mut environment = BTreeMap::from([(
-        "CODEX_HOME".into(),
-        private_home.to_str().context("Codex home UTF8")?.into(),
-    )]);
-    if interactive {
-        environment.insert("HOME".into(), private_home.to_str().unwrap().into());
-    }
-    Ok(Recipe {
-        executable,
-        arguments,
-        environment,
-    })
 }
 
 /// Config metadata for exact numeric IPv4 loopback. It neither binds nor probes.

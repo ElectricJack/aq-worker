@@ -1,7 +1,9 @@
 //! Fresh local sandbox execution. This path never registers, polls or accepts.
 pub mod agent_access;
 pub mod auth;
+mod completion;
 pub mod confinement;
+mod execution;
 pub mod gemini_proxy;
 pub mod harness_config;
 mod journal;
@@ -10,6 +12,7 @@ mod manifest;
 pub mod native_probe;
 pub mod private;
 pub mod proxy;
+mod renewal;
 pub mod responses;
 pub mod subscription_login;
 pub use manifest::FrozenLaunch;
@@ -176,18 +179,24 @@ pub async fn run<'a>(
     shutdown: watch::Receiver<bool>,
     options: RunOptions,
 ) -> Result<RunOutcome> {
-    run_inner(
-        worker,
-        frozen,
+    execution::run(
+        execution::Site {
+            worker,
+            frozen,
+            state_dir,
+            local,
+        },
         permit,
-        state_dir,
-        local,
-        startup.into(),
-        transport,
-        shutdown,
-        options,
-        None,
-        None::<SandboxLogin<'_, NoLogin>>,
+        execution::Driver {
+            transport,
+            shutdown,
+            options,
+        },
+        execution::Harness {
+            startup: startup.into(),
+            agent: None,
+            login: None::<SandboxLogin<'_, NoLogin>>,
+        },
     )
     .await
 }
@@ -207,18 +216,24 @@ pub async fn run_as_agent<'a>(
     agent: aq_session_host::users::AgentIdentity,
 ) -> Result<RunOutcome> {
     check_agent_state(state_dir, local)?;
-    run_inner(
-        worker,
-        frozen,
+    execution::run(
+        execution::Site {
+            worker,
+            frozen,
+            state_dir,
+            local,
+        },
         permit,
-        state_dir,
-        local,
-        startup.into(),
-        transport,
-        shutdown,
-        options,
-        Some(agent),
-        None::<SandboxLogin<'_, NoLogin>>,
+        execution::Driver {
+            transport,
+            shutdown,
+            options,
+        },
+        execution::Harness {
+            startup: startup.into(),
+            agent: Some(agent),
+            login: None::<SandboxLogin<'_, NoLogin>>,
+        },
     )
     .await
 }
@@ -258,366 +273,26 @@ pub async fn run_with_login<'a, S: LoginService>(
             "agent login home must be outside runner state"
         );
     }
-    run_inner(
-        worker,
-        frozen,
-        permit,
-        state_dir,
-        local,
-        startup.into(),
-        transport,
-        shutdown,
-        options,
-        agent,
-        Some(login),
-    )
-    .await
-}
-#[allow(clippy::too_many_arguments)]
-async fn run_inner<S: LoginService>(
-    worker: &WorkerConfig,
-    frozen: &FrozenLaunch,
-    permit: DelegatedPermit,
-    state_dir: &Path,
-    local: &LocalEnvironment,
-    startup: SandboxStartup<'_>,
-    transport: &mut impl RunnerTransport,
-    mut shutdown: watch::Receiver<bool>,
-    options: RunOptions,
-    agent: Option<aq_session_host::users::AgentIdentity>,
-    login: Option<SandboxLogin<'_, S>>,
-) -> Result<RunOutcome> {
-    use crate::native::launch::sandbox as host;
-    use aq_admission_sandbox::sandbox::{RenewalReply, RunnerRenewalRequest};
-    use aq_session_protocol::canonical_digest;
-    let (initial_deadline, hard) = frozen.validate_local(state_dir)?;
-    frozen
-        .authority
-        .validate_handoff(&permit, frozen.delivery.clock.server_time_ms)?;
-    ensure!(
-        worker.node_id == permit.binding.node.node_id,
-        "worker identity required"
-    );
-    ensure!(
-        !options.renewal_interval.is_zero() && options.renewal_interval <= Duration::from_secs(15),
-        "renewal interval bounds"
-    );
-    ensure!(
-        local.workspace.canonicalize()? == local.workspace
-            && (agent.is_some()
-                || (local.workspace.starts_with(&frozen.state_dir)
-                    && local.workspace != frozen.state_dir)),
-        "workspace must be prepared inside bound state directory"
-    );
-    let authority = transport.authority_client();
-    if let Some(http) = &authority {
-        http.bind_execution(frozen, &permit)?;
-    }
-    startup.validate(frozen, authority.as_ref())?;
-    transport.preflight(worker)?;
-    let authority_lost = || authority.as_ref().is_some_and(|http| http.authority_lost());
-    ensure!(!authority_lost(), "runner authority lost before launch");
-    ensure!(!*shutdown.borrow(), "cancelled before launch");
-    let now = boot_ns()?;
-    let hard = hard.min(
-        frozen
-            .sent_boot_ns
-            .checked_add(
-                frozen
-                    .manifest
-                    .resources
-                    .wall_time_ms
-                    .checked_mul(1_000_000)
-                    .ok_or_else(|| anyhow::anyhow!("wall overflow"))?,
-            )
-            .ok_or_else(|| anyhow::anyhow!("wall overflow"))?,
-    );
-    let permit_deadline = permit
-        .expires_at_ms
-        .checked_sub(frozen.delivery.clock.server_time_ms)
-        .and_then(|v| v.checked_mul(1_000_000))
-        .and_then(|v| v.checked_add(frozen.sent_boot_ns))
-        .ok_or_else(|| anyhow::anyhow!("delegated deadline overflow"))?;
-    let mut deadline = initial_deadline
-        .min(permit_deadline)
-        .min(hard)
-        .min(now.saturating_add(aq_session_host::MAX_PERMIT_MS * 1_000_000));
-    let mut request = RunnerRenewalRequest {
-        schema_version: 1,
-        operation_id: Uuid::new_v4(),
-        authority: frozen.authority.clone(),
-        permit,
-        revision: frozen.revision,
-    };
-    request.validate()?;
-    let mut journal = journal::Journal::create(state_dir, frozen)?;
-    let key = AttemptKey {
-        launch_id: frozen.launch_id,
-        attempt_id: frozen.manifest.bindings.attempt_id,
-        manifest_digest: canonical_digest(&frozen.manifest)?,
-    };
-    let initial = local_permit(frozen, request.revision, now, deadline)?;
-    journal.record("initial-permit", &initial)?;
-    // C6b: install the newest leased login before the harness spawn.
-    let mut active: ActiveLogin<'_, S> = match login {
-        None => None,
-        Some(login) => {
-            let started = SubscriptionLogin::start_as(
-                &mut *login.service,
-                login.kind,
-                login.codex_home.as_deref(),
-                agent,
-            )
-            .await
-            .context("subscription login unavailable")?;
-            Some((login, started))
-        }
-    };
-    let login_env = match &active {
-        None => None,
-        Some((_, started)) => {
-            let installed = started.installed();
-            Some(match (installed.claude_env(), installed.codex_home()) {
-                (Some((name, value)), _) => startup::LoginEnv { name, value },
-                (None, Some(home)) => startup::LoginEnv {
-                    name: "CODEX_HOME",
-                    value: home.to_str().context("Codex login home UTF-8")?,
-                },
-                (None, None) => anyhow::bail!("installed login has no launch entry"),
-            })
-        }
-    };
-    let root = journal.directory.join("hosts");
-    let launched = startup
-        .launch(
-            &root,
+    execution::run(
+        execution::Site {
+            worker,
             frozen,
-            initial,
+            state_dir,
             local,
-            &mut journal,
+        },
+        permit,
+        execution::Driver {
+            transport,
+            shutdown,
+            options,
+        },
+        execution::Harness {
+            startup: startup.into(),
             agent,
-            shutdown.clone(),
-            login_env,
-        )
-        .await;
-    let (mut handle, output_runtime) = match launched {
-        Ok(launched) => launched,
-        Err(error) => {
-            tracing::warn!("sandbox host launch failed: {error:#}");
-            let proof = journal
-                .intent
-                .as_ref()
-                .and_then(|intent| host::recover_stopped(&root, intent).ok());
-            let wiped = finish_login(&mut active, &journal.directory, deadline).await;
-            if let Some(proof) = &proof {
-                journal.record("stopped", proof)?;
-            }
-            return Ok(RunOutcome::Preserved {
-                reason: if wiped.is_ok() {
-                    "launch failed"
-                } else {
-                    "login teardown failed"
-                },
-                stop_proven: proof.is_some(),
-            });
-        }
-    };
-    let interval = options.renewal_interval.as_nanos() as u64;
-    let mut next_renew = boot_ns().unwrap_or(now).saturating_add(interval);
-    let reason = 'running: loop {
-        if *shutdown.borrow() {
-            break "cancelled";
-        }
-        if authority_lost() {
-            break "runner authority lost";
-        }
-        let now = match boot_ns() {
-            Ok(now) => now,
-            Err(_) => break "clock unavailable",
-        };
-        if let Some(reason) = stop_reason(&handle, now, deadline) {
-            break reason;
-        }
-        if now < next_renew {
-            tokio::select! {
-                changed = shutdown.changed() => { if changed.is_err() || *shutdown.borrow() { break "cancelled"; } },
-                _ = tokio::time::sleep(Duration::from_millis(25)) => {},
-            }
-            continue;
-        }
-        let nonce = Uuid::new_v4();
-        let sent = now;
-        let response = {
-            let pending = transport.renew(worker, &request, nonce);
-            tokio::pin!(pending);
-            loop {
-                tokio::select! {
-                    biased;
-                    changed = shutdown.changed() => { if changed.is_err() || *shutdown.borrow() { break 'running "cancelled"; } },
-                    _ = tokio::time::sleep(Duration::from_millis(25)) => {
-                        if authority_lost() { break 'running "runner authority lost"; }
-                        let now=match boot_ns() {Ok(now)=>now,Err(_)=>break 'running "clock unavailable"};
-                        if let Some(reason)=stop_reason(&handle,now,deadline) {break 'running reason;}
-                    },
-                    result = &mut pending => break result,
-                }
-            }
-        };
-        let received = match boot_ns() {
-            Ok(now) => now,
-            Err(_) => break "clock unavailable",
-        };
-        // CLOCK_BOOTTIME is checked even if the network future wins after suspend.
-        if authority_lost() {
-            break "runner authority lost";
-        }
-        if received >= deadline {
-            break "renewal deadline expired";
-        }
-        next_renew = received.saturating_add(interval);
-        let delivery = match response {
-            Ok(RenewalOutcome::Delivered(delivery)) => delivery,
-            Ok(RenewalOutcome::Unavailable) | Err(_) => continue,
-            Ok(RenewalOutcome::Refused) => break "renewal refused",
-        };
-        let renewed = match transport::validate_renewal(
-            &delivery, &request, nonce, sent, received, deadline, hard,
-        ) {
-            Ok(value) => {
-                value.min(received.saturating_add(aq_session_host::MAX_PERMIT_MS * 1_000_000))
-            }
-            Err(_) => break "invalid renewal",
-        };
-        match &delivery.response.reply {
-            RenewalReply::AwaitingNodeReadoption { .. } => continue,
-            RenewalReply::Renewed { permit, .. } => {
-                let local_permit =
-                    match local_permit(frozen, delivery.response.revision, received, renewed) {
-                        Ok(value) => value,
-                        Err(_) => break "invalid renewal deadline",
-                    };
-                // Do not serialize DelegatedPermit or its credential into evidence.
-                if journal
-                    .record(
-                        &format!("renewal-{}", delivery.response.revision),
-                        &local_permit,
-                    )
-                    .is_err()
-                {
-                    break "renewal persistence failed";
-                }
-                if handle.renew(&local_permit).is_err() {
-                    // Natural completion can race the local renewal install.
-                    // It still must pass the exact stopped-proof/receipt gates.
-                    if stop_reason(&handle, boot_ns().unwrap_or(deadline), deadline)
-                        == Some("harness exited")
-                    {
-                        break "harness exited";
-                    }
-                    break "guardian renewal refused";
-                }
-                deadline = renewed;
-                request.permit = permit.clone();
-                request.revision = delivery.response.revision;
-                request.operation_id = Uuid::new_v4();
-            }
-        }
-    };
-    let login_failed = reason == "harness exited"
-        && active.as_ref().is_some_and(|(login, _)| {
-            handle.observe().is_ok_and(|observed| {
-                (login.classify)(&observed) == HarnessExit::AuthenticationFailed
-            })
-        });
-    let proof = match host::stop(&mut handle) {
-        Ok(proof) => proof,
-        Err(_) => {
-            let wiped = finish_login(&mut active, &journal.directory, deadline).await;
-            return Ok(RunOutcome::Preserved {
-                reason: if wiped.is_ok() {
-                    "stop uncertain"
-                } else {
-                    "login teardown failed"
-                },
-                stop_proven: false,
-            });
-        }
-    };
-    if let Some(runtime) = output_runtime {
-        runtime.stop().await;
-    }
-    // The harness has stopped writing: write back, then wipe, before any
-    // stopped/preserved record, retention or finished outcome.
-    let wiped = finish_login(&mut active, &journal.directory, deadline).await;
-    journal.record("stopped", &proof)?;
-    if wiped.is_err() {
-        journal.record("preserved", &"login teardown failed")?;
-        return Ok(RunOutcome::Preserved {
-            reason: "login teardown failed",
-            stop_proven: true,
-        });
-    }
-    if login_failed {
-        let failure = LoginFailure::CREDENTIAL_INVALID;
-        journal.record("login-failure", &failure)?;
-        journal.record("preserved", &"credential_invalid")?;
-        return Ok(RunOutcome::LoginFailed {
-            failure,
-            stop_proven: true,
-        });
-    }
-    if reason != "harness exited" {
-        journal.record("preserved", &reason)?;
-        return Ok(RunOutcome::Preserved {
-            reason,
-            stop_proven: true,
-        });
-    }
-    let stopped = StoppedAttempt {
-        key,
-        workspace: local.workspace.clone(),
-        evidence: serde_json::to_vec(&proof)?,
-    };
-    let receipts =
-        match tokio::time::timeout(Duration::from_secs(30), transport.retain(worker, &stopped))
-            .await
-        {
-            Ok(Ok(receipts)) => receipts,
-            _ => {
-                return Ok(RunOutcome::Preserved {
-                    reason: "retention unavailable",
-                    stop_proven: true,
-                });
-            }
-        };
-    if validate_receipts(&stopped, &receipts).is_err() {
-        return Ok(RunOutcome::Preserved {
-            reason: "retention receipts incomplete",
-            stop_proven: true,
-        });
-    }
-    journal.record("retention", &receipts)?;
-    let retained = RetainedAttempt { stopped, receipts };
-    let receipt = match tokio::time::timeout(
-        Duration::from_secs(30),
-        transport.finished(worker, &retained),
+            login: Some(login),
+        },
     )
     .await
-    {
-        Ok(Ok(receipt))
-            if !receipt.receipt_id.is_nil() && receipt.attempt == retained.stopped.key =>
-        {
-            receipt
-        }
-        _ => {
-            return Ok(RunOutcome::Preserved {
-                reason: "finished outcome unknown",
-                stop_proven: true,
-            });
-        }
-    };
-    journal.record("finished", &receipt)?;
-    Ok(RunOutcome::Finished)
 }
 fn local_permit(
     frozen: &FrozenLaunch,

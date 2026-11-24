@@ -11,13 +11,14 @@ struct PublisherStatus {
     last: Option<(&'static str, bool, std::time::Instant)>,
 }
 impl PublisherStatus {
-    fn record(
+    fn record<E>(
         &mut self,
         relay: &PhaseOutputRelay,
         stage: &'static str,
-        disposition: &'static str,
-        succeeded: bool,
+        outcome: Result<&'static str, E>,
     ) {
+        let succeeded = outcome.is_ok();
+        let disposition = outcome.unwrap_or("failed");
         if succeeded {
             self.successes = self.successes.saturating_add(1);
             self.consecutive_failures = 0;
@@ -27,16 +28,7 @@ impl PublisherStatus {
         }
         let first_activity =
             !self.reported_activity && matches!(disposition, "acknowledged" | "watch_present");
-        let emit = first_activity
-            || self.last.is_none_or(|(previous, ok, at)| {
-                ok != succeeded
-                    || (!succeeded
-                        && self.consecutive_failures.is_power_of_two()
-                        && at.elapsed() >= std::time::Duration::from_secs(1))
-                    || (previous != disposition
-                        && at.elapsed() >= std::time::Duration::from_secs(5))
-            });
-        if emit {
+        if first_activity || self.status_changed(disposition, succeeded) {
             // Fixed labels and public counters only. Never format transport
             // errors, terminal bytes, headers, credentials or filesystem paths.
             let tail = relay.status().ok();
@@ -57,6 +49,15 @@ impl PublisherStatus {
             self.reported_activity |= first_activity;
         }
     }
+    fn status_changed(&self, disposition: &'static str, succeeded: bool) -> bool {
+        self.last.is_none_or(|(previous, ok, at)| {
+            ok != succeeded
+                || (!succeeded
+                    && self.consecutive_failures.is_power_of_two()
+                    && at.elapsed() >= std::time::Duration::from_secs(1))
+                || (previous != disposition && at.elapsed() >= std::time::Duration::from_secs(5))
+        })
+    }
 }
 pub(crate) struct OutputPublisher {
     upload: tokio::task::JoinHandle<()>,
@@ -64,77 +65,76 @@ pub(crate) struct OutputPublisher {
 }
 impl OutputPublisher {
     pub(crate) fn start(relay: PhaseOutputRelay) -> Self {
-        let polling_relay = relay.clone();
-        let polling = tokio::spawn(async move {
-            let mut status = PublisherStatus::default();
-            loop {
-                // Separate task, mutex and transport lane from output upload.
-                // A slow/409/ambiguous upload cannot starve a fresh Watch poll.
-                let result = polling_relay.poll_watch_once().await;
-                let disposition = match &result {
-                    Ok(0) => "no_watch",
-                    Ok(_) => "watch_present",
-                    Err(_) => "failed",
-                };
-                status.record(&polling_relay, "watch", disposition, result.is_ok());
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            }
-        });
-        let upload = tokio::spawn(async move {
-            let mut registered = false;
-            let mut failures = 0_u32;
-            let mut registration_status = PublisherStatus::default();
-            let mut upload_status = PublisherStatus::default();
-            loop {
-                let result = if registered {
-                    let result = relay.upload_once().await;
-                    let disposition = match &result {
-                        Ok(Some(_)) => "acknowledged",
-                        Ok(None) => "idle",
-                        Err(_) => "failed",
-                    };
-                    upload_status.record(&relay, "upload", disposition, result.is_ok());
-                    result.map(|_| ())
-                } else {
-                    let result = relay.register().await;
-                    registration_status.record(
-                        &relay,
-                        "register",
-                        if result.is_ok() {
-                            "registered"
-                        } else {
-                            "failed"
-                        },
-                        result.is_ok(),
-                    );
-                    result.map(|_| {
-                        registered = true;
-                    })
-                };
-                if result.is_ok() {
-                    failures = 0;
-                } else {
-                    failures = failures.saturating_add(1);
-                }
-                // Errors do not discard pending bytes or grant any new right.
-                // Transport retry is explicit, bounded and output-only; no
-                // execution/terminal-input operation uses this policy.
-                let base = if failures == 0 {
-                    50
-                } else {
-                    1000_u64.saturating_mul(u64::from(failures.min(4)))
-                };
-                let jitter = if failures == 0 {
-                    0
-                } else {
-                    u64::from(rand::random::<u8>())
-                };
-                tokio::time::sleep(std::time::Duration::from_millis(base + jitter)).await;
-            }
-        });
+        let polling = tokio::spawn(poll_watches(relay.clone()));
+        let upload = tokio::spawn(upload_output(relay));
         Self { upload, polling }
     }
 }
+async fn poll_watches(relay: PhaseOutputRelay) {
+    let mut status = PublisherStatus::default();
+    loop {
+        // Separate task, mutex and transport lane from output upload.
+        // A slow/409/ambiguous upload cannot starve a fresh Watch poll.
+        let result = relay.poll_watch_once().await;
+        let outcome = result.map(|count| {
+            if count == 0 {
+                "no_watch"
+            } else {
+                "watch_present"
+            }
+        });
+        status.record(&relay, "watch", outcome);
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
+fn upload_interval(failures: u32) -> std::time::Duration {
+    if failures == 0 {
+        return std::time::Duration::from_millis(50);
+    }
+    let base = 1000_u64.saturating_mul(u64::from(failures.min(4)));
+    std::time::Duration::from_millis(base + u64::from(rand::random::<u8>()))
+}
+
+async fn upload_output(relay: PhaseOutputRelay) {
+    let mut registered = false;
+    let mut failures = 0_u32;
+    let mut registration_status = PublisherStatus::default();
+    let mut upload_status = PublisherStatus::default();
+    loop {
+        let result = if registered {
+            let result = relay.upload_once().await;
+            upload_status.record(
+                &relay,
+                "upload",
+                result.as_ref().map(|ack| {
+                    if ack.is_some() {
+                        "acknowledged"
+                    } else {
+                        "idle"
+                    }
+                }),
+            );
+            result.map(|_| ())
+        } else {
+            let result = relay.register().await;
+            registration_status.record(&relay, "register", result.as_ref().map(|_| "registered"));
+            result.map(|_| {
+                registered = true;
+            })
+        };
+        if result.is_ok() {
+            failures = 0;
+        } else {
+            failures = failures.saturating_add(1);
+        }
+        // Errors do not discard pending bytes or grant any new right.
+        // Transport retry is explicit, bounded and output-only; no
+        // execution/terminal-input operation uses this policy.
+        tokio::time::sleep(upload_interval(failures)).await;
+    }
+}
+
 impl Drop for OutputPublisher {
     fn drop(&mut self) {
         self.upload.abort();
@@ -147,6 +147,13 @@ pub(super) struct ControlPublisher {
     task: tokio::task::JoinHandle<()>,
     authentication_required: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
+async fn requires_authentication(control: &crate::native::launch::PhaseControlRelay) -> bool {
+    control.current_viewport().await.is_ok_and(|view| {
+        aq_codex_mapper::classify_current_viewport(&view)
+            == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
+    })
+}
+
 impl ControlPublisher {
     pub(super) fn start(control: crate::native::launch::PhaseControlRelay) -> Self {
         use std::sync::{
@@ -159,9 +166,7 @@ impl ControlPublisher {
             let started = std::time::Instant::now();
             loop {
                 if started.elapsed().as_millis() >= u128::from(aq_codex_mapper::READY_DELAY_MS)
-                    && let Ok(view) = control.current_viewport().await
-                    && aq_codex_mapper::classify_current_viewport(&view)
-                        == aq_codex_mapper::InteractiveViewport::AuthenticationRequired
+                    && requires_authentication(&control).await
                 {
                     status.store(true, Ordering::SeqCst);
                     return;

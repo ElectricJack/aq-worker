@@ -21,7 +21,7 @@
 use crate::{
     Accept, AccessHeaders, AttemptIdentity, CredentialIssuer, IssueError, Issued, NodeIssuer,
     SOCKET_NAME, UNAVAILABLE,
-    forward::{Credentials, Failure, Origins, Rules, Seen, Taken, Upstream, forward},
+    forward::{Credentials, Failure, Forwarder, Origins, Rules, Seen, Taken, Upstream},
 };
 use anyhow::{Context, Result, bail, ensure};
 use reqwest::header::{AUTHORIZATION, HeaderValue};
@@ -108,6 +108,10 @@ struct Shared {
     /// still the held version (bounded).
     stale: StaleSignal,
     not_after_ms: u64,
+    #[cfg(feature = "environment-try")]
+    checkpoint: RwLock<Option<crate::Checkpoint>>,
+    #[cfg(feature = "environment-try")]
+    checkpointing: Arc<tokio::sync::Mutex<()>>,
 }
 impl Credentials for Shared {
     fn take(&self) -> Option<Taken> {
@@ -129,6 +133,21 @@ impl Credentials for Shared {
     }
     fn version(&self) -> Option<u64> {
         self.credential.read().ok().map(|c| c.version)
+    }
+    /// Bounded by the request timeout, so it fails as `checkpoint_push_failed`
+    /// before the exchange itself times out.
+    #[cfg(feature = "environment-try")]
+    fn checkpoint(&self) -> Option<crate::CheckpointFuture> {
+        let push = self.checkpoint.read().ok()?.clone()?;
+        let Ok(guard) = self.checkpointing.clone().try_lock_owned() else {
+            return Some(Box::pin(async { Err(crate::CheckpointError::Busy) }));
+        };
+        Some(Box::pin(async move {
+            let late = Err(crate::CheckpointError::PushFailed);
+            tokio::time::timeout(REQUEST_TIMEOUT, push(crate::CheckpointGuard(guard)))
+                .await
+                .unwrap_or(late)
+        }))
     }
 }
 impl Shared {
@@ -192,14 +211,8 @@ fn try_lock(dir: &std::fs::File) -> bool {
 /// sweep holds its lock only while it removes; a live channel holds it for
 /// good, and then the claim fails. Returns the locked directory.
 async fn claim(directory: &Path) -> Result<(UnixListener, std::fs::File)> {
-    use std::os::{fd::AsRawFd, unix::fs::FileTypeExt};
     let euid = unsafe { libc::geteuid() };
-    let parent = directory.parent().context("channel directory parent")?;
-    let meta = std::fs::symlink_metadata(parent).context("channel root absent")?;
-    ensure!(
-        meta.is_dir() && meta.uid() == euid && meta.mode() & 0o022 == 0,
-        "channel root must be a directory owned by the node user and not group/world writable"
-    );
+    verify_channel_root(directory, euid)?;
     for _ in 0..50 {
         match std::fs::DirBuilder::new().mode(0o711).create(directory) {
             Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => {
@@ -218,31 +231,47 @@ async fn claim(directory: &Path) -> Result<(UnixListener, std::fs::File)> {
         if !is_at(directory, &dir) {
             continue; // swept between creation and lock
         }
-        let held = dir.metadata()?;
-        ensure!(
-            held.is_dir() && held.uid() == euid,
-            "channel directory is not the node's own directory"
-        );
-        ensure!(
-            unsafe { libc::fchmod(dir.as_raw_fd(), 0o711) } == 0,
-            "channel directory mode"
-        );
-        let path = format!("/proc/self/fd/{}/{SOCKET_NAME}", dir.as_raw_fd());
-        if let Ok(old) = std::fs::symlink_metadata(&path) {
-            ensure!(
-                old.file_type().is_socket(),
-                "channel directory holds a non-socket aq.sock"
-            );
-            std::fs::remove_file(&path)?;
-        }
-        let listener = std::os::unix::net::UnixListener::bind(&path)?;
-        // The sandbox's agent user is unmapped (rootless) or another uid: it
-        // reaches the socket as "other". Only this attempt's mount exposes it.
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))?;
-        listener.set_nonblocking(true)?;
-        return Ok((UnixListener::from_std(listener)?, dir));
+        let listener = bind_socket(&dir, euid)?;
+        return Ok((listener, dir));
     }
     bail!("another channel owns this attempt directory")
+}
+
+fn verify_channel_root(directory: &Path, euid: u32) -> Result<()> {
+    let parent = directory.parent().context("channel directory parent")?;
+    let meta = std::fs::symlink_metadata(parent).context("channel root absent")?;
+    ensure!(
+        meta.is_dir() && meta.uid() == euid && meta.mode() & 0o022 == 0,
+        "channel root must be a directory owned by the node user and not group/world writable"
+    );
+    Ok(())
+}
+
+fn bind_socket(dir: &std::fs::File, euid: u32) -> Result<UnixListener> {
+    use std::os::{fd::AsRawFd, unix::fs::FileTypeExt};
+    let held = dir.metadata()?;
+    ensure!(
+        held.is_dir() && held.uid() == euid,
+        "channel directory is not the node's own directory"
+    );
+    ensure!(
+        unsafe { libc::fchmod(dir.as_raw_fd(), 0o711) } == 0,
+        "channel directory mode"
+    );
+    let path = format!("/proc/self/fd/{}/{SOCKET_NAME}", dir.as_raw_fd());
+    if let Ok(old) = std::fs::symlink_metadata(&path) {
+        ensure!(
+            old.file_type().is_socket(),
+            "channel directory holds a non-socket aq.sock"
+        );
+        std::fs::remove_file(&path)?;
+    }
+    let listener = std::os::unix::net::UnixListener::bind(&path)?;
+    // The sandbox's agent user is unmapped (rootless) or another uid: it
+    // reaches the socket as "other". Only this attempt's mount exposes it.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666))?;
+    listener.set_nonblocking(true)?;
+    Ok(UnixListener::from_std(listener)?)
 }
 
 /// The node's own aq-server connection as its enrollment (`worker.toml`)
@@ -339,14 +368,24 @@ impl AgentChannel {
             closed: watch::channel(false).0,
             stale: StaleSignal::default(),
             not_after_ms: config.not_after_ms,
+            #[cfg(feature = "environment-try")]
+            checkpoint: RwLock::new(None),
+            #[cfg(feature = "environment-try")]
+            checkpointing: Arc::default(),
         });
         let serving = shared.clone();
         let directory = config.directory.clone();
         let serve = tokio::spawn(async move {
             let closed = serving.closed.subscribe();
-            crate::serve(Socket(listener), closed, 16, CLOSE_GRACE, move |stream| {
-                handle(serving.clone(), stream)
-            })
+            crate::serve(
+                Socket(listener),
+                closed,
+                crate::ServeLimits {
+                    slots: 16,
+                    grace: CLOSE_GRACE,
+                },
+                move |stream| handle(serving.clone(), stream),
+            )
             .await;
             // However the channel closed, later calls fail at connect.
             let _ = remove(&directory);
@@ -378,6 +417,14 @@ impl AgentChannel {
         let mut closed = self.shared.closed.subscribe();
         async move {
             let _ = closed.wait_for(|c| *c).await;
+        }
+    }
+    /// Sets the attempt's `aq environment try` checkpoint (aq-server spec 0017
+    /// §6.2). Without one, a try's `commit` is dropped before forwarding.
+    #[cfg(feature = "environment-try")]
+    pub fn set_checkpoint(&self, checkpoint: crate::Checkpoint) {
+        if let Ok(mut held) = self.shared.checkpoint.write() {
+            *held = Some(checkpoint);
         }
     }
     /// Stop accepting (cancel, closure, revocation). Never blocks.
@@ -426,76 +473,24 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
     };
     let outcome = tokio::time::timeout(
         REQUEST_TIMEOUT + Duration::from_secs(5),
-        forward(&shared.upstream, &rules, &*shared, &mut stream, &mut seen),
+        Forwarder {
+            upstream: &shared.upstream,
+            rules: &rules,
+            credentials: &*shared,
+        }
+        .forward(&mut stream, &mut seen),
     )
     .await
     .unwrap_or(Err(Failure::Upstream));
-    let (status, response, refused, version, foreign_version) = match outcome {
-        Ok(done) => (
-            done.status,
-            done.response,
-            done.refused,
-            done.version,
-            done.foreign_version,
-        ),
-        Err(failure) => {
-            let (status, code, message, effect) = match failure {
-                Failure::Refused(why) => (403, "channel_refused", why, "not_applied"),
-                Failure::Framing => (
-                    400,
-                    "channel_refused",
-                    "the request framing was refused",
-                    "not_applied",
-                ),
-                Failure::Upstream => (
-                    502,
-                    "channel_upstream_failed",
-                    "aq-server did not answer through the channel; for a mutation, check the operation before retrying",
-                    "unknown",
-                ),
-            };
-            // A refusal is a commands-1 `Refusal` (spec 0006 §6.8): the CLI
-            // reads only that shape. An upstream failure is not a refusal.
-            let mut body = serde_json::json!({"code": code, "message": message, "effect": effect});
-            if effect == "not_applied" {
-                body["command"] = serde_json::json!(command_name(&seen.path));
-                body["grant"] = serde_json::Value::Null;
-                body["held"] = serde_json::json!([]);
-                body["request_id"] = serde_json::Value::Null;
-            }
-            let body = body.to_string();
-            let head = format!(
-                "HTTP/1.1 {status} Channel\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            (
-                status,
-                [head.into_bytes(), body.into_bytes()].concat(),
-                None,
-                None,
-                false,
-            )
-        }
-    };
-    let _ = tokio::time::timeout(Duration::from_secs(5), stream.write_all(&response)).await;
+    let done = outcome.unwrap_or_else(|failure| failure_response(failure, &seen.path));
+    let status = done.status;
+    let _ = tokio::time::timeout(Duration::from_secs(5), stream.write_all(&done.response)).await;
     let _ = stream.shutdown().await;
-    // Drain what a refused caller still sends, so closing with unread input
-    // does not reset the connection before it reads the refusal.
-    let _ = tokio::time::timeout(Duration::from_secs(1), async {
-        let mut sink = [0u8; 8192];
-        let mut left = crate::forward::MAX_BODY;
-        while left > 0 {
-            match tokio::io::AsyncReadExt::read(&mut stream, &mut sink).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => left = left.saturating_sub(n),
-            }
-        }
-    })
-    .await;
+    drain_refused_input(&mut stream).await;
     tracing::info!(target: "aq_agent_channel", attempt_id = %shared.attempt_id,
         method = %seen.method, path = %seen.path, status,
         duration_ms = started.elapsed().as_millis() as u64, "agent channel request");
-    match refused.as_deref() {
+    match done.refused.as_deref() {
         // The server has revoked the verifier (cancel, closure, disposition).
         Some("session_revoked") => shared.close("the server revoked the attempt credential"),
         // The held credential no longer authenticates: revoked (the server
@@ -503,10 +498,87 @@ async fn handle(shared: Arc<Shared>, mut stream: UnixStream) {
         // tells which; the rotation task bounds it.
         // A caller-chosen API version gets `unauthorized` from the command
         // surface whatever the credential; it never asks for a re-issue.
-        Some("unauthorized" | "session_expired") if !foreign_version => {
-            shared.stale.raise(version.unwrap_or(0));
+        Some("unauthorized" | "session_expired") if !done.foreign_version => {
+            shared.stale.raise(done.version.unwrap_or(0));
         }
         _ => {}
+    }
+}
+
+async fn drain_refused_input(stream: &mut UnixStream) {
+    // Drain what a refused caller still sends, so closing with unread input
+    // does not reset the connection before it reads the refusal.
+    let _ = tokio::time::timeout(Duration::from_secs(1), async {
+        let mut sink = [0u8; 8192];
+        let mut left = crate::forward::MAX_BODY;
+        while left > 0 {
+            match tokio::io::AsyncReadExt::read(stream, &mut sink).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => left = left.saturating_sub(n),
+            }
+        }
+    })
+    .await;
+}
+
+fn failure_response(failure: Failure, path: &str) -> crate::forward::Forwarded {
+    let (status, code, message, effect) = match failure {
+        Failure::Refused(why) => (403, "channel_refused", why, "not_applied"),
+        Failure::Framing => (
+            400,
+            "channel_refused",
+            "the request framing was refused",
+            "not_applied",
+        ),
+        #[cfg(feature = "environment-try")]
+        Failure::Checkpoint(crate::CheckpointError::Refused) => (
+            422,
+            "checkpoint_refused",
+            "the workspace holds a credential-shaped value; nothing was pushed or sent to aq-server",
+            "not_applied",
+        ),
+        #[cfg(feature = "environment-try")]
+        Failure::Checkpoint(crate::CheckpointError::PushFailed) => (
+            502,
+            "checkpoint_push_failed",
+            "the node could not push the workspace for this try; nothing was sent to aq-server",
+            "not_applied",
+        ),
+        #[cfg(feature = "environment-try")]
+        Failure::Checkpoint(crate::CheckpointError::Busy) => (
+            502,
+            "checkpoint_push_failed",
+            "a try is already in progress for this attempt; nothing was sent to aq-server",
+            "not_applied",
+        ),
+        Failure::Upstream => (
+            502,
+            "channel_upstream_failed",
+            "aq-server did not answer through the channel; for a mutation, check the operation before retrying",
+            "unknown",
+        ),
+    };
+    // A refusal is a commands-1 `Refusal` (spec 0006 §6.8): the CLI
+    // reads only that shape. An upstream failure is not a refusal.
+    let mut body = serde_json::json!({"code": code, "message": message, "effect": effect});
+    if effect == "not_applied" {
+        body["command"] = serde_json::json!(command_name(path));
+        body["grant"] = serde_json::Value::Null;
+        body["held"] = serde_json::json!([]);
+        body["request_id"] = serde_json::Value::Null;
+    }
+    let body = body.to_string();
+    let head = format!(
+        "HTTP/1.1 {status} Channel\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    crate::forward::Forwarded {
+        status,
+        response: [head.into_bytes(), body.into_bytes()].concat(),
+        refused: None,
+        version: None,
+        foreign_version: false,
+        not_applied: effect == "not_applied",
     }
 }
 
@@ -544,37 +616,17 @@ fn command_name(path: &str) -> String {
 ///   that no unavailable issuance precedes is the fence doing its job: close.
 async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
     let mut closed = shared.closed.subscribe();
-    let mut retry_at: Option<u64> = None;
-    // Server versions committed whose responses were lost.
-    let mut lost = 0u64;
-    let mut uncertain = false;
-    let mut stale = false;
-    let mut probed: Option<u64> = None;
-    let mut last_issue = 0u64;
-    let base = RETRY.as_millis() as u64;
-    let mut spacing = base;
+    let mut rotation = Rotation::new(issuer.as_ref());
     loop {
-        let (version, due) = {
-            let Ok(c) = shared.credential.read() else {
-                return shared.close("credential lock");
-            };
-            // A credential that already reaches the grant end is never renewed.
-            let mut due = if c.expires_at_ms >= shared.not_after_ms {
-                shared.not_after_ms
-            } else {
-                retry_at.unwrap_or(c.issued_at_ms + (c.expires_at_ms - c.issued_at_ms) * 2 / 3)
-            };
-            if stale {
-                due = due.min(last_issue + spacing);
-            }
-            (c.version, due.min(shared.not_after_ms))
+        let Some((version, due)) = rotation.due(&shared) else {
+            return shared.close("credential lock");
         };
         let wait = Duration::from_millis(due.saturating_sub(now_ms()));
         tokio::select! {
             _ = closed.wait_for(|c| *c) => return,
             _ = tokio::time::sleep(wait) => {}
-            _ = shared.stale.notify.notified(), if !stale => {
-                stale = probed != Some(version) && shared.stale.raised_for(version);
+            _ = shared.stale.notify.notified(), if !rotation.stale => {
+                rotation.stale = rotation.probed != Some(version) && shared.stale.raised_for(version);
                 continue;
             }
         }
@@ -582,43 +634,102 @@ async fn rotate(shared: Arc<Shared>, issuer: Arc<dyn CredentialIssuer>) {
         if now >= shared.not_after_ms {
             return shared.close("the attempt grant ended");
         }
-        let reissue = std::mem::take(&mut stale);
-        if reissue {
-            probed = Some(version);
-            spacing = (spacing * 2).min(base * u64::from(STALE_BACKOFF_MAX));
-        }
-        last_issue = now;
-        let expected = version + lost;
-        match issuer.issue(expected).await {
-            Ok(issued) if accepted(&issued, expected, now) => {
-                if let Ok(mut c) = shared.credential.write() {
-                    *c = Credential {
-                        token: issued.token,
-                        version: issued.version,
-                        issued_at_ms: now,
-                        expires_at_ms: issued.expires_at_ms,
-                    };
-                }
-                (retry_at, lost, uncertain) = (None, 0, false);
-                if !reissue {
-                    spacing = base;
-                }
-                tracing::info!(target: "aq_agent_channel", attempt_id = %shared.attempt_id,
-                    version = issued.version, "agent credential rotated");
-            }
-            Err(IssueError::Refused(code)) if code == "id_conflict" && uncertain => {
-                // Our unanswered issuance was committed: fence on its version.
-                (retry_at, lost, uncertain) = (Some(now), lost + 1, false);
-            }
-            Ok(_) | Err(IssueError::Refused(_)) => {
-                return shared.close("credential rotation was refused");
-            }
-            Err(IssueError::Unavailable) => {
-                retry_at = Some(now + RETRY.as_millis() as u64);
-                uncertain = true;
-            }
+        if !rotation.issue(&shared, version, now).await {
+            return shared.close("credential rotation was refused");
         }
     }
+}
+
+struct Rotation<'a> {
+    issuer: &'a dyn CredentialIssuer,
+    retry_at: Option<u64>,
+    // Server versions committed whose responses were lost.
+    lost: u64,
+    uncertain: bool,
+    stale: bool,
+    probed: Option<u64>,
+    last_issue: u64,
+    spacing: u64,
+}
+
+impl<'a> Rotation<'a> {
+    fn new(issuer: &'a dyn CredentialIssuer) -> Self {
+        Self {
+            issuer,
+            retry_at: None,
+            lost: 0,
+            uncertain: false,
+            stale: false,
+            probed: None,
+            last_issue: 0,
+            spacing: RETRY.as_millis() as u64,
+        }
+    }
+
+    fn due(&self, shared: &Shared) -> Option<(u64, u64)> {
+        let stale_at = self.stale.then(|| self.last_issue + self.spacing);
+        rotation_due(shared, self.retry_at, stale_at)
+    }
+
+    async fn issue(&mut self, shared: &Shared, version: u64, now: u64) -> bool {
+        let reissue = std::mem::take(&mut self.stale);
+        let base = RETRY.as_millis() as u64;
+        if reissue {
+            self.probed = Some(version);
+            self.spacing = (self.spacing * 2).min(base * u64::from(STALE_BACKOFF_MAX));
+        }
+        self.last_issue = now;
+        let expected = version + self.lost;
+        match self.issuer.issue(expected).await {
+            Ok(issued) if accepted(&issued, expected, now) => {
+                shared.install_credential(issued, now);
+                (self.retry_at, self.lost, self.uncertain) = (None, 0, false);
+                if !reissue {
+                    self.spacing = base;
+                }
+            }
+            Err(IssueError::Refused(code)) if code == "id_conflict" && self.uncertain => {
+                // Our unanswered issuance was committed: fence on its version.
+                (self.retry_at, self.lost, self.uncertain) = (Some(now), self.lost + 1, false);
+            }
+            Ok(_) | Err(IssueError::Refused(_)) => return false,
+            Err(IssueError::Unavailable) => {
+                self.retry_at = Some(now + base);
+                self.uncertain = true;
+            }
+        }
+        true
+    }
+}
+
+impl Shared {
+    fn install_credential(&self, issued: Issued, now: u64) {
+        if let Ok(mut credential) = self.credential.write() {
+            *credential = Credential {
+                token: issued.token,
+                version: issued.version,
+                issued_at_ms: now,
+                expires_at_ms: issued.expires_at_ms,
+            };
+        }
+        tracing::info!(target: "aq_agent_channel", attempt_id = %self.attempt_id, version = issued.version, "agent credential rotated");
+    }
+}
+
+fn rotation_due(
+    shared: &Shared,
+    retry_at: Option<u64>,
+    stale_at: Option<u64>,
+) -> Option<(u64, u64)> {
+    let c = shared.credential.read().ok()?;
+    // A credential that already reaches the grant end is never renewed.
+    let due = if c.expires_at_ms >= shared.not_after_ms {
+        shared.not_after_ms
+    } else {
+        retry_at.unwrap_or(c.issued_at_ms + (c.expires_at_ms - c.issued_at_ms) * 2 / 3)
+    };
+    let due = stale_at.map_or(due, |stale_at| due.min(stale_at));
+    Some((c.version, due.min(shared.not_after_ms)))
 }
 
 /// Removes the stale attempt directories under `root`: those no live channel

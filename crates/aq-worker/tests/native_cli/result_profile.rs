@@ -65,26 +65,22 @@ fn composite_selection_is_canonical_closed_and_independently_pinned() {
             environment: &value.environment,
         })
         .unwrap();
-    for mode in 0..3 {
-        let wrong = reference("wrong");
-        let runtime = RuntimeIdentity {
-            runtime: if mode == 1 {
-                wrong.clone()
-            } else {
-                value.runtime.clone()
-            },
-            qualification: runtime.qualification.clone(),
-        };
+    let wrong = reference("wrong");
+    let wrong_runtime = RuntimeIdentity {
+        runtime: wrong.clone(),
+        qualification: runtime.qualification.clone(),
+    };
+    for (adapter, runtime, environment) in [
+        (&wrong, &runtime, &value.environment),
+        (&adapter, &wrong_runtime, &value.environment),
+        (&adapter, &runtime, &wrong),
+    ] {
         assert!(
             value
                 .validate_selected(ExpectedResultAdapter {
-                    adapter: if mode == 0 { &wrong } else { &adapter },
-                    runtime: &runtime,
-                    environment: if mode == 2 {
-                        &wrong
-                    } else {
-                        &value.environment
-                    },
+                    adapter,
+                    runtime,
+                    environment
                 })
                 .is_err()
         );

@@ -27,17 +27,53 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 && !sandbox.backend_id.is_empty(),
             "backend returned mismatched identity"
         );
+        let material = self
+            .issue_launch_material(&mut a, &sandbox, request)
+            .await?;
+        self.validate_launch_permit(&a, &material.permit)?;
+        self.save_launch_files(&a, &material.permit)?;
+        a.bind_permit(&material.permit);
+        let expires = material.permit.expires_at_ms;
+        a.phase = Phase::MaterialIntent;
+        self.save(id, a.clone())?;
+        let result = self
+            .backend
+            .deliver_private_material(&sandbox, material.payload)
+            .await;
+        self.backend_result(result)?;
+        a.phase = Phase::MaterialDelivered;
+        self.save(id, a.clone())?;
+        self.admit_effect(&a)?;
+        ensure!(
+            (self.clock)()? < expires,
+            "delegated permit expired before start"
+        );
+        a.phase = Phase::StartIntent;
+        self.save(id, a.clone())?;
+        let result = self.backend.start_runner(&sandbox).await;
+        self.backend_result(result)?;
+        a.phase = Phase::Running;
+        self.save(id, a)
+    }
+    async fn issue_launch_material(
+        &mut self,
+        a: &mut Attempt,
+        sandbox: &SandboxIdentity,
+        request: &P::Request,
+    ) -> Result<IssuedMaterial> {
+        let id = a.create.owner.attempt_id;
         a.sandbox = Some(sandbox.clone());
         a.phase = Phase::Created;
         self.save(id, a.clone())?;
-        self.admit_effect(&a)?;
+        self.admit_effect(a)?;
         a.phase = Phase::IssueIntent;
         self.save(id, a.clone())?;
-        let material = self
-            .provider
-            .issue(request, &sandbox, &a.request.manifest)
-            .await?;
-        let permit = &material.permit;
+        self.provider
+            .issue(request, sandbox, &a.request.manifest)
+            .await
+    }
+    fn validate_launch_permit(&self, a: &Attempt, permit: &sandbox::DelegatedPermit) -> Result<()> {
+        let id = a.create.owner.attempt_id;
         permit.validate()?;
         let now = (self.clock)()?;
         ensure!(
@@ -47,8 +83,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                 && permit.binding.grant_generation
                     == a.request.manifest.bindings.assignment_generation
                 && permit.hard_deadline_ms == a.request.hard_deadline_ms
-                && permit.issued_at_ms <= now
-                && now < permit.expires_at_ms,
+                && (permit.issued_at_ms..permit.expires_at_ms).contains(&now),
             "delegated permit does not authorize this preparation"
         );
         ensure!(
@@ -61,6 +96,10 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
                     || other.channel_id == Some(permit.binding.channel_id)),
             "delegated permit reused"
         );
+        Ok(())
+    }
+    fn save_launch_files(&mut self, a: &Attempt, permit: &sandbox::DelegatedPermit) -> Result<()> {
+        let id = a.create.owner.attempt_id;
         // Credentials and manifest are only in private files; the snapshot holds IDs.
         // Failures here poison this invocation, preventing uncertain handoff retries.
         let permit_bytes = Zeroizing::new(serde_json::to_vec(permit)?);
@@ -73,38 +112,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             .storage
             .write_private(&format!("manifest-{id}.json"), &manifest_bytes)?;
         self.journal.poisoned = false;
-        a.permit_id = Some(permit.permit_id);
-        a.logical_sandbox_id = Some(permit.binding.sandbox_id);
-        a.channel_id = Some(permit.binding.channel_id);
-        a.grant = Some(GrantMonitor {
-            boot_id: permit.binding.node.boot_id,
-            permit_id: permit.permit_id,
-            sandbox_id: permit.binding.sandbox_id,
-            channel_id: permit.binding.channel_id,
-            generation: permit.binding.grant_generation,
-            renewal_deadline_ms: permit.expires_at_ms,
-            execution: false,
-        });
-        a.phase = Phase::MaterialIntent;
-        self.save(id, a.clone())?;
-        let result = self
-            .backend
-            .deliver_private_material(&sandbox, material.payload)
-            .await;
-        self.backend_result(result)?;
-        a.phase = Phase::MaterialDelivered;
-        self.save(id, a.clone())?;
-        self.admit_effect(&a)?;
-        ensure!(
-            (self.clock)()? < permit.expires_at_ms,
-            "delegated permit expired before start"
-        );
-        a.phase = Phase::StartIntent;
-        self.save(id, a.clone())?;
-        let result = self.backend.start_runner(&sandbox).await;
-        self.backend_result(result)?;
-        a.phase = Phase::Running;
-        self.save(id, a)
+        Ok(())
     }
     // Preserve the durable effect intent: unavailable does not mean no VM exists.
     fn backend_result<T>(
@@ -128,11 +136,7 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             a.sandbox.as_ref() == Some(proof.sandbox()),
             "backend proof names another sandbox"
         );
-        if proof.kind() == WriterProofKind::Destroyed
-            && !(matches!(a.phase, Phase::DestroyIntent | Phase::Destroyed)
-                && a.destroy_authorization
-                    .as_ref()
-                    .is_some_and(|auth| auth.authorizes(proof.sandbox())))
+        if proof.kind() == WriterProofKind::Destroyed && !a.authorizes_destruction(proof.sandbox())
         {
             self.journal.poisoned = true;
             anyhow::bail!("backend reported destruction without durable destroy authority");
@@ -290,5 +294,28 @@ impl<B: PlacementBackend, P: PermitProvider> Controller<B, P> {
             self.record_proof(id, a, proof)?;
         }
         Ok(confirmation)
+    }
+}
+impl Attempt {
+    fn authorizes_destruction(&self, sandbox: &SandboxIdentity) -> bool {
+        matches!(self.phase, Phase::DestroyIntent | Phase::Destroyed)
+            && self
+                .destroy_authorization
+                .as_ref()
+                .is_some_and(|auth| auth.authorizes(sandbox))
+    }
+    pub(super) fn bind_permit(&mut self, permit: &sandbox::DelegatedPermit) {
+        self.permit_id = Some(permit.permit_id);
+        self.logical_sandbox_id = Some(permit.binding.sandbox_id);
+        self.channel_id = Some(permit.binding.channel_id);
+        self.grant = Some(GrantMonitor {
+            boot_id: permit.binding.node.boot_id,
+            permit_id: permit.permit_id,
+            sandbox_id: permit.binding.sandbox_id,
+            channel_id: permit.binding.channel_id,
+            generation: permit.binding.grant_generation,
+            renewal_deadline_ms: permit.expires_at_ms,
+            execution: permit.scope == PermitScope::Execution,
+        });
     }
 }

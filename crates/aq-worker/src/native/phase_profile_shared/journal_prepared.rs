@@ -42,8 +42,7 @@ macro_rules! journal_prepared {
             );
             p.origin.validate(
                 a,
-                p.request.original.journal_revision,
-                p.prepared_at_ns,
+                inputs::Creation::new(p.request.original.journal_revision, p.prepared_at_ns),
                 revision,
             )?;
             ensure!(

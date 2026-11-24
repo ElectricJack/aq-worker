@@ -3,6 +3,37 @@ use aq_admission::preparation_v2::PrepareRequest;
 fn prepare() -> PrepareRequest {
     serde_json::from_value(fixture()["prepare"].clone()).unwrap()
 }
+fn assert_first_observation(
+    first: &aq_worker::native::http::preparation_v2::ExecutionObservation,
+    replay: &aq_worker::native::http::preparation_v2::ExecutionObservation,
+) {
+    assert!(replay.deadline_ns() <= first.deadline_ns());
+    assert_eq!(
+        replay.first_send_deadline_ns(),
+        first.first_send_deadline_ns()
+    );
+    assert_ne!(replay.first_send_deadline_ns(), first.deadline_ns());
+    assert!(replay.hard_deadline_ns() <= first.hard_deadline_ns());
+    assert_ne!(
+        replay.delivery().delivery.nonce,
+        first.delivery().delivery.nonce
+    );
+    let (original, sent, received, deadline, hard) = replay.first_transmission();
+    assert_eq!(
+        serde_json::to_value(original).unwrap(),
+        serde_json::to_value(first.delivery()).unwrap()
+    );
+    assert_eq!(
+        (sent, received, deadline, hard),
+        (
+            first.sent_ns(),
+            first.received_ns(),
+            first.deadline_ns(),
+            first.hard_deadline_ns()
+        )
+    );
+}
+
 #[tokio::test]
 async fn execution_outlasts_accepted_preparation_and_retry_preserves_first_observation() {
     let s = Server::new().await;
@@ -39,31 +70,7 @@ async fn execution_outlasts_accepted_preparation_and_retry_preserves_first_obser
         .prepare_execution(&p, &a, &accepted, &q, Some(&first))
         .await
         .unwrap();
-    assert!(replay.deadline_ns() <= first.deadline_ns());
-    assert_eq!(
-        replay.first_send_deadline_ns(),
-        first.first_send_deadline_ns()
-    );
-    assert_ne!(replay.first_send_deadline_ns(), first.deadline_ns());
-    assert!(replay.hard_deadline_ns() <= first.hard_deadline_ns());
-    assert_ne!(
-        replay.delivery().delivery.nonce,
-        first.delivery().delivery.nonce
-    );
-    let (original, sent, received, deadline, hard) = replay.first_transmission();
-    assert_eq!(
-        serde_json::to_value(original).unwrap(),
-        serde_json::to_value(first.delivery()).unwrap()
-    );
-    assert_eq!(
-        (sent, received, deadline, hard),
-        (
-            first.sent_ns(),
-            first.received_ns(),
-            first.deadline_ns(),
-            first.hard_deadline_ns()
-        )
-    );
+    assert_first_observation(&first, &replay);
     let mut changed = q.clone();
     changed.original.operation_id = Uuid::new_v4();
     let sends = s.peer.sends.load(Ordering::SeqCst);

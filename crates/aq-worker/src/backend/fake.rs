@@ -188,10 +188,13 @@ impl PlacementBackend for FakeBackend {
     }
     async fn create(&mut self, request: &CreateRequest) -> Result<SandboxIdentity, BackendError> {
         request.validate()?;
-        for capability in &request.required_capabilities {
-            if !self.capabilities().contains(capability) {
-                return Err(BackendError::UnsupportedCapability(*capability));
-            }
+        let supported = self.capabilities();
+        if let Some(missing) = request
+            .required_capabilities
+            .iter()
+            .find(|c| !supported.contains(c))
+        {
+            return Err(BackendError::UnsupportedCapability(*missing));
         }
         if let Some(existing) = self.sandboxes.get(&request.name) {
             return if existing.request == *request

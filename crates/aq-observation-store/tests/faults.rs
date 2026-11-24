@@ -151,64 +151,7 @@ fn walk(process_exit: bool) -> u64 {
         "engine_batch",
         "file_collect",
     ] {
-        let temp = tempfile::tempdir().unwrap();
-        let base = temp.path().join("base");
-        setup(&base, stage);
-        let before_store = Store::open(&base, Limits::fixture()).unwrap();
-        let before = projection(&before_store);
-        drop(before_store);
-        let successful = temp.path().join("successful");
-        copy_db(&base, &successful);
-        let store = Store::open(&successful, Limits::fixture()).unwrap();
-        store.monitor().reset();
-        apply(&store, stage).unwrap();
-        let operations = store.monitor().stats().operations;
-        let after = projection(&store);
-        drop(store);
-        assert!(operations > 2);
-        for op in 1..=operations {
-            for is_after in [false, true] {
-                let path = temp.path().join(format!("cut-{op}-{is_after}"));
-                copy_db(&base, &path);
-                if process_exit {
-                    let status = Command::new(std::env::current_exe().unwrap())
-                        .args(["--exact", "crash_child", "--nocapture"])
-                        .env("AQ_REDB_CRASH_ROOT", &path)
-                        .env("AQ_REDB_STAGE", stage)
-                        .env("AQ_REDB_OP", op.to_string())
-                        .env("AQ_REDB_AFTER", is_after.to_string())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status()
-                        .unwrap();
-                    assert_eq!(status.code(), Some(77), "{stage} op{op} after{is_after}");
-                } else {
-                    let store = Store::open(&path, Limits::fixture()).unwrap();
-                    store.monitor().reset();
-                    store.monitor().fault(Fault {
-                        operation: op,
-                        after: is_after,
-                        action: Action::Error,
-                    });
-                    assert!(
-                        apply(&store, stage).is_err(),
-                        "{stage} op{op} after{is_after}"
-                    );
-                    assert!(store.prepare().is_err(), "uncertain packet prepared");
-                    assert!(store.begin_send(5000).is_err(), "uncertain store reused");
-                    drop(store);
-                }
-                let reopened = Store::open(&path, Limits::fixture()).unwrap();
-                reopened.audit().unwrap();
-                let actual = projection(&reopened);
-                assert!(
-                    actual == before || actual == after,
-                    "partial projection {stage} op{op} after{is_after}: {actual:?}"
-                );
-                assert!(reopened.file_bytes().unwrap() <= Limits::fixture().physical_bytes);
-                cuts += 1;
-            }
-        }
+        cuts += walk_stage(stage, process_exit);
     }
     cuts
 }
@@ -221,4 +164,81 @@ fn every_mutating_backend_boundary_io_error_reopens_to_old_or_new_projection() {
 fn every_mutating_backend_boundary_process_exit_reopens_to_old_or_new_projection() {
     let count = walk(true);
     eprintln!("process-exit boundary cuts: {count}");
+}
+
+fn inject_fault(path: &Path, stage: &str, fault: Fault) {
+    let op = fault.operation;
+    let is_after = fault.after;
+    if matches!(fault.action, Action::Exit) {
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "crash_child", "--nocapture"])
+            .env("AQ_REDB_CRASH_ROOT", path)
+            .env("AQ_REDB_STAGE", stage)
+            .env("AQ_REDB_OP", op.to_string())
+            .env("AQ_REDB_AFTER", is_after.to_string())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert_eq!(status.code(), Some(77), "{stage} op{op} after{is_after}");
+    } else {
+        let store = Store::open(path, Limits::fixture()).unwrap();
+        store.monitor().reset();
+        store.monitor().fault(fault);
+        assert!(
+            apply(&store, stage).is_err(),
+            "{stage} op{op} after{is_after}"
+        );
+        assert!(store.prepare().is_err(), "uncertain packet prepared");
+        assert!(store.begin_send(5000).is_err(), "uncertain store reused");
+        drop(store);
+    }
+}
+
+fn walk_stage(stage: &str, process_exit: bool) -> u64 {
+    let mut cuts = 0;
+    let temp = tempfile::tempdir().unwrap();
+    let base = temp.path().join("base");
+    setup(&base, stage);
+    let before_store = Store::open(&base, Limits::fixture()).unwrap();
+    let before = projection(&before_store);
+    drop(before_store);
+    let successful = temp.path().join("successful");
+    copy_db(&base, &successful);
+    let store = Store::open(&successful, Limits::fixture()).unwrap();
+    store.monitor().reset();
+    apply(&store, stage).unwrap();
+    let operations = store.monitor().stats().operations;
+    let after = projection(&store);
+    drop(store);
+    assert!(operations > 2);
+    for op in 1..=operations {
+        for is_after in [false, true] {
+            let path = temp.path().join(format!("cut-{op}-{is_after}"));
+            copy_db(&base, &path);
+            inject_fault(
+                &path,
+                stage,
+                Fault {
+                    operation: op,
+                    after: is_after,
+                    action: if process_exit {
+                        Action::Exit
+                    } else {
+                        Action::Error
+                    },
+                },
+            );
+            let reopened = Store::open(&path, Limits::fixture()).unwrap();
+            reopened.audit().unwrap();
+            let actual = projection(&reopened);
+            assert!(
+                actual == before || actual == after,
+                "partial projection {stage} op{op} after{is_after}: {actual:?}"
+            );
+            assert!(reopened.file_bytes().unwrap() <= Limits::fixture().physical_bytes);
+            cuts += 1;
+        }
+    }
+    cuts
 }

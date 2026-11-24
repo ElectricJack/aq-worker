@@ -33,85 +33,93 @@ pub fn blocked(text: &str) -> bool {
 }
 /// An `Outcome:` value whose first word is `blocked`.
 pub fn said_blocked(value: &str) -> bool {
-    first_word(value).eq_ignore_ascii_case("blocked")
-}
-
-/// A token without its wrapping backticks or emphasis and its trailing `.` `;` `,`.
-fn bare(token: &str) -> &str {
-    const WRAP: [char; 3] = ['*', '_', '`'];
-    token
-        .trim_matches(WRAP)
-        .trim_end_matches(['.', ';', ','])
-        .trim_matches(WRAP)
-}
-fn first_word(value: &str) -> &str {
     value
         .split_whitespace()
-        .map(bare)
-        .find(|t| !t.is_empty())
-        .unwrap_or_default()
-}
-/// A file name `name.ext`: `ext` 1-8 alphanumerics with a letter; `name` at least two
-/// characters, starting with two before any dot (`a.k.a`, `e.g` are words), of
-/// letters, digits, `-`, `_` and `.`, and not a bare number or version.
-fn file_name(segment: &str) -> bool {
-    let Some((name, ext)) = segment.rsplit_once('.') else {
-        return false;
-    };
-    let number = |s: &str| {
-        s.trim_start_matches(['v', 'V'])
-            .chars()
-            .all(|c| c.is_ascii_digit() || c == '.')
-    };
-    name.chars().count() >= 2
-        && name
-            .split('.')
-            .next()
-            .is_some_and(|s| s.chars().count() >= 2)
-        && name
-            .chars()
-            .all(|c| c.is_alphanumeric() || "-_.".contains(c))
-        && !number(name)
-        && (1..=8).contains(&ext.len())
-        && ext.chars().all(|c| c.is_ascii_alphanumeric())
-        && ext.chars().any(|c| c.is_ascii_alphabetic())
-}
-/// A dotfile or dot-directory segment (`.github`, `.config`).
-fn dot_name(segment: &str) -> bool {
-    segment.strip_prefix('.').is_some_and(|rest| {
-        rest.chars().count() >= 2
-            && rest
-                .chars()
-                .all(|c| c.is_alphanumeric() || "-_.".contains(c))
-    })
-}
-/// Review R3-I1: a path token is (a) a file name, (b) a slash path whose last
-/// segment is a file name, (c) a slash path ending in `/` whose first segment has
-/// two or more characters, or (d) a slash path with a segment containing `-`, `_`
-/// or a digit, or a segment that is a file or dot name. Letter-only slash words
-/// (`none/nil`, `and/or`, `CI/CD`, `I/O`) are not paths, and nothing with `://` is.
-fn path_like(token: &str) -> bool {
-    if token.contains("://")
-        || !token
-            .chars()
-            .all(|c| c.is_alphanumeric() || "-_./".contains(c))
-    {
-        return false;
-    }
-    if !token.contains('/') {
-        return file_name(token);
-    }
-    let segments: Vec<&str> = token.split('/').collect();
-    let last = segments[segments.len() - 1];
-    file_name(last)
-        || (last.is_empty() && segments[0].chars().count() >= 2)
-        || segments.iter().any(|s| {
-            s.chars()
-                .any(|c| c == '-' || c == '_' || c.is_ascii_digit())
-                || (s.contains('.') && (file_name(s) || dot_name(s)))
-        })
+        .map(ClaimToken)
+        .map(ClaimToken::bare)
+        .find(|t| !t.0.is_empty())
+        .is_some_and(|word| word.0.eq_ignore_ascii_case("blocked"))
 }
 
+struct ClaimToken<'a>(&'a str);
+
+impl ClaimToken<'_> {
+    /// Strip Markdown delimiters and trailing punctuation from a claim token.
+    fn bare(self) -> Self {
+        const WRAP: [char; 3] = ['*', '_', '`'];
+        Self(
+            self.0
+                .trim_matches(WRAP)
+                .trim_end_matches(['.', ';', ','])
+                .trim_matches(WRAP),
+        )
+    }
+    /// Review R3-I1: a path token is (a) a file name, (b) a slash path whose last
+    /// segment is a file name, (c) a slash path ending in `/` whose first segment has
+    /// two or more characters, or (d) a slash path with a segment containing `-`, `_`
+    /// or a digit, or a segment that is a file or dot name. Letter-only slash words
+    /// (`none/nil`, `and/or`, `CI/CD`, `I/O`) are not paths, and nothing with `://` is.
+    fn is_path(&self) -> bool {
+        let token = self.0;
+        if !token.chars().all(|c| c == '/' || name_character(c)) {
+            return false;
+        }
+        if !token.contains('/') {
+            return self.is_file_name();
+        }
+        let mut segments = token.split('/');
+        let first = segments.next().unwrap_or_default();
+        (token.ends_with('/') && first.chars().count() >= 2)
+            || std::iter::once(first)
+                .chain(segments)
+                .map(ClaimToken)
+                .any(|segment| segment.identifies_path())
+    }
+
+    /// Require an extension of 1–8 ASCII alphanumerics with at least one letter.
+    fn is_file_name(&self) -> bool {
+        let Some((stem, extension)) = self.0.rsplit_once('.') else {
+            return false;
+        };
+        let stem = ClaimToken(stem);
+        let extension = ClaimToken(extension);
+        stem.valid_stem() && extension.valid_extension()
+    }
+
+    fn valid_stem(&self) -> bool {
+        let first = self.0.split('.').next().unwrap_or_default();
+        let version = self
+            .0
+            .trim_start_matches(['v', 'V'])
+            .chars()
+            .all(|c| c.is_ascii_digit() || c == '.');
+        first.chars().count() >= 2 && self.0.chars().all(name_character) && !version
+    }
+
+    fn valid_extension(&self) -> bool {
+        (1..=8).contains(&self.0.len())
+            && self.0.chars().all(|c| c.is_ascii_alphanumeric())
+            && self.0.chars().any(|c| c.is_ascii_alphabetic())
+    }
+
+    fn is_dot_name(&self) -> bool {
+        self.0
+            .strip_prefix('.')
+            .is_some_and(|rest| rest.chars().count() >= 2 && rest.chars().all(name_character))
+    }
+
+    fn identifies_path(&self) -> bool {
+        self.0
+            .chars()
+            .any(|c| matches!(c, '-' | '_') || c.is_ascii_digit())
+            || self.is_file_name()
+            || self.is_dot_name()
+    }
+}
+
+fn name_character(c: char) -> bool {
+    c.is_alphanumeric() || "-_.".contains(c)
+}
 /// Review R2-I1, R3-I1: a `Changes:` value claims changes only when it consists
 /// ENTIRELY of path tokens: separated by commas and/or whitespace, after a leading
 /// list bullet, each optionally wrapped in backticks or emphasis and followed by a
@@ -126,11 +134,13 @@ pub fn names_paths(value: &str) -> bool {
         .iter()
         .find_map(|b| value.strip_prefix(b))
         .unwrap_or(value);
-    let tokens: Vec<&str> = value
+    let mut tokens = value
         .split(|c: char| c.is_whitespace() || c == ',')
         .filter(|t| !t.is_empty())
-        .collect();
-    !tokens.is_empty() && tokens.iter().all(|t| path_like(bare(t)))
+        .map(ClaimToken)
+        .map(ClaimToken::bare)
+        .peekable();
+    tokens.peek().is_some() && tokens.all(|t| t.is_path())
 }
 
 #[cfg(test)]

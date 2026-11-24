@@ -4,6 +4,7 @@ mod node;
 mod support;
 use anyhow::{Result, ensure};
 use aq_observation_admission::{self as a, Owner, Receipt, Reply, Request, Status};
+use aq_observation_store::backend::{Action, Fault};
 use aq_observation_store::{AuthenticatedOwnerPeer, Limits, LocalIntent, LocalStage, Store};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -435,30 +436,7 @@ fn assert_owner_recovery(root: &Path, peer_path: &Path, stage: &str) {
             assert_eq!(existed, root.join("store/store.redb").exists());
         }
         Ok(mut l) => {
-            match l.stage() {
-                LocalStage::PreparePending | LocalStage::Prepared => {
-                    l.prepare(&mut peer).unwrap();
-                    l.create_store(&mut peer).unwrap();
-                    l.activate(&mut peer, Uuid::from_u128(403)).unwrap();
-                }
-                LocalStage::StoreCreated | LocalStage::ActivationPending => {
-                    l.activate(&mut peer, Uuid::from_u128(403)).unwrap()
-                }
-                LocalStage::Active => {
-                    if stage == "boot"
-                        && peer.owner.as_ref().unwrap().current_boot_id == Uuid::from_u128(6)
-                    {
-                        l.advance_boot(&mut peer, Uuid::from_u128(404), Uuid::from_u128(66), 10)
-                            .unwrap();
-                    } else {
-                        l.resume(&mut peer).unwrap();
-                    }
-                }
-                LocalStage::BootPending => l.recover_boot(&mut peer, 10).unwrap(),
-                LocalStage::CreationStarted => {
-                    panic!("open must reconcile existing marker or hold")
-                }
-            }
+            recover_stage(&mut l, &mut peer, stage);
             l.with_active(|s| {
                 let projection = s.snapshot()?;
                 if stage == "boot" {
@@ -495,87 +473,154 @@ fn assert_owner_recovery(root: &Path, peer_path: &Path, stage: &str) {
         }
     }
 }
-fn walk_owner_boundaries(exit: bool) -> u64 {
-    let temp = tempfile::tempdir().unwrap();
-    let mut cuts = 0;
-    for stage in ["prepare", "create", "activate", "boot"] {
-        let base = temp.path().join(format!("base-{stage}"));
-        let peer_path = temp.path().join(format!("base-{stage}-peer.json"));
-        setup_owner_case(&base, &peer_path, stage);
-        if stage == "boot" {
-            let mut p = Peer::load(&peer_path);
-            let mut l = LocalIntent::open(&base, Uuid::from_u128(6)).unwrap();
-            p.boot = 6;
-            l.resume(&mut p).unwrap();
-            let packet = l.with_active(|s| Ok(s.prepare()?.unwrap())).unwrap();
-            std::fs::write(
-                temp.path().join("before-packet.json"),
-                serde_json::to_vec(&packet).unwrap(),
-            )
-            .unwrap();
+fn recover_stage(l: &mut LocalIntent, peer: &mut Peer, stage: &str) {
+    match l.stage() {
+        LocalStage::PreparePending | LocalStage::Prepared => {
+            l.prepare(peer).unwrap();
+            l.create_store(peer).unwrap();
+            l.activate(peer, Uuid::from_u128(403)).unwrap();
         }
-        let measure = temp.path().join(format!("measure-{stage}"));
-        copy_owner(&base, &measure);
-        let mut l = LocalIntent::open(&measure, boot_for(stage)).unwrap();
-        let mut p = Peer::load(&peer_path);
-        p.file = None;
-        l.intent_monitor().reset();
-        perform_owner_case(&mut l, &mut p, stage).unwrap();
-        let count = l.intent_monitor().stats().operations;
-        drop(l);
+        LocalStage::StoreCreated | LocalStage::ActivationPending => {
+            l.activate(peer, Uuid::from_u128(403)).unwrap()
+        }
+        LocalStage::Active => {
+            if stage == "boot" && peer.owner.as_ref().unwrap().current_boot_id == Uuid::from_u128(6)
+            {
+                l.advance_boot(peer, Uuid::from_u128(404), Uuid::from_u128(66), 10)
+                    .unwrap();
+            } else {
+                l.resume(peer).unwrap();
+            }
+        }
+        LocalStage::BootPending => l.recover_boot(peer, 10).unwrap(),
+        LocalStage::CreationStarted => {
+            panic!("open must reconcile existing marker or hold")
+        }
+    }
+}
+#[derive(Clone, Copy)]
+enum Boundary {
+    Intent,
+    Database,
+}
+impl Boundary {
+    fn monitor(self, intent: &LocalIntent) -> aq_observation_store::backend::Monitor {
+        match self {
+            Self::Intent => intent.intent_monitor(),
+            Self::Database => intent.store_monitor().unwrap(),
+        }
+    }
+    fn walk(self, exit: bool) -> u64 {
+        let temp = tempfile::tempdir().unwrap();
+        let stages: &[&str] = match self {
+            Self::Intent => &["prepare", "create", "activate", "boot"],
+            Self::Database => &["activate", "boot"],
+        };
+        let mut cuts = 0;
+        for &stage in stages {
+            cuts += self.walk_stage(temp.path(), stage, exit);
+        }
+        cuts
+    }
+    fn walk_stage(self, root: &Path, stage: &str, exit: bool) -> u64 {
+        let (base, peer_path) = setup_boundary_stage(root, stage);
+        let count = self.measure(root, stage, (&base, &peer_path));
+        let mut cuts = 0;
         for n in 1..=count {
             for after in [false, true] {
-                let root = temp.path().join(format!("cut-{stage}-{n}-{after}"));
-                copy_owner(&base, &root);
-                let peer = temp.path().join(format!("peer-{stage}-{n}-{after}.json"));
+                let cut_root = root.join(format!("cut-{stage}-{n}-{after}"));
+                copy_owner(&base, &cut_root);
+                let peer = root.join(format!("peer-{stage}-{n}-{after}.json"));
                 std::fs::copy(&peer_path, &peer).unwrap();
-                if exit {
-                    let output = std::process::Command::new(std::env::current_exe().unwrap())
-                        .args(["--exact", "owner_crash_boundary_child", "--nocapture"])
-                        .env("AQ_OWNER_FAULT_ROOT", &root)
-                        .env("AQ_OWNER_FAULT_PEER", &peer)
-                        .env("AQ_OWNER_FAULT_STAGE", stage)
-                        .env("AQ_OWNER_FAULT_N", n.to_string())
-                        .env("AQ_OWNER_FAULT_AFTER", if after { "1" } else { "0" })
-                        .output()
-                        .unwrap();
-                    assert_eq!(
-                        output.status.code(),
-                        Some(77),
-                        "{} {}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                } else {
-                    let mut l = LocalIntent::open(&root, boot_for(stage)).unwrap();
-                    let mut p = Peer::load(&peer);
-                    l.intent_monitor()
-                        .fault(aq_observation_store::backend::Fault {
-                            operation: n,
-                            after,
-                            action: aq_observation_store::backend::Action::Error,
-                        });
-                    assert!(perform_owner_case(&mut l, &mut p, stage).is_err());
-                }
-                assert_owner_recovery(&root, &peer, stage);
+                let action = if exit { Action::Exit } else { Action::Error };
+                self.inject(
+                    (&cut_root, &peer),
+                    stage,
+                    Fault {
+                        operation: n,
+                        after,
+                        action,
+                    },
+                );
+                assert_owner_recovery(&cut_root, &peer, stage);
                 cuts += 1;
             }
         }
+        cuts
     }
-    cuts
+    fn measure(self, root: &Path, stage: &str, paths: (&Path, &Path)) -> u64 {
+        let (base, peer_path) = paths;
+        let measure = root.join(format!("measure-{stage}"));
+        copy_owner(base, &measure);
+        let mut l = LocalIntent::open(&measure, boot_for(stage)).unwrap();
+        let mut p = Peer::load(peer_path);
+        p.file = None;
+        self.monitor(&l).reset();
+        perform_owner_case(&mut l, &mut p, stage).unwrap();
+        let count = self.monitor(&l).stats().operations;
+        drop(l);
+        count
+    }
+    fn inject(self, paths: (&Path, &Path), stage: &str, fault: Fault) {
+        let (root, peer) = paths;
+        if matches!(fault.action, Action::Exit) {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "owner_crash_boundary_child", "--nocapture"])
+                .env("AQ_OWNER_FAULT_ROOT", root)
+                .env("AQ_OWNER_FAULT_PEER", peer)
+                .env("AQ_OWNER_FAULT_STAGE", stage)
+                .env("AQ_OWNER_FAULT_N", fault.operation.to_string())
+                .env("AQ_OWNER_FAULT_AFTER", u8::from(fault.after).to_string());
+            if matches!(self, Boundary::Database) {
+                command.env("AQ_OWNER_FAULT_BACKEND", "1");
+            }
+            let output = command.output().unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(77),
+                "{} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        } else {
+            let mut l = LocalIntent::open(root, boot_for(stage)).unwrap();
+            let mut p = Peer::load(peer);
+            self.monitor(&l).fault(fault);
+            assert!(perform_owner_case(&mut l, &mut p, stage).is_err());
+        }
+    }
+}
+fn setup_boundary_stage(root: &Path, stage: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    let base = root.join(format!("base-{stage}"));
+    let peer_path = root.join(format!("base-{stage}-peer.json"));
+    setup_owner_case(&base, &peer_path, stage);
+    if stage == "boot" {
+        let mut p = Peer::load(&peer_path);
+        let mut l = LocalIntent::open(&base, Uuid::from_u128(6)).unwrap();
+        p.boot = 6;
+        l.resume(&mut p).unwrap();
+        let packet = l.with_active(|s| Ok(s.prepare()?.unwrap())).unwrap();
+        std::fs::write(
+            root.join("before-packet.json"),
+            serde_json::to_vec(&packet).unwrap(),
+        )
+        .unwrap();
+    }
+    (base, peer_path)
 }
 #[test]
 fn owner_io_boundaries_reopen_consistently_or_hold_without_reseed() {
     eprintln!(
         "owner IO/transaction/network boundary cuts:{}",
-        walk_owner_boundaries(false)
+        Boundary::Intent.walk(false)
     );
 }
 #[test]
 fn owner_real_process_exit_boundaries_reopen_consistently_or_hold_without_reseed() {
     eprintln!(
         "owner real process-exit boundary cuts:{}",
-        walk_owner_boundaries(true)
+        Boundary::Intent.walk(true)
     );
 }
 #[test]
@@ -653,88 +698,17 @@ fn held_owner_root_or_intent_replacement_refuses_mutation() {
         }
     }
 }
-fn walk_owner_backend_boundaries(exit: bool) -> u64 {
-    let temp = tempfile::tempdir().unwrap();
-    let mut cuts = 0;
-    for stage in ["activate", "boot"] {
-        let base = temp.path().join(format!("base-{stage}"));
-        let peer_path = temp.path().join(format!("base-{stage}-peer.json"));
-        setup_owner_case(&base, &peer_path, stage);
-        if stage == "boot" {
-            let mut p = Peer::load(&peer_path);
-            let mut l = LocalIntent::open(&base, Uuid::from_u128(6)).unwrap();
-            p.boot = 6;
-            l.resume(&mut p).unwrap();
-            let packet = l.with_active(|s| Ok(s.prepare()?.unwrap())).unwrap();
-            std::fs::write(
-                temp.path().join("before-packet.json"),
-                serde_json::to_vec(&packet).unwrap(),
-            )
-            .unwrap();
-        }
-        let measure = temp.path().join(format!("measure-{stage}"));
-        copy_owner(&base, &measure);
-        let mut l = LocalIntent::open(&measure, boot_for(stage)).unwrap();
-        let mut p = Peer::load(&peer_path);
-        p.file = None;
-        l.store_monitor().unwrap().reset();
-        perform_owner_case(&mut l, &mut p, stage).unwrap();
-        let count = l.store_monitor().unwrap().stats().operations;
-        drop(l);
-        for n in 1..=count {
-            for after in [false, true] {
-                let root = temp.path().join(format!("cut-{stage}-{n}-{after}"));
-                copy_owner(&base, &root);
-                let peer = temp.path().join(format!("peer-{stage}-{n}-{after}.json"));
-                std::fs::copy(&peer_path, &peer).unwrap();
-                if exit {
-                    let output = std::process::Command::new(std::env::current_exe().unwrap())
-                        .args(["--exact", "owner_crash_boundary_child", "--nocapture"])
-                        .env("AQ_OWNER_FAULT_ROOT", &root)
-                        .env("AQ_OWNER_FAULT_PEER", &peer)
-                        .env("AQ_OWNER_FAULT_STAGE", stage)
-                        .env("AQ_OWNER_FAULT_N", n.to_string())
-                        .env("AQ_OWNER_FAULT_AFTER", if after { "1" } else { "0" })
-                        .env("AQ_OWNER_FAULT_BACKEND", "1")
-                        .output()
-                        .unwrap();
-                    assert_eq!(
-                        output.status.code(),
-                        Some(77),
-                        "{} {}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    );
-                } else {
-                    let mut l = LocalIntent::open(&root, boot_for(stage)).unwrap();
-                    let mut p = Peer::load(&peer);
-                    l.store_monitor()
-                        .unwrap()
-                        .fault(aq_observation_store::backend::Fault {
-                            operation: n,
-                            after,
-                            action: aq_observation_store::backend::Action::Error,
-                        });
-                    assert!(perform_owner_case(&mut l, &mut p, stage).is_err());
-                }
-                assert_owner_recovery(&root, &peer, stage);
-                cuts += 1;
-            }
-        }
-    }
-    cuts
-}
 #[test]
 fn owner_database_error_cuts_preserve_activation_and_boot_fence_atomicity() {
     eprintln!(
         "owner database IO-error boundary cuts:{}",
-        walk_owner_backend_boundaries(false)
+        Boundary::Database.walk(false)
     );
 }
 #[test]
 fn owner_database_process_exits_preserve_activation_and_boot_fence_atomicity() {
     eprintln!(
         "owner database process-exit boundary cuts:{}",
-        walk_owner_backend_boundaries(true)
+        Boundary::Database.walk(true)
     );
 }

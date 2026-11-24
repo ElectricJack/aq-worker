@@ -34,90 +34,116 @@ pub(crate) fn observed_image(process: &ProcessEvidence, image: &ElfIdentity) -> 
     }
     Ok(())
 }
-/// Called only in the dedicated pane helper, after the guardian release packet.
-/// No path lookup, shell fallback or inherited ambient environment.
-pub(crate) fn enter(
-    file: &File,
-    image: &ElfIdentity,
-    directory: &Path,
-    config: &SealedLaunch,
-    guardian: &GuardianIdentity,
-    server: &ProcessEvidence,
-    startup_stdin: Option<&File>,
-) -> Result<()> {
-    executable::verify_file(file, image)?;
-    let command = &config.command;
-    let workspace = &config.workspace;
-    command.validate()?;
-    let mut args = vec![CString::new(command.executable.as_os_str().as_bytes())?];
-    for arg in &command.arguments {
-        args.push(CString::new(arg.as_bytes())?);
+pub(super) struct PaneLaunch<'a> {
+    pub(super) directory: &'a Path,
+    pub(super) config: &'a SealedLaunch,
+    pub(super) guardian: &'a GuardianIdentity,
+    pub(super) server: &'a ProcessEvidence,
+}
+
+impl PaneLaunch<'_> {
+    /// Called only in the dedicated pane helper, after the guardian release packet.
+    /// No path lookup, shell fallback or inherited ambient environment.
+    pub(super) fn enter(
+        &self,
+        file: &File,
+        image: &ElfIdentity,
+        startup_stdin: Option<&File>,
+    ) -> Result<()> {
+        executable::verify_file(file, image)?;
+        let args = self.arguments()?;
+        let environment = command_environment(
+            &self.config.command,
+            self.directory,
+            self.config
+                .private_input
+                .as_ref()
+                .is_some_and(private_inputs::PrivateInputRecord::scoped),
+        )?;
+        let environment: Vec<_> = environment
+            .into_iter()
+            .map(|(key, value)| CString::new(format!("{key}={value}")))
+            .collect::<std::result::Result<_, _>>()?;
+        let mut argv: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
+        argv.push(std::ptr::null());
+        let mut envp: Vec<_> = environment.iter().map(|s| s.as_ptr()).collect();
+        envp.push(std::ptr::null());
+        std::env::set_current_dir(&self.config.workspace)?;
+        if let Some(stdin) = startup_stdin {
+            ensure!(
+                unsafe { libc::dup2(stdin.as_raw_fd(), libc::STDIN_FILENO) } >= 0,
+                "native exact startup stdin unavailable"
+            );
+        }
+        self.verify_authority()?;
+        let empty = c"";
+        unsafe {
+            libc::syscall(
+                libc::SYS_execveat,
+                file.as_raw_fd(),
+                empty.as_ptr(),
+                argv.as_ptr(),
+                envp.as_ptr(),
+                libc::AT_EMPTY_PATH,
+            );
+        }
+        Err(std::io::Error::last_os_error()).context("sealed FD native exec failed; no fallback")
     }
-    if config.observed.as_ref().is_some_and(|s| s.interactive()) {
-        // Append from the existing verified context at the actual exec boundary;
-        // ordinary command arguments keep their original 4096-byte bounds.
-        ensure!(
-            command.arguments.last().is_some_and(|a| a == "--"),
-            "interactive prompt delimiter absent"
-        );
-        let bytes = read_bytes(&directory.join("context-0.bin"), 1_048_576)?;
-        config
-            .rendered_startup
+    fn arguments(&self) -> Result<Vec<CString>> {
+        let command = &self.config.command;
+        command.validate()?;
+        let mut args = vec![CString::new(command.executable.as_os_str().as_bytes())?];
+        for arg in &command.arguments {
+            args.push(CString::new(arg.as_bytes())?);
+        }
+        if self
+            .config
+            .observed
             .as_ref()
-            .context("interactive startup descriptor absent")?
-            .verify(config.manifest.task()?, &bytes)?;
-        validate_interactive_prompt(&bytes)?;
-        args.push(CString::new(bytes)?);
+            .is_some_and(|s| s.interactive())
+        {
+            // Append from the existing verified context at the actual exec boundary;
+            // ordinary command arguments keep their original 4096-byte bounds.
+            ensure!(
+                command.arguments.last().is_some_and(|a| a == "--"),
+                "interactive prompt delimiter absent"
+            );
+            let bytes = read_bytes(&self.directory.join("context-0.bin"), 1_048_576)?;
+            self.config
+                .rendered_startup
+                .as_ref()
+                .context("interactive startup descriptor absent")?
+                .verify(self.config.manifest.task()?, &bytes)?;
+            validate_interactive_prompt(&bytes)?;
+            args.push(CString::new(bytes)?);
+        }
+        Ok(args)
     }
-    let environment = command_environment(
-        command,
-        directory,
-        config
-            .private_input
-            .as_ref()
-            .is_some_and(private_inputs::PrivateInputRecord::scoped),
-    )?;
-    let environment: Vec<_> = environment
-        .into_iter()
-        .map(|(key, value)| CString::new(format!("{key}={value}")))
-        .collect::<std::result::Result<_, _>>()?;
-    let mut argv: Vec<_> = args.iter().map(|s| s.as_ptr()).collect();
-    argv.push(std::ptr::null());
-    let mut envp: Vec<_> = environment.iter().map(|s| s.as_ptr()).collect();
-    envp.push(std::ptr::null());
-    std::env::set_current_dir(workspace)?;
-    if let Some(stdin) = startup_stdin {
+    fn verify_authority(&self) -> Result<()> {
+        private_inputs::verify_at_exec(self.config, self.directory)?;
+        self.config.validate_permit_at(
+            &self.config.permit,
+            &self.guardian.intent.session,
+            &self.guardian.intent.manifest_digest,
+            ownership::raw_boot_ms(),
+        )?;
         ensure!(
-            unsafe { libc::dup2(stdin.as_raw_fd(), libc::STDIN_FILENO) } >= 0,
-            "native exact startup stdin unavailable"
+            ownership::raw_boot_ms() < self.config.wall_deadline()?
+                && !self.directory.join("stop.request").exists()
+                && supervisor::guardian_live(self.guardian)
+                && ownership::pidfd_is_live(&ownership::verified_pidfd(self.server)?)?,
+            "authority lost at native exec boundary"
         );
+        Ok(())
     }
-    private_inputs::verify_at_exec(config, directory)?;
-    config.validate_permit_at(
-        &config.permit,
-        &guardian.intent.session,
-        &guardian.intent.manifest_digest,
-        ownership::raw_boot_ms(),
-    )?;
-    ensure!(
-        ownership::raw_boot_ms() < config.wall_deadline()?
-            && !directory.join("stop.request").exists()
-            && supervisor::guardian_live(guardian)
-            && ownership::pidfd_is_live(&ownership::verified_pidfd(server)?)?,
-        "authority lost at native exec boundary"
-    );
-    let empty = c"";
-    unsafe {
-        libc::syscall(
-            libc::SYS_execveat,
-            file.as_raw_fd(),
-            empty.as_ptr(),
-            argv.as_ptr(),
-            envp.as_ptr(),
-            libc::AT_EMPTY_PATH,
-        );
+
+    pub(super) fn permit_live(&self) -> Result<bool> {
+        Ok(
+            ownership::raw_boot_ms() < self.config.permit.expires_boot_ms
+                && ownership::raw_boot_ms() < self.config.wall_deadline()?
+                && !self.directory.join("stop.request").exists(),
+        )
     }
-    Err(std::io::Error::last_os_error()).context("sealed FD native exec failed; no fallback")
 }
 fn command_environment(
     command: &LocalCommand,

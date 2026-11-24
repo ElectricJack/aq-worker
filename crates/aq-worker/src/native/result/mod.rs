@@ -11,6 +11,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Weak,
 };
+mod creation;
 pub mod history;
 mod pins;
 mod report;
@@ -18,7 +19,8 @@ mod roots;
 mod salvage;
 mod source;
 mod stopped;
-mod storage;
+use aq_agent_client::completion::storage;
+use creation::{ChannelIntent, RecordedChannel};
 use history::*;
 pub use pins::ResultInstallationPins;
 use salvage::{Live, ResultJournal, StoppedOwner};
@@ -27,6 +29,14 @@ use source::snapshot;
 pub(crate) use source::transfer_bound;
 pub use stopped::{DurableStoppedResult, ResultStopCause};
 use storage::ChannelStorage;
+pub(in crate::native) fn retained_submission(
+    scope: &ScopeRecord,
+) -> Result<Option<wire::Submission>> {
+    let StorageStage::Ready { pins, .. } = &scope.storage else {
+        return Ok(None);
+    };
+    storage::retained_submission(&scope.root, pins, &scope.binding)
+}
 #[derive(Default)]
 pub(super) struct Registry {
     entries: Mutex<BTreeMap<Uuid, Arc<Custody>>>,
@@ -41,6 +51,16 @@ impl Drop for Registry {
         for entry in entries.values() {
             entry.storage.release_presence();
         }
+    }
+}
+impl Registry {
+    fn entries(&self) -> Result<std::sync::MutexGuard<'_, BTreeMap<Uuid, Arc<Custody>>>> {
+        self.entries
+            .lock()
+            .map_err(|_| anyhow::anyhow!("result registry poisoned"))
+    }
+    fn custody(&self, id: Uuid) -> Result<Option<Arc<Custody>>> {
+        Ok(self.entries()?.get(&id).cloned())
     }
 }
 struct Custody {
@@ -109,6 +129,10 @@ impl VerifiedResultChannel {
                 && &c.pins == pins,
             "result channel differs from actual physical execution inputs"
         );
+        self.verify_retained()
+    }
+    fn verify_retained(&self) -> Result<()> {
+        let c = &self.custody;
         let pipeline = c
             .pipeline
             .upgrade()
@@ -116,9 +140,7 @@ impl VerifiedResultChannel {
         ensure!(
             pipeline
                 .results
-                .entries
-                .lock()
-                .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
+                .entries()?
                 .get(&c.scope.id)
                 .is_some_and(|other| Arc::ptr_eq(other, &self.custody)),
             "result owner not retained"
@@ -132,12 +154,7 @@ impl VerifiedResultChannel {
             .map_err(|_| anyhow::anyhow!("result original owner poisoned"))?;
         // Pre-launch mapping still checks the actual original clean input owner.
         c.scope.check(&owner)?;
-        let a = owner
-            .journal
-            .state()
-            .attempts
-            .get(&c.scope.id)
-            .context("result attempt absent")?;
+        let a = owner.journal.state().result_attempt(c.scope.id)?;
         let h = a.result.as_ref().context("result history absent")?;
         ensure!(
             h.claim.is_none()
@@ -187,136 +204,50 @@ impl InputPipeline {
         let id = scope.id;
         pins.validate()?;
         ensure!(
-            self.results
-                .entries
-                .lock()
-                .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
-                .get(&id)
-                .is_none(),
+            self.results.entries()?.get(&id).is_none(),
             "result owner already exists"
         );
-        let inputs = scope.inputs.clone();
-        let owned_scope = self.launch_scope(execution)?;
-        let pins_for_journal = pins.clone();
-        let root_for_journal = root.clone();
-        let (binding, presence, definition, workspace, roots) = self
-            .storage(move |owner| {
-                owned_scope.check(owner)?;
-                let a = owner
-                    .journal
-                    .state()
-                    .attempts
-                    .get(&id)
-                    .context("result attempt absent")?;
-                let m = &a.reservation.offer.offered.offer.manifest;
-                let retained = inputs
-                    .artifacts()
-                    .iter()
-                    .find(|v| v.receipt().artifact == m.harness.adapter)
-                    .context("selected result Definition bytes absent")?;
-                let definition =
-                    super::super::adapter::result_profile::ResultAdapterDefinition::decode(
-                        retained.bytes(),
-                    )?;
-                definition.validate_retained(
-                    &m.harness.adapter,
-                    &a.reservation.offer.offered.artifacts,
-                    retained,
-                )?;
-                definition.validate_manifest(m)?;
-                let expected = ResultInstallationPins {
-                    adapter: m.harness.adapter.clone(),
-                    contract: definition.contract.clone(),
-                    client_manifest: definition.client_manifest.clone(),
-                    client_executable: definition.client_executable.clone(),
-                    environment: definition.environment.clone(),
-                    recipe: definition.recipe.clone(),
-                    permission_digest: super::super::journal::canonical_digest(&m.permissions)?,
-                    reserved_client_bytes: definition.reserved_client_bytes,
-                };
-                ensure!(
-                    expected == pins_for_journal
-                        && definition.runtime == a.reservation.runtime.runtime,
-                    "result client pins not selected by original grant"
-                );
-                let source = a.source.as_ref().context("result source owner absent")?;
-                // Instructions must already have been counted and rendered centrally.
-                let startup = wire::startup_artifact();
-                ensure!(
-                    counted_startup(&a.reservation.offer)
-                        && inputs
-                            .artifacts()
-                            .iter()
-                            .any(|v| v.receipt().artifact == startup
-                                && v.bytes() == wire::STARTUP_TEXT.as_bytes()),
-                    "result reporting instructions were not centrally counted"
-                );
-                let binding = wire::Binding {
-                    schema_version: 1,
-                    launch: a.reservation.offer.offered.offer.binding.clone(),
-                    execution_record_digest: owned_scope.digest.clone(),
-                    expected_outcome: source.spec.outcome_artifact.clone(),
-                    operation_id: Uuid::new_v4(),
-                    report_id: Uuid::new_v4(),
-                    nonce: Uuid::new_v4(),
-                };
-                let presence = wire::Presence {
-                    schema_version: 1,
-                    binding_digest: binding.digest()?,
-                    kernel_boot_id: owner.journal.state().kernel_boot_id,
-                    original_execution_deadline_boot_ns: owned_scope.deadline,
-                    original_hard_deadline_boot_ns: owned_scope.hard,
-                };
-                let workspace = inputs.workspace().workspace().clone();
-                let git = inputs.workspace().git();
-                let roots = roots::SourceRoots::new(git.root(), &workspace.path)?;
-                let (git_pin, workspace_pin) = roots.pins()?;
-                let history = ResultHistory {
-                    schema_version: 1,
-                    scope: ScopeRecord {
-                        binding: binding.clone(),
-                        contract: wire::artifact(),
-                        installation: pins_for_journal,
-                        root: root_for_journal,
-                        storage: StorageStage::Creating,
-                        git_pin,
-                        workspace_pin,
-                        runtime: a.reservation.runtime.clone(),
-                        kernel_boot_id: presence.kernel_boot_id,
-                        original_deadline_ns: owned_scope.deadline,
-                        original_hard_deadline_ns: owned_scope.hard,
-                        created_ns: boot_ns()?,
-                        recorded_revision: 1,
-                        source: source.binding()?.clone(),
-                        git_author: a.reservation.git_author.clone(),
-                        workspace: workspace.clone(),
-                        managed_root: git.root().into(),
-                        reserved_disk_bytes: a.reservation.disk_bytes,
-                        workspace_limit_bytes: git.workspace_byte_limit(),
-                        artifact_limit_bytes: git.transfer_byte_limit(),
-                        operations: SourceOperations {
-                            checkpoint: Uuid::new_v4(),
-                            export: Uuid::new_v4(),
-                            transfer: Uuid::new_v4(),
-                            upload_begin: Uuid::new_v4(),
-                            upload_finalize: Uuid::new_v4(),
-                        },
-                    },
-                    intake_closed: false,
-                    claim: None,
-                    stop: None,
-                    source: SourceHistory::default(),
-                    report: None,
-                    receipt: None,
-                    failure: None,
-                    salvaged: None,
-                };
-                owner.journal.begin_result(id, history)?;
-                Ok((binding, presence, definition, workspace, roots))
-            })
+        let intent = ChannelIntent {
+            inputs: scope.inputs.clone(),
+            scope: self.launch_scope(execution)?,
+            pins: pins.clone(),
+            root: root.clone(),
+        };
+        let RecordedChannel {
+            binding,
+            presence,
+            definition,
+            workspace,
+            roots,
+        } = self.storage(move |owner| intent.record(owner)).await?;
+        let storage = ChannelStorage::create(&root, &workspace)?;
+        self.record_ready_storage(id, storage.pins().clone())
             .await?;
-        let storage = ChannelStorage::create(&root, &workspace.path)?;
-        let directory_pins = storage.pins().clone();
+        // Publication happens after Ready fsync. A cut before publication holds
+        // capacity and IDs but creates no live result scope on reopen.
+        storage.publish(&binding, &presence)?;
+        let custody = Arc::new(Custody {
+            pipeline: Arc::downgrade(self),
+            scope,
+            storage,
+            roots: Arc::new(roots),
+            binding,
+            pins,
+            presence,
+            definition,
+            claimed: std::sync::atomic::AtomicBool::new(false),
+        });
+        let mut entries = self.results.entries()?;
+        ensure!(
+            entries.len() < 64 && !entries.contains_key(&id),
+            "result registry capacity/reuse"
+        );
+        entries.insert(id, custody.clone());
+        Ok(VerifiedResultChannel { custody })
+    }
+}
+impl InputPipeline {
+    async fn record_ready_storage(&self, id: Uuid, directory_pins: StoragePins) -> Result<()> {
         self.storage(move |owner| {
             let h = owner.journal.state().attempts[&id].result.as_ref().unwrap();
             let digest = h.digest()?;
@@ -333,45 +264,14 @@ impl InputPipeline {
             })?;
             Ok(())
         })
-        .await?;
-        // Publication happens after Ready fsync. A cut before publication holds
-        // capacity and IDs but creates no live result scope on reopen.
-        storage.publish(&binding, &presence)?;
-        let custody = Arc::new(Custody {
-            pipeline: Arc::downgrade(self),
-            scope,
-            storage,
-            roots: Arc::new(roots),
-            binding,
-            pins,
-            presence,
-            definition,
-            claimed: std::sync::atomic::AtomicBool::new(false),
-        });
-        let mut entries = self
-            .results
-            .entries
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?;
-        ensure!(
-            entries.len() < 64 && !entries.contains_key(&id),
-            "result registry capacity/reuse"
-        );
-        entries.insert(id, custody.clone());
-        Ok(VerifiedResultChannel { custody })
+        .await
     }
-}
-impl InputPipeline {
     /// Poll one fixed local claim through the original live execution owner.
     /// Receipt projection follows journal fsync; publication alone is Pending.
     pub async fn poll_result_claim(&self, id: Uuid) -> Result<bool> {
         let custody = self
             .results
-            .entries
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
-            .get(&id)
-            .cloned()
+            .custody(id)?
             .context("result channel not owned")?;
         ensure!(
             custody
@@ -394,54 +294,7 @@ impl InputPipeline {
             submission.binding == custody.binding && wire::encode(&submission)? == bytes,
             "changed/noncanonical result submission"
         );
-        let bytes_digest = Digest::of(&bytes);
-        let submission_digest = submission.digest()?;
-        let scope_digest = custody.scope.digest.clone();
-        let deadline = custody.scope.deadline;
-        let hard = custody.scope.hard;
-        let launch = self.launch.clone();
-        let kept = custody.clone();
-        let history = self
-            .storage(move |owner| {
-                let old = owner
-                    .journal
-                    .state()
-                    .attempts
-                    .get(&id)
-                    .and_then(|a| a.result.as_ref())
-                    .context("result history absent")?;
-                if let Some(claim) = &old.claim {
-                    ensure!(
-                        claim.bytes == bytes
-                            && claim.bytes_digest == bytes_digest
-                            && claim.submission_digest == submission_digest,
-                        "result claim conflict"
-                    );
-                    return Ok(old.clone());
-                }
-                ensure!(!old.intake_closed, "result intake closed");
-                kept.storage.verify_control(&kept.binding, &kept.presence)?;
-                ensure!(kept.storage.intake_open()?, "result intake owner absent");
-                // Deliberately do not revalidate the initial clean worktree after
-                // tools have edited it. Actual host ownership and execution clocks
-                // remain independently checked under the journal owner.
-                owner
-                    .journal
-                    .check_native_execution(id, &scope_digest, deadline, hard)?;
-                launch.result_current(&kept.scope)?;
-                let digest = old.digest()?;
-                owner.journal.update_result(id, &digest, |h, revision| {
-                    h.claim = Some(ClaimRecord {
-                        bytes,
-                        bytes_digest,
-                        submission_digest,
-                        recorded_revision: revision,
-                    });
-                    h.intake_closed = true;
-                    Ok(())
-                })
-            })
-            .await?;
+        let history = self.record_claim(&custody, bytes, submission).await?;
         // Closing admission is a safety action; acknowledgement is projected
         // from the fsynced record and cannot be upgraded by client JSON.
         custody
@@ -455,14 +308,57 @@ impl InputPipeline {
         }
         Ok(true)
     }
+    async fn record_claim(
+        &self,
+        custody: &Arc<Custody>,
+        bytes: Vec<u8>,
+        submission: wire::Submission,
+    ) -> Result<ResultHistory> {
+        let id = custody.scope.id;
+        let bytes_digest = Digest::of(&bytes);
+        let submission_digest = submission.digest()?;
+        let scope_digest = custody.scope.digest.clone();
+        let deadline = custody.scope.deadline;
+        let hard = custody.scope.hard;
+        let launch = self.launch.clone();
+        let kept = custody.clone();
+        self.storage(move |owner| {
+            let old = owner.journal.state().result_history(id)?;
+            if let Some(claim) = &old.claim {
+                ensure!(
+                    claim.bytes == bytes
+                        && claim.bytes_digest == bytes_digest
+                        && claim.submission_digest == submission_digest,
+                    "result claim conflict"
+                );
+                return Ok(old.clone());
+            }
+            ensure!(!old.intake_closed, "result intake closed");
+            kept.storage.verify_control(&kept.binding, &kept.presence)?;
+            ensure!(kept.storage.intake_open()?, "result intake owner absent");
+            // Deliberately do not revalidate the initial clean worktree after
+            // tools have edited it. Actual host ownership and execution clocks
+            // remain independently checked under the journal owner.
+            owner
+                .journal
+                .check_native_execution(id, &scope_digest, (deadline, hard))?;
+            launch.result_current(&kept.scope)?;
+            let digest = old.digest()?;
+            owner.journal.update_result(id, &digest, |h, revision| {
+                h.claim = Some(ClaimRecord {
+                    bytes,
+                    bytes_digest,
+                    submission_digest,
+                    recorded_revision: revision,
+                });
+                h.intake_closed = true;
+                Ok(())
+            })
+        })
+        .await
+    }
     pub async fn close_result_intake(&self, id: Uuid) -> Result<()> {
-        let custody = self
-            .results
-            .entries
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
-            .get(&id)
-            .cloned();
+        let custody = self.results.custody(id)?;
         let Some(custody) = custody else {
             return Ok(());
         };
@@ -513,26 +409,14 @@ impl InputPipeline {
         id: Uuid,
         code: wire::RecoveryCode,
     ) -> Result<()> {
-        let custody = self
-            .results
-            .entries
-            .lock()
-            .map_err(|_| anyhow::anyhow!("result registry poisoned"))?
-            .get(&id)
-            .cloned();
+        let custody = self.results.custody(id)?;
         let Some(custody) = custody else {
             return Ok(());
         };
         custody.storage.close_intake();
         let h = self
             .storage(move |owner| {
-                let h = owner
-                    .journal
-                    .state()
-                    .attempts
-                    .get(&id)
-                    .and_then(|a| a.result.as_ref())
-                    .context("result history absent")?;
+                let h = owner.journal.state().result_history(id)?;
                 if h.claim.is_none() {
                     return Ok(h.clone());
                 }

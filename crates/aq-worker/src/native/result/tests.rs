@@ -1,40 +1,10 @@
 use super::*;
-use aq_session_protocol::{SessionIdentity, Text};
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-fn reference(id: &str) -> ArtifactRef {
-    ArtifactRef {
-        id: Text::new(id).unwrap(),
-        version: Text::new("1").unwrap(),
-        digest: Digest::of(id.as_bytes()),
-    }
-}
-fn binding() -> wire::Binding {
-    let session = SessionIdentity::Remote {
-        node_id: Uuid::from_u128(1),
-        boot_id: Uuid::from_u128(2),
-        attempt_id: Uuid::from_u128(3),
-        assignment_generation: 4,
-        session_id: Uuid::from_u128(5),
-    };
-    wire::Binding {
-        schema_version: 1,
-        launch: LaunchBinding {
-            schema_version: 1,
-            session,
-            offer_id: Uuid::from_u128(6),
-            attempt_id: Uuid::from_u128(3),
-            assignment_generation: 4,
-            execution_spec_digest: Digest::of(b"spec"),
-            launch_manifest_digest: Digest::of(b"manifest"),
-            graph_access_profile_digest: Digest::of(b"graph"),
-        },
-        execution_record_digest: Digest::of(b"data only; not live authority"),
-        expected_outcome: reference("aq.expected-outcome"),
-        operation_id: Uuid::from_u128(7),
-        report_id: Uuid::from_u128(8),
-        nonce: Uuid::from_u128(9),
-    }
-}
+#[path = "../../../tests/support/result_history.rs"]
+mod history_fixture;
+use crate::native::journal::RuntimeIdentity;
+use history_fixture::binding;
+pub(crate) use history_fixture::history;
 fn directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
     let temp = tempfile::tempdir().unwrap();
     std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -45,6 +15,47 @@ fn directories() -> (tempfile::TempDir, PathBuf, PathBuf) {
         .unwrap();
     let channel = temp.path().join("result");
     (temp, workspace, channel)
+}
+pub(crate) fn pending_submission(h: &mut ResultHistory) -> (tempfile::TempDir, wire::Submission) {
+    let (temp, workspace, root) = directories();
+    let storage = ChannelStorage::create(&root, &workspace).unwrap();
+    let submission = wire::Submission::new(
+        h.scope.binding.clone(),
+        wire::SubmissionInput {
+            schema_version: 1,
+            conclusion: wire::Conclusion::new(
+                "Outcome: blocked; Result: disposable PostgreSQL unavailable",
+            )
+            .unwrap(),
+        },
+    )
+    .unwrap();
+    let file = storage.submissions().join(wire::SUBMISSION_FILE);
+    std::fs::write(&file, wire::encode(&submission).unwrap()).unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    h.scope.root = root;
+    h.scope.storage = StorageStage::Ready {
+        pins: storage.pins().clone(),
+        recorded_revision: h.scope.recorded_revision + 1,
+    };
+    (temp, submission)
+}
+
+#[test]
+fn retained_submission_requires_the_original_directories_and_binding() {
+    let mut h = history();
+    let (temp, expected) = pending_submission(&mut h);
+    assert_eq!(retained_submission(&h.scope).unwrap(), Some(expected));
+    let original = h.scope.binding.clone();
+    h.scope.binding.nonce = Uuid::new_v4();
+    assert!(retained_submission(&h.scope).is_err());
+    h.scope.binding = original;
+    let moved = temp.path().join("moved-result");
+    std::fs::rename(&h.scope.root, &moved).unwrap();
+    h.scope.root = temp.path().join("fresh-result");
+    let fresh = ChannelStorage::create(&h.scope.root, &temp.path().join("workspace")).unwrap();
+    assert!(retained_submission(&h.scope).is_err());
+    drop(fresh);
 }
 fn publish(storage: &ChannelStorage) -> wire::Binding {
     let b = binding();
@@ -144,137 +155,6 @@ fn result_ack_is_projection_and_unknown_pending_is_preserved() {
         b"unknown prior write"
     );
 }
-pub(crate) fn history() -> ResultHistory {
-    use aq_worker_protocol::{ObjectAlgorithm, ObjectId};
-    let b = binding();
-    let source = aq_worker_protocol::SourceBinding {
-        repository_id: Uuid::from_u128(20),
-        binding_generation: 1,
-        logical_identity: "fixture".into(),
-        base: ObjectId {
-            algorithm: ObjectAlgorithm::Sha1,
-            hex: "a".repeat(40),
-        },
-    };
-    ResultHistory {
-        schema_version: 1,
-        scope: ScopeRecord {
-            git_author: None,
-            binding: b,
-            contract: wire::artifact(),
-            installation: ResultInstallationPins {
-                adapter: reference("aq.codex-result-local-adapter"),
-                contract: wire::artifact(),
-                client_manifest: reference("aq.agent-result-client-installation"),
-                client_executable: reference("client"),
-                environment: reference("env"),
-                recipe: aq_codex_mapper::result_local_recipe_artifact(),
-                permission_digest: Digest::of(b"permissions"),
-                reserved_client_bytes: 64 * 1024 * 1024,
-            },
-            root: "/result".into(),
-            git_pin: DirectoryPin {
-                device: 1,
-                inode: 7,
-            },
-            workspace_pin: DirectoryPin {
-                device: 1,
-                inode: 8,
-            },
-            storage: StorageStage::Ready {
-                pins: StoragePins {
-                    root: DirectoryPin {
-                        device: 1,
-                        inode: 2,
-                    },
-                    submissions: DirectoryPin {
-                        device: 1,
-                        inode: 3,
-                    },
-                },
-                recorded_revision: 3,
-            },
-            runtime: crate::native::journal::RuntimeIdentity {
-                runtime: reference("runtime"),
-                qualification: reference("qualification"),
-            },
-            kernel_boot_id: Uuid::from_u128(30),
-            original_deadline_ns: 100,
-            original_hard_deadline_ns: 200,
-            created_ns: 10,
-            recorded_revision: 2,
-            source,
-            workspace: crate::source::Workspace {
-                workspace_id: Uuid::from_u128(31),
-                generation: 1,
-                path: "/git/workspaces/one".into(),
-            },
-            managed_root: "/git".into(),
-            reserved_disk_bytes: 30000,
-            workspace_limit_bytes: 10000,
-            artifact_limit_bytes: 10000,
-            operations: SourceOperations {
-                checkpoint: Uuid::from_u128(40),
-                export: Uuid::from_u128(41),
-                transfer: Uuid::from_u128(42),
-                upload_begin: Uuid::from_u128(43),
-                upload_finalize: Uuid::from_u128(44),
-            },
-        },
-        intake_closed: false,
-        claim: None,
-        stop: None,
-        source: SourceHistory::default(),
-        report: None,
-        receipt: None,
-        failure: None,
-        salvaged: None,
-    }
-}
-#[test]
-fn result_history_exact_claim_identity_order_and_canonical_bytes() {
-    let mut h = history();
-    h.validate().unwrap();
-    let value = wire::Submission::new(
-        h.scope.binding.clone(),
-        wire::SubmissionInput {
-            schema_version: 1,
-            conclusion: wire::Conclusion::new("Explicit claim").unwrap(),
-        },
-    )
-    .unwrap();
-    let bytes = wire::encode(&value).unwrap();
-    h.claim = Some(ClaimRecord {
-        bytes: bytes.clone(),
-        bytes_digest: Digest::of(&bytes),
-        submission_digest: value.digest().unwrap(),
-        recorded_revision: 4,
-    });
-    h.intake_closed = true;
-    h.validate().unwrap();
-    assert!(matches!(
-        h.acknowledgment().unwrap().unwrap().phase,
-        wire::Phase::Accepted
-    ));
-    h.claim.as_mut().unwrap().recorded_revision = 3;
-    assert!(h.validate().is_err());
-    h.claim.as_mut().unwrap().recorded_revision = 4;
-    h.claim.as_mut().unwrap().bytes.push(b' ');
-    assert!(h.validate().is_err());
-}
-#[test]
-fn result_history_protects_scope_budget_and_does_not_project_unclaimed_success() {
-    let mut h = history();
-    assert!(h.acknowledgment().unwrap().is_none());
-    h.scope.operations.export = h.scope.operations.checkpoint;
-    assert!(h.validate().is_err());
-    h.scope.operations.export = Uuid::from_u128(41);
-    h.scope.original_deadline_ns = 201;
-    assert!(h.validate().is_err());
-    h.scope.original_deadline_ns = 100;
-    h.scope.reserved_disk_bytes = 29999;
-    assert!(h.validate().is_err());
-}
 #[test]
 fn result_module_alone_does_not_prove_counted_startup_delivery() {
     let value:serde_json::Value=serde_json::from_slice(include_bytes!("../../../../../vendor/aq-phase-terminal-protocol-0.1.1/tests/data/preparation-v2.fixture.json")).unwrap();
@@ -307,35 +187,6 @@ fn result_module_alone_does_not_prove_counted_startup_delivery() {
     assert!(counted_startup(&offer));
 }
 #[test]
-fn result_format11_header_is_refused_before_pending_cleanup() {
-    let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().join("journal");
-    let limits = crate::native::journal::Limits {
-        slots: 1,
-        memory_bytes: 1000,
-        cpu_millis: 1000,
-        disk_bytes: 100000,
-    };
-    let node = Uuid::new_v4();
-    let journal = crate::native::journal::Journal::create(&root, node, limits.clone()).unwrap();
-    drop(journal);
-    let file = root.join("journal.json");
-    let mut value: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
-    value["state"]["format"] = 11.into();
-    let raw = serde_json::to_vec(&value).unwrap();
-    std::fs::write(&file, &raw).unwrap();
-    let pending = root.join("journal.pending");
-    std::fs::write(&pending, b"preserve ambiguous old-format evidence").unwrap();
-    assert!(crate::native::journal::Journal::open(&root, node, limits).is_err());
-    assert_eq!(std::fs::read(&file).unwrap(), raw);
-    assert_eq!(
-        std::fs::read(&pending).unwrap(),
-        b"preserve ambiguous old-format evidence"
-    );
-}
-
-#[test]
 fn result_namespace_is_owned_and_allocates_disjoint_attempt_children() {
     let (temp, _, _) = directories();
     let path = temp.path().join("results");
@@ -354,25 +205,4 @@ fn result_namespace_is_owned_and_allocates_disjoint_attempt_children() {
         .create(&path)
         .unwrap();
     assert!(ns.attempt(&path, Uuid::from_u128(3)).is_err());
-}
-/// Spec 0016 §5.2 (S6): a pushed result names its task ref and head, or the conflict; no receipt.
-#[test]
-fn a_pushed_result_names_its_ref_and_head_instead_of_a_retention_receipt() {
-    let mut h = history();
-    assert!(h.source.receipt_ids().is_err() && h.source.pushed_headers().is_empty());
-    let (task_ref, commit) = ("refs/heads/aq/t".to_owned(), "b".repeat(40));
-    h.source.pushed = Some(aq_node_git::Pushed::Pushed { task_ref, commit });
-    assert!(h.source.receipt_ids().unwrap().is_empty());
-    let named = [
-        ("AQ-Pushed-Ref", "refs/heads/aq/t".into()),
-        ("AQ-Pushed-Head", "b".repeat(40)),
-    ];
-    assert_eq!(h.source.pushed_headers(), named);
-    // A moved task ref is reported as the conflict alone, never as a pushed head.
-    h.source.pushed = Some(aq_node_git::Pushed::Conflict);
-    assert!(h.source.receipt_ids().unwrap().is_empty());
-    assert_eq!(
-        h.source.pushed_headers(),
-        [("AQ-Push-Conflict", "true".into())]
-    );
 }

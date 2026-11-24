@@ -16,40 +16,10 @@ fn report_matches_stop(report: &ReportIntent, evidence: &WorkerStopEvidence) -> 
     );
     Ok(())
 }
-fn candidate(state: &State, id: Uuid) -> Result<(Vec<u8>, Digest, ArtifactRef)> {
-    let a = state
-        .attempts
-        .get(&id)
-        .context("fixture replay attempt absent")?;
-    let h = a.result.as_ref().context("fixture replay result absent")?;
-    h.validate()?;
-    let host = a
-        .native_host
-        .as_ref()
-        .context("fixture replay host absent")?;
-    let physical = host
-        .stopped
-        .as_ref()
-        .context("fixture replay physical stop absent")?;
-    let stop = h
-        .stop
-        .as_ref()
-        .context("fixture replay result stop absent")?;
-    ensure!(
-        h.receipt.is_none()
-            && matches!(
-                h.failure,
-                Some(aq_agent_result_local::RecoveryCode::ReportUnknown)
-            )
-            && host.running.is_some()
-            && host.uncertain.is_none()
-            && physical.observation.phase == aq_session_host::HostPhase::Stopped
-            && physical.observation.kernel_wait_echild
-            && stop.proof_digest == physical.proof_digest
-            && stop.native_stopped_revision == physical.recorded_revision
-            && h.scope.binding.launch.attempt_id == id,
-        "fixture replay requires stopped report-response uncertainty only"
-    );
+fn terminal_evidence(
+    a: &aq_worker::native::journal::Attempt,
+    host: &aq_worker::native::journal::launch::NativeHostHistory,
+) -> Result<(WorkerStopEvidence, ArtifactRef)> {
     macro_rules! paired {
         ($terminal:expr) => {{
             let started = &$terminal.started;
@@ -73,16 +43,55 @@ fn candidate(state: &State, id: Uuid) -> Result<(Vec<u8>, Digest, ArtifactRef)> 
             )
         }};
     }
-    let (evidence, receipt) = match (
-        &a.phase_execution,
-        &a.refresh_execution,
-        &host.terminal,
-        &host.refresh_terminal,
-    ) {
-        (Some(_), None, Some(t), None) => paired!(t),
-        (None, Some(_), None, Some(t)) => paired!(t),
-        _ => anyhow::bail!("fixture replay missing or mixed terminal profile"),
-    };
+    Ok(
+        match (
+            &a.phase_execution,
+            &a.refresh_execution,
+            &host.terminal,
+            &host.refresh_terminal,
+        ) {
+            (Some(_), None, Some(t), None) => paired!(t),
+            (None, Some(_), None, Some(t)) => paired!(t),
+            _ => anyhow::bail!("fixture replay missing or mixed terminal profile"),
+        },
+    )
+}
+
+fn candidate(state: &State, id: Uuid) -> Result<(Vec<u8>, Digest, ArtifactRef)> {
+    let a = state
+        .attempts
+        .get(&id)
+        .context("fixture replay attempt absent")?;
+    let h = a.result.as_ref().context("fixture replay result absent")?;
+    h.validate()?;
+    let host = a
+        .native_host
+        .as_ref()
+        .context("fixture replay host absent")?;
+    let physical = host
+        .stopped
+        .as_ref()
+        .context("fixture replay physical stop absent")?;
+    let stop = h
+        .stop
+        .as_ref()
+        .context("fixture replay result stop absent")?;
+    ensure!(
+        matches!(
+            (&h.receipt, &h.failure),
+            (
+                None,
+                Some(aq_agent_result_local::RecoveryCode::ReportUnknown)
+            )
+        ) && matches!((&host.running, &host.uncertain), (Some(_), None))
+            && physical.observation.phase == aq_session_host::HostPhase::Stopped
+            && physical.observation.kernel_wait_echild
+            && stop.proof_digest == physical.proof_digest
+            && stop.native_stopped_revision == physical.recorded_revision
+            && h.scope.binding.launch.attempt_id == id,
+        "fixture replay requires stopped report-response uncertainty only"
+    );
+    let (evidence, receipt) = terminal_evidence(a, host)?;
     ensure!(
         receipt == stop.stopped_receipt,
         "fixture replay stop receipt differs"
