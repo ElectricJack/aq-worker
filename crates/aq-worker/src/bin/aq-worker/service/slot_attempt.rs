@@ -1,4 +1,5 @@
 use super::*;
+use aq_worker::native::result::StoppedSubmissionPending;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct Active(Arc<AtomicUsize>);
@@ -73,7 +74,7 @@ impl NativeSlotBackend {
         );
         executor.observations = self.observations.get(&ctx.node_id).cloned();
         executor.transcript_bound = self.transcript_bound;
-        let disposition = if let Some(session) = session {
+        let result = if let Some(session) = session {
             run_node_slot(
                 &worker,
                 cfg,
@@ -83,11 +84,26 @@ impl NativeSlotBackend {
                 session,
                 ctx.slot,
             )
-            .await?
+            .await
         } else {
-            run_until_attempt(&worker, cfg, &mut executor, shutdown, pause, ctx.hold).await?
+            run_until_attempt(&worker, cfg, &mut executor, shutdown, pause, ctx.hold).await
         };
-        Ok(slot_outcome(disposition))
+        let pending = result
+            .as_ref()
+            .err()
+            .and_then(|failure| failure.downcast_ref::<StoppedSubmissionPending>());
+        // The execution owner dropped its journal lock. Keep the slot's aq-git
+        // service up so salvage can recover the original stopped sandbox and report.
+        if let Some(StoppedSubmissionPending(attempt)) = pending {
+            let config = self.native_config(&ctx)?;
+            if matches!(
+                Box::pin(salvage_interrupted(&worker, &config, *attempt)).await?,
+                SalvageDisposition::Salvaged | SalvageDisposition::AlreadyReported
+            ) {
+                return Ok(AttemptOutcome::AttemptStopped);
+            }
+        }
+        result.map(slot_outcome)
     }
 }
 fn slot_outcome(disposition: RunDisposition) -> AttemptOutcome {

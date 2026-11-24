@@ -297,9 +297,7 @@ impl Journal {
         ensure!(!self.poisoned, "native result writer poisoned");
         let h = self
             .state
-            .attempts
-            .get(&id)
-            .and_then(|a| a.result.as_ref())
+            .result_history(id)
             .context("result intent absent")?;
         let report = h.report.as_ref().context("result report intent absent")?;
         ensure!(
