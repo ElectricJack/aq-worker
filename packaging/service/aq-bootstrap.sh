@@ -146,6 +146,11 @@ if ! "$podman" --remote --url "unix://$socket" image exists "$image"; then
 fi
 python3 "$work/configure.py" configure "$package" "$config_dir" "$origin" "$podman" "$nodes" "$digest" "${configure_args[@]}"
 worker="$HOME/.local/share/agent-q/runtime/aq-worker"
+echo 'Starting the AQ worker service.'
+inventory_since=""
+if ! inventory_since="$(python3 "$work/configure.py" inventory-clock "$package" "$config_dir")"; then
+  echo 'Could not read the AQ server inventory clock. The worker service will still start.' >&2
+fi
 "$worker" service install --profile "$profile"
 "$worker" service status --profile "$profile"
 # The service must now be running the worker that was just installed, not one
@@ -191,4 +196,13 @@ fi
 python3 "$work/configure.py" install-sync "$package" "$config_dir"
 echo 'Checking that this machine can start an agent sandbox.'
 python3 "$work/configure.py" preflight "$package" "$config_dir" "$podman"
-echo 'Worker installed. Check Agents → Swarm for its connection.'
+echo 'Waiting for AQ to accept a fresh capability report.'
+if [[ ! "$inventory_since" =~ ^[0-9]+$ ]]; then
+  echo 'Worker installed, but AQ readiness could not be verified. Check Agents → Swarm → Diagnostics.' >&2
+  exit 6
+fi
+if ! python3 "$work/configure.py" wait-inventory "$package" "$config_dir" "$inventory_since"; then
+  echo 'Worker installed, but AQ readiness could not be verified. Check Agents → Swarm → Diagnostics.' >&2
+  exit 6
+fi
+echo 'Worker ready. Check Agents → Swarm for its connection.'

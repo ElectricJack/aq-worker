@@ -1,4 +1,5 @@
 """Install script checks: fake PATH stubs and a temporary HOME; nothing real is installed."""
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -569,3 +570,23 @@ def test_a_node_git_section_gets_one_repository_directory_per_profile(tmp_path, 
             assert written["node_git"] == {"repositories": str(config / "state/node-git"), "git": "/usr/bin/git"}
         else:
             assert "node_git" not in written
+
+
+def test_installer_waits_for_a_fresh_inventory_report(monkeypatch, tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "worker_install_config", SCRIPT.with_name("worker-install-config.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    stale = {"recorded_at_ms": 80, "expires_at_ms": 110}
+    fresh = {"recorded_at_ms": 95, "expires_at_ms": 110}
+    reports = iter([stale, fresh])
+    monkeypatch.setattr(
+        module, "inventory_status",
+        lambda _: {"server_time_ms": 100, "accepted": next(reports)},
+    )
+    import time
+
+    monkeypatch.setattr(time, "sleep", lambda _: None)
+    module.wait_for_inventory(tmp_path, 90)
+    assert next(reports, None) is None
