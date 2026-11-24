@@ -15,6 +15,7 @@
 //!   `bypassPermissions`, because the backend sandbox is the boundary. The
 //!   docker-local launch turns this recipe into the interactive TUI
 //!   (`aq_handoff_note::harness::claude_interactive`).
+use super::recipe;
 use crate::native::runner::sandbox::confinement::ConfinementMode;
 use anyhow::{Context, Result, ensure};
 use aq_session_protocol::{
@@ -22,7 +23,7 @@ use aq_session_protocol::{
 };
 use std::{
     collections::BTreeMap,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 /// The Claude Code CLI version this recipe was written against (operator spike).
@@ -94,12 +95,7 @@ pub(crate) fn map(
         "Claude recipe unsupported settings"
     );
     let effort = reasoning(model)?;
-    let declares = |id: &str| {
-        harness
-            .required_capabilities
-            .iter()
-            .any(|c| c.id.as_str() == id && c.version == 1)
-    };
+    let declares = |id| recipe::declares(harness, id);
     let declared = (
         declares(NATIVE_CONFINEMENT_CAPABILITY),
         declares(CONTAINER_CONFINEMENT_CAPABILITY),
@@ -119,50 +115,16 @@ pub(crate) fn map(
     } = paths;
     for path in [executable, workspace, private_home] {
         ensure!(
-            path.is_absolute()
-                && path
-                    .components()
-                    .all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
-                && !path.as_os_str().as_encoded_bytes().contains(&0),
+            recipe::normalized(path),
             "Claude recipe requires absolute normalized paths"
         );
     }
     ensure!(
-        !private_home.starts_with(workspace) && !workspace.starts_with(private_home),
+        recipe::disjoint(private_home, workspace),
         "Claude private home must be disjoint from the workspace"
     );
     let home = private_home.to_str().context("Claude home UTF8")?;
-    let settings_path = private_home.join(SETTINGS_FILE);
-    let permission_mode = match mode {
-        ConfinementMode::Native => "acceptEdits",
-        ConfinementMode::Container => "bypassPermissions",
-    };
-    let mut arguments = [
-        "-p",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--input-format",
-        "text",
-        "--model",
-        model.model.as_str(),
-        "--permission-mode",
-        permission_mode,
-        // Only the private user settings; never the workspace's project or
-        // local settings, which the agent's repository content controls.
-        "--setting-sources",
-        "user",
-        "--settings",
-        settings_path.to_str().context("Claude settings UTF8")?,
-        "--strict-mcp-config",
-        "--no-session-persistence",
-        "--disable-slash-commands",
-    ]
-    .map(String::from)
-    .to_vec();
-    if !matches!(effort, "default" | "off") {
-        arguments.extend(["--effort".to_owned(), effort.to_owned()]);
-    }
+    let arguments = claude_arguments(private_home, model.model.as_str(), mode, effort)?;
     let mut environment: BTreeMap<String, String> = [
         ("HOME", home),
         ("CLAUDE_CONFIG_DIR", home),
@@ -186,6 +148,46 @@ pub(crate) fn map(
         working_directory: workspace.to_owned(),
         settings_json: serde_json::to_vec_pretty(&settings(mode))?,
     })
+}
+
+fn claude_arguments(
+    private_home: &Path,
+    model: &str,
+    mode: ConfinementMode,
+    effort: &str,
+) -> Result<Vec<String>> {
+    let settings_path = private_home.join(SETTINGS_FILE);
+    let permission_mode = match mode {
+        ConfinementMode::Native => "acceptEdits",
+        ConfinementMode::Container => "bypassPermissions",
+    };
+    let mut arguments = [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--input-format",
+        "text",
+        "--model",
+        model,
+        "--permission-mode",
+        permission_mode,
+        // Only the private user settings; never the workspace's project or
+        // local settings, which the agent's repository content controls.
+        "--setting-sources",
+        "user",
+        "--settings",
+        settings_path.to_str().context("Claude settings UTF8")?,
+        "--strict-mcp-config",
+        "--no-session-persistence",
+        "--disable-slash-commands",
+    ]
+    .map(String::from)
+    .to_vec();
+    if !matches!(effort, "default" | "off") {
+        arguments.extend(["--effort".to_owned(), effort.to_owned()]);
+    }
+    Ok(arguments)
 }
 
 /// MS1 docker-local result recipe: the public, content-addressed description of
@@ -222,12 +224,7 @@ pub fn docker_local_recipe_artifact() -> aq_session_protocol::ArtifactRef {
 /// Manifest settings this recipe accepts: Claude 2.1.318 on an Anthropic
 /// subscription model, container confinement, no terminal input, known reasoning.
 pub fn validate_docker_local_manifest(m: &aq_session_protocol::LaunchManifest) -> Result<()> {
-    let declares = |id: &str| {
-        m.harness
-            .required_capabilities
-            .iter()
-            .any(|c| c.id.as_str() == id && c.version == 1)
-    };
+    let declares = |id| recipe::declares(&m.harness, id);
     ensure!(
         m.harness.harness.as_str() == "claude"
             && m.harness.cli_version.as_str() == CLAUDE_CLI_VERSION

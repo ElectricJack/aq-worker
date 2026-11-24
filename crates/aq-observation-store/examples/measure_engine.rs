@@ -84,24 +84,7 @@ fn run(near: bool) -> Value {
         store
             .attach_file_engine(source.clone(), 4096, permit)
             .unwrap();
-        for call in 0..if near { 640 } else { 4 } {
-            let mut bytes = vec![];
-            for variant in 0..if near { 32 } else { 1 } {
-                let mut row: Value = serde_json::from_slice(&support::row(call)).unwrap();
-                row["synthetic_capture_hint"] = json!(variant);
-                bytes.extend(serde_json::to_vec(&row).unwrap());
-                bytes.push(b'\n');
-            }
-            append(&path, &bytes);
-            let collected = store
-                .collect_file(source.source_id, &file, 100, OverflowPolicy::Hold)
-                .unwrap();
-            assert_eq!(collected.facts_added, 1);
-            assert!(!collected.blocked);
-            if call % 32 == 31 {
-                flush(&store, &mut peer);
-            }
-        }
+        populate_source(&store, &mut peer, (source.source_id, &file, &path), near);
         flush(&store, &mut peer);
         eprintln!(
             "populated {near} source {i}; logical{} file{}",
@@ -114,6 +97,50 @@ fn run(near: bool) -> Value {
     let initial = store.snapshot().unwrap();
     let initial_file = store.file_bytes().unwrap();
     let (id, file, path) = &inputs[0];
+    let samples = measure_collection(&store, &mut peer, (*id, file, path));
+    store.audit().unwrap();
+    json!({"fixture":"synthetic Claude-shaped records,real file/normalizer/row-store;32distinct raw fingerprints per retained call forlargecase; no actualCLI/provider qualification","near":near,"population":"real bounded32-record collection/ACK path; excluded fromsamples","initial":initial,"initial_file_bytes":initial_file,"final_file_bytes":store.file_bytes().unwrap(),"physical_cap":Limits::fixture().physical_bytes,"cache_bytes":Limits::fixture().cache_bytes,"repetitions":samples.len(),"samples":samples})
+}
+fn main() {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({"small":run(false),"near":run(true)})).unwrap()
+    );
+}
+
+fn populate_source(
+    store: &Store,
+    peer: &mut Peer,
+    input: (Uuid, &SourceFile, &std::path::Path),
+    near: bool,
+) {
+    let (source_id, file, path) = input;
+    for call in 0..if near { 640 } else { 4 } {
+        let mut bytes = vec![];
+        for variant in 0..if near { 32 } else { 1 } {
+            let mut row: Value = serde_json::from_slice(&support::row(call)).unwrap();
+            row["synthetic_capture_hint"] = json!(variant);
+            bytes.extend(serde_json::to_vec(&row).unwrap());
+            bytes.push(b'\n');
+        }
+        append(path, &bytes);
+        let collected = store
+            .collect_file(source_id, file, 100, OverflowPolicy::Hold)
+            .unwrap();
+        assert_eq!(collected.facts_added, 1);
+        assert!(!collected.blocked);
+        if call % 32 == 31 {
+            flush(store, peer);
+        }
+    }
+}
+
+fn measure_collection(
+    store: &Store,
+    peer: &mut Peer,
+    input: (Uuid, &SourceFile, &std::path::Path),
+) -> Vec<Value> {
+    let (id, file, path) = input;
     let mut samples = vec![];
     let repetitions = std::env::var("AQ_OBSERVATION_BENCH_REPETITIONS")
         .ok()
@@ -126,29 +153,22 @@ fn run(near: bool) -> Value {
             bytes.extend(support::row(10000 + rep * 32 + call));
         }
         append(path, &bytes);
-        let (result, collect) = sample(&store, || {
+        let (result, collect) = sample(store, || {
             store
-                .collect_file(*id, file, 200 + rep, OverflowPolicy::Hold)
+                .collect_file(id, file, 200 + rep, OverflowPolicy::Hold)
                 .unwrap()
         });
         assert_eq!(result.facts_added, 32);
         assert!(!result.blocked);
         assert_eq!(collect["io"]["syncs"], 2);
-        let (packet, prepare) = sample(&store, || store.prepare().unwrap().unwrap());
-        let (sent, send) = sample(&store, || {
+        let (packet, prepare) = sample(store, || store.prepare().unwrap().unwrap());
+        let (sent, send) = sample(store, || {
             store.begin_send(1000 + rep * 1000).unwrap().unwrap()
         });
         assert_eq!(packet, sent);
         let receipt = peer.receive(&packet);
-        let (_, ack) = sample(&store, || store.acknowledge(&receipt).unwrap());
+        let (_, ack) = sample(store, || store.acknowledge(&receipt).unwrap());
         samples.push(json!({"collect32":collect,"prepare32":prepare,"send32":send,"ack32":ack,"source_read_bytes":bytes.len(),"facts":result.facts_added,"indexed_lookups":result.indexed_lookups}));
     }
-    store.audit().unwrap();
-    json!({"fixture":"synthetic Claude-shaped records,real file/normalizer/row-store;32distinct raw fingerprints per retained call forlargecase; no actualCLI/provider qualification","near":near,"population":"real bounded32-record collection/ACK path; excluded fromsamples","initial":initial,"initial_file_bytes":initial_file,"final_file_bytes":store.file_bytes().unwrap(),"physical_cap":Limits::fixture().physical_bytes,"cache_bytes":Limits::fixture().cache_bytes,"repetitions":samples.len(),"samples":samples})
-}
-fn main() {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json!({"small":run(false),"near":run(true)})).unwrap()
-    );
+    samples
 }

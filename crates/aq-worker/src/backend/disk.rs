@@ -2,58 +2,8 @@
 //! configured-capacity reservation accounting and never replace it as admission
 //! authority. Anything that cannot be measured is absent, never reported as 0.
 use super::BackendError;
+pub use aq_sandbox_archive::docker_engine::{FsStats, HostStatvfs, Statvfs};
 use serde::Deserialize;
-use std::{ffi::CString, io, mem::MaybeUninit, os::unix::ffi::OsStrExt, path::Path};
-
-/// One filesystem's capacity as statvfs reports it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FsStats {
-    pub total_bytes: u64,
-    pub used_bytes: u64,
-    /// Space available to unprivileged writers (`f_bavail`).
-    pub free_bytes: u64,
-}
-impl FsStats {
-    /// `used` counts all allocated blocks (`blocks - bfree`), so `used + free`
-    /// can be below `total` by the root reserve.
-    pub fn from_blocks(fragment: u64, blocks: u64, bfree: u64, bavail: u64) -> Self {
-        Self {
-            total_bytes: blocks.saturating_mul(fragment),
-            used_bytes: blocks.saturating_sub(bfree).saturating_mul(fragment),
-            free_bytes: bavail.saturating_mul(fragment),
-        }
-    }
-}
-
-/// statvfs seam so tests measure a fake filesystem.
-pub trait Statvfs: Send + Sync {
-    fn statvfs(&self, path: &Path) -> io::Result<FsStats>;
-}
-pub struct HostStatvfs;
-impl Statvfs for HostStatvfs {
-    fn statvfs(&self, path: &Path) -> io::Result<FsStats> {
-        let path = CString::new(path.as_os_str().as_bytes())
-            .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-        let mut raw = MaybeUninit::<libc::statvfs>::uninit();
-        // SAFETY: valid NUL-terminated path; statvfs fully initializes `raw` on 0.
-        if unsafe { libc::statvfs(path.as_ptr(), raw.as_mut_ptr()) } != 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let raw = unsafe { raw.assume_init() };
-        let fragment = if raw.f_frsize > 0 {
-            raw.f_frsize
-        } else {
-            raw.f_bsize
-        };
-        #[allow(clippy::useless_conversion)]
-        Ok(FsStats::from_blocks(
-            u64::from(fragment),
-            u64::from(raw.f_blocks),
-            u64::from(raw.f_bfree),
-            u64::from(raw.f_bavail),
-        ))
-    }
-}
 
 /// Backend-measured disk. `preserved` sizes cover only the stopped,
 /// not-yet-destroyed sandboxes the controller passed in.

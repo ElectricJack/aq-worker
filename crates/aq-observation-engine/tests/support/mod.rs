@@ -40,14 +40,17 @@ impl Memory {
                 map.remove(key);
             }
             if *table == Table::DisplayByOrdinal {
-                let ordinal = key.parse().unwrap();
-                if let Some(v) = value {
-                    self.display
-                        .insert(ordinal, serde_json::from_value(v.clone()).unwrap());
-                } else {
-                    self.display.remove(&ordinal);
-                }
+                self.update_display(key, value);
             }
+        }
+    }
+    fn update_display(&mut self, key: &str, value: &Option<Value>) {
+        let ordinal = key.parse().unwrap();
+        if let Some(v) = value {
+            self.display
+                .insert(ordinal, serde_json::from_value(v.clone()).unwrap());
+        } else {
+            self.display.remove(&ordinal);
         }
     }
 }

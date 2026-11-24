@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::post,
 };
+use std::path::Path;
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -30,39 +31,51 @@ impl Drop for Server {
         self.task.abort();
     }
 }
+async fn report(
+    State(state): State<Arc<Mutex<Ledger>>>,
+    headers: HeaderMap,
+    axum::Json(fact): axum::Json<VmTimeFact>,
+) -> Response {
+    assert_observation_headers(&headers);
+    let mut d = state.lock().unwrap();
+    d.requests.push(fact.clone());
+    if d.unavailable {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if let Some(old) = d.facts.get(&fact.attempt_id) {
+        assert_eq!(old.sandbox_id, fact.sandbox_id);
+        assert_eq!(old.size, fact.size);
+        assert_eq!(old.started_at_ms, fact.started_at_ms);
+        if old.stopped_at_ms.is_some() {
+            assert_eq!(old.stopped_at_ms, fact.stopped_at_ms);
+        }
+    }
+    d.facts.insert(fact.attempt_id, fact);
+    if d.lose_reply {
+        return (StatusCode::OK, "truncated response").into_response();
+    }
+    axum::Json(json!({"recorded":!d.reject_receipt})).into_response()
+}
+fn assert_observation_headers(headers: &HeaderMap) {
+    for (name, value) in [
+        ("authorization", "Bearer fixture-server-node-credential"),
+        ("cf-access-client-id", "fixture-access-id"),
+        ("cf-access-client-secret", "fixture-access-secret"),
+    ] {
+        assert_eq!(headers[name], value);
+    }
+    assert!(!headers.contains_key("x-boat-org"));
+}
+
+fn assert_open_interval(fact: &VmTimeFact) {
+    assert_eq!(
+        (fact.started_at_ms, fact.stopped_at_ms),
+        (1767225600000, None)
+    ); // provider double createdAt
+}
+
 impl Server {
     async fn start() -> Self {
-        async fn report(
-            State(state): State<Arc<Mutex<Ledger>>>,
-            headers: HeaderMap,
-            axum::Json(fact): axum::Json<VmTimeFact>,
-        ) -> Response {
-            assert_eq!(
-                headers["authorization"],
-                "Bearer fixture-server-node-credential"
-            );
-            assert_eq!(headers["cf-access-client-id"], "fixture-access-id");
-            assert_eq!(headers["cf-access-client-secret"], "fixture-access-secret");
-            assert!(!headers.contains_key("x-boat-org"));
-            let mut d = state.lock().unwrap();
-            d.requests.push(fact.clone());
-            if d.unavailable {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
-            if let Some(old) = d.facts.get(&fact.attempt_id) {
-                assert_eq!(old.sandbox_id, fact.sandbox_id);
-                assert_eq!(old.size, fact.size);
-                assert_eq!(old.started_at_ms, fact.started_at_ms);
-                if old.stopped_at_ms.is_some() {
-                    assert_eq!(old.stopped_at_ms, fact.stopped_at_ms);
-                }
-            }
-            d.facts.insert(fact.attempt_id, fact);
-            if d.lose_reply {
-                return (StatusCode::OK, "truncated response").into_response();
-            }
-            axum::Json(json!({"recorded":!d.reject_receipt})).into_response()
-        }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let data = Arc::new(Mutex::new(Ledger::default()));
@@ -99,8 +112,7 @@ async fn vm_time_creation_stop_and_duplicate_keep_one_immutable_interval() {
     let start = server.data.lock().unwrap().facts[&r.owner.attempt_id].clone();
     assert_eq!(start.size, VmSize::Default);
     assert_eq!(start.sandbox_id, s.backend_id);
-    assert_eq!(start.started_at_ms, 1767225600000); // actual createdAt in the provider double
-    assert_eq!(start.stopped_at_ms, None);
+    assert_open_interval(&start);
     assert_eq!(b.pending_vm_time_reports(), 0);
     assert_eq!(b.create(&r).await.unwrap(), s);
     assert!(b.stop(&s).await.is_confirmed());
@@ -109,9 +121,11 @@ async fn vm_time_creation_stop_and_duplicate_keep_one_immutable_interval() {
     assert_eq!(end.started_at_ms, start.started_at_ms);
     assert!(b.archive(&s).await.is_confirmed());
     b.list_owned(r.owner.node_id).await.unwrap();
-    assert_eq!(server.data.lock().unwrap().facts[&r.owner.attempt_id], end);
-    assert_eq!(server.data.lock().unwrap().facts.len(), 1);
-    assert_eq!(server.data.lock().unwrap().requests.len(), 2);
+    {
+        let ledger = server.data.lock().unwrap();
+        assert_eq!(ledger.facts[&r.owner.attempt_id], end);
+        assert_eq!((ledger.facts.len(), ledger.requests.len()), (1, 2));
+    }
     // Changed start/size/committed stop cannot be imported over the fact.
     for bad in [
         VmTimeFact {
@@ -208,7 +222,7 @@ async fn vm_time_replays_lost_ack_and_stopped_deleted_vm_after_restart() {
     let mut b = backend(&api, dir.path())
         .await
         .with_vm_time_client(server.client());
-    api.fault(Method::GET, "/sandboxes", 503, false);
+    api.fail_before(Method::GET, "/sandboxes", 503);
     assert!(b.list_owned(r.owner.node_id).await.is_err());
     assert_eq!(b.pending_vm_time_reports(), 0);
     assert_eq!(
@@ -234,7 +248,7 @@ async fn vm_time_lost_create_response_recovers_actual_start() {
     let mut b = backend(&api, dir.path())
         .await
         .with_vm_time_client(server.client());
-    api.fault(Method::POST, "/sandboxes", 0, true);
+    api.fail_after(Method::POST, "/sandboxes", 0);
     assert!(b.create(&r).await.is_err());
     assert!(server.data.lock().unwrap().facts.is_empty());
     drop(b);
@@ -243,14 +257,7 @@ async fn vm_time_lost_create_response_recovers_actual_start() {
         .with_vm_time_client(server.client());
     let entries = b.list_owned(r.owner.node_id).await.unwrap();
     assert_eq!(entries.len(), 1);
-    assert_eq!(
-        server.data.lock().unwrap().facts[&r.owner.attempt_id].started_at_ms,
-        1767225600000
-    );
-    assert_eq!(
-        server.data.lock().unwrap().facts[&r.owner.attempt_id].stopped_at_ms,
-        None
-    );
+    assert_open_interval(&server.data.lock().unwrap().facts[&r.owner.attempt_id]);
     assert_eq!(
         b.record_not_created(&r, now()).await.unwrap_err(),
         BackendError::Conflict
@@ -385,30 +392,7 @@ async fn vm_time_backfill_cli_uses_node_enrollment_and_preserves_pending_deliver
     }
     .save(&worker_path)
     .unwrap();
-    let cfg = config(&api, dir.path());
-    std::fs::write(&cfg.key_file, "fixture-node-key").unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&cfg.key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
-    let identity = WorkerIdentity {
-        node_id: cfg.node_id,
-        boot_id: Uuid::from_u128(2),
-    };
-    let mut node_config = node(&launch(&identity));
-    node_config.templates.clear();
-    std::fs::write(
-        &controller_path,
-        serde_json::to_vec(&json!({
-            "state_dir":dir.path().join("controller"), "node":node_config,
-            "boat": {
-                "api_url":cfg.api_url, "node_id":cfg.node_id,
-                "attempt_org":cfg.attempt_org, "template_org":cfg.template_org,
-                "journal_path":cfg.journal_path, "key_file":cfg.key_file,
-                "templates":cfg.templates
-            }
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+    write_controller_config(&api, dir.path(), &controller_path);
     let fact = VmTimeFact {
         attempt_id: Uuid::from_u128(207),
         sandbox_id: "bx_old_deleted".into(),
@@ -451,4 +435,30 @@ async fn vm_time_backfill_cli_uses_node_enrollment_and_preserves_pending_deliver
         api.data.lock().unwrap().requests.is_empty(),
         "historical import must not recreate VMs"
     );
+}
+fn write_controller_config(api: &BoatDouble, dir: &Path, controller_path: &Path) {
+    let cfg = config(api, dir);
+    std::fs::write(&cfg.key_file, "fixture-node-key").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&cfg.key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let identity = WorkerIdentity {
+        node_id: cfg.node_id,
+        boot_id: Uuid::from_u128(2),
+    };
+    let mut node_config = node(&launch(&identity));
+    node_config.templates.clear();
+    std::fs::write(
+        controller_path,
+        serde_json::to_vec(&json!({
+            "state_dir":dir.join("controller"), "node":node_config,
+            "boat": {
+                "api_url":cfg.api_url, "node_id":cfg.node_id,
+                "attempt_org":cfg.attempt_org, "template_org":cfg.template_org,
+                "journal_path":cfg.journal_path, "key_file":cfg.key_file,
+                "templates":cfg.templates
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
 }

@@ -83,20 +83,7 @@ fn pin(name: &str, path: &str) -> ArtifactRef {
         ..reference(path, b"unused")
     }
 }
-#[test]
-#[ignore = "requires confined wrapper plus prepared named-readonly-peer.c static image; never executes Codex"]
-fn named_retained_fd_exec_has_stable_self_helper_exact_stdin_and_physical_echild() {
-    assert_eq!(
-        std::env::var("AQ_NATIVE_FIXTURE_CONFINED").as_deref(),
-        Ok("v1")
-    );
-    use std::os::unix::fs::PermissionsExt;
-    let temp = tempfile::tempdir().unwrap();
-    let root = temp.path().join("host");
-    let workspace = temp.path().join("workspace");
-    std::fs::create_dir(&root).unwrap();
-    std::fs::create_dir(&workspace).unwrap();
-    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+fn rendered_fixture() -> (LaunchManifest, RenderedStartup) {
     let mut manifest: LaunchManifest =
         serde_json::from_str(include_str!("fixtures/manifest.json")).unwrap();
     manifest.terminal.input_enabled = false;
@@ -121,6 +108,50 @@ fn named_retained_fd_exec_has_stable_self_helper_exact_stdin_and_physical_echild
         payload.to_vec(),
     )
     .unwrap();
+    (manifest, rendered)
+}
+fn wait_for_peer(
+    observer: &mut terminal_output::OutputObserver,
+    released: &mut ReleasedObservedSession,
+    authority: &mut Authority,
+) -> (SessionHandle, String) {
+    let mut bytes = vec![];
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let mut host = None;
+    while host.is_none() || !String::from_utf8_lossy(&bytes).contains("NAMED-READY:physical-only") {
+        for event in observer.poll().unwrap() {
+            if let terminal_output::ControlEvent::Bytes(b) = event {
+                bytes.extend(b);
+            }
+        }
+        if host.is_none() {
+            host = released.poll_started(authority).unwrap();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "static named physical proof timed out: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    let text = String::from_utf8(bytes).unwrap();
+    (host.unwrap(), text)
+}
+#[test]
+#[ignore = "requires confined wrapper plus prepared named-readonly-peer.c static image; never executes Codex"]
+fn named_retained_fd_exec_has_stable_self_helper_exact_stdin_and_physical_echild() {
+    assert_eq!(
+        std::env::var("AQ_NATIVE_FIXTURE_CONFINED").as_deref(),
+        Ok("v1")
+    );
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("host");
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (manifest, rendered) = rendered_fixture();
     let environment = reference(
         "named-kernel-environment",
         b"independently confined test only; no production or secret authority",
@@ -205,32 +236,12 @@ fn named_retained_fd_exec_has_stable_self_helper_exact_stdin_and_physical_echild
     let mut released = pending
         .release_after_baseline(&baseline, &mut authority)
         .unwrap();
-    let mut bytes = vec![];
-    let deadline = Instant::now() + Duration::from_secs(4);
-    let mut host = None;
-    while host.is_none() || !String::from_utf8_lossy(&bytes).contains("NAMED-READY:physical-only") {
-        for event in observer.poll().unwrap() {
-            if let terminal_output::ControlEvent::Bytes(b) = event {
-                bytes.extend(b);
-            }
-        }
-        if host.is_none() {
-            host = released.poll_started(&mut authority).unwrap();
-        }
-        assert!(
-            Instant::now() < deadline,
-            "static named physical proof timed out: {}",
-            String::from_utf8_lossy(&bytes)
-        );
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    let text = String::from_utf8(bytes).unwrap();
+    let (mut host, text) = wait_for_peer(&mut observer, &mut released, &mut authority);
     assert!(
         text.contains("NAMED-STDIN:exact-sealed")
             && text.contains("NAMED-EXE:/opt/aq-qualification/codex")
             && text.contains("NAMED-HELPER:same-inode-canonical")
     );
-    let mut host = host.unwrap();
     assert_eq!(host.observe().unwrap().phase, HostPhase::Running);
     assert!(root.join("started.json").exists() && root.join("baseline.json").exists());
     host.stop().unwrap();

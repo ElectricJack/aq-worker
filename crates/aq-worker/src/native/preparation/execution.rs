@@ -44,19 +44,6 @@ impl RetainedPhaseInputs {
             Self::Refresh(i) => i.verify_execution_inputs(j, s, d),
         }
     }
-    fn check(
-        &self,
-        j: &Journal,
-        id: Uuid,
-        digest: &Digest,
-        deadline: u64,
-        hard: u64,
-    ) -> Result<()> {
-        match self {
-            Self::Frozen(_) => j.check_phase_execution(id, digest, deadline, hard),
-            Self::Refresh(_) => j.check_refresh_execution(id, digest, deadline, hard),
-        }
-    }
 }
 
 pub struct RetainedPhaseExecutionHistory {
@@ -127,17 +114,8 @@ impl InputPipeline {
                 && Arc::ptr_eq(&self.retained, &grant.history.resources),
             "phase execution belongs to another owner"
         );
-        let id = grant.history.attempt;
-        let digest = grant.history.record_digest.clone();
-        let deadline = grant.deadline_ns;
-        let hard = grant.hard_deadline_ns;
-        let inputs = grant.history.inputs.clone();
-        self.storage(move |owner| {
-            inputs.check(&owner.journal, id, &digest, deadline, hard)?;
-            inputs.verify_execution_inputs(&owner.journal, &owner.materials, deadline.min(hard))?;
-            inputs.check(&owner.journal, id, &digest, deadline, hard)
-        })
-        .await
+        let scope = LaunchExecutionScope::from_grant(grant);
+        self.storage(move |owner| scope.check(owner)).await
     }
 }
 
@@ -150,25 +128,32 @@ pub(super) struct LaunchExecutionScope {
 }
 impl LaunchExecutionScope {
     pub(super) fn check(&self, owner: &Owned) -> Result<()> {
-        self.inputs.check(
-            &owner.journal,
-            self.id,
-            &self.digest,
-            self.deadline,
-            self.hard,
-        )?;
+        self.check_journal(&owner.journal)?;
         self.inputs.verify_execution_inputs(
             &owner.journal,
             &owner.materials,
             self.deadline.min(self.hard),
         )?;
-        self.inputs.check(
-            &owner.journal,
-            self.id,
-            &self.digest,
-            self.deadline,
-            self.hard,
-        )
+        self.check_journal(&owner.journal)
+    }
+    fn check_journal(&self, journal: &Journal) -> Result<()> {
+        match &self.inputs {
+            RetainedPhaseInputs::Frozen(_) => {
+                journal.check_phase_execution(self.id, &self.digest, self.deadline, self.hard)
+            }
+            RetainedPhaseInputs::Refresh(_) => {
+                journal.check_refresh_execution(self.id, &self.digest, self.deadline, self.hard)
+            }
+        }
+    }
+    fn from_grant(grant: &DurablePhaseExecution) -> Self {
+        Self {
+            id: grant.history.attempt,
+            digest: grant.history.record_digest.clone(),
+            deadline: grant.deadline_ns,
+            hard: grant.hard_deadline_ns,
+            inputs: grant.history.inputs.clone(),
+        }
     }
 }
 impl InputPipeline {
@@ -181,13 +166,7 @@ impl InputPipeline {
                 && Arc::ptr_eq(&self.retained, &grant.history.resources),
             "phase launch foreign execution owner"
         );
-        Ok(LaunchExecutionScope {
-            id: grant.history.attempt,
-            digest: grant.history.record_digest.clone(),
-            deadline: grant.deadline_ns,
-            hard: grant.hard_deadline_ns,
-            inputs: grant.history.inputs.clone(),
-        })
+        Ok(LaunchExecutionScope::from_grant(grant))
     }
 }
 

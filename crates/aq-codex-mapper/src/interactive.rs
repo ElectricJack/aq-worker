@@ -12,9 +12,13 @@ pub enum InteractiveViewport {
 }
 pub fn classify_current_viewport(view: &str) -> InteractiveViewport {
     let lower = view.to_lowercase();
-    if lower.contains("sign in with chatgpt")
-        || lower.contains("codex login")
-        || lower.contains("log out and sign in again")
+    if [
+        "sign in with chatgpt",
+        "codex login",
+        "log out and sign in again",
+    ]
+    .iter()
+    .any(|message| lower.contains(message))
     {
         InteractiveViewport::AuthenticationRequired
     } else if view.contains("Do you trust the contents of this directory")

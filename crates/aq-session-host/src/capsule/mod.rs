@@ -161,6 +161,60 @@ pub struct StaticCapsulePlan {
     record: PlanRecord,
     files: Vec<File>,
 }
+fn check_limits(exact_stdin: &[u8], grants: &[MountGrant], deadline_boot_ms: u64) -> Result<()> {
+    ensure!(
+        cfg!(target_arch = "x86_64") && unsafe { libc::geteuid() } != 0,
+        "capsule rootless x86_64 candidate only"
+    );
+    let now = ownership::raw_boot_ms();
+    ensure!(
+        deadline_boot_ms > now && deadline_boot_ms - now <= MAX_LIFETIME_MS,
+        "capsule bounded original deadline"
+    );
+    ensure!(
+        !exact_stdin.is_empty()
+            && exact_stdin.len() <= MAX_STDIN
+            && !grants.is_empty()
+            && grants.len() <= 10,
+        "capsule bounded input/grants"
+    );
+    Ok(())
+}
+fn open_root(root: &Path) -> Result<File> {
+    ensure!(
+        root.is_absolute()
+            && std::fs::canonicalize(root)? == root
+            && std::fs::read_dir(root)?.next().is_none(),
+        "capsule fresh canonical root"
+    );
+    let root_file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(root)?;
+    let meta = root_file.metadata()?;
+    ensure!(
+        meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o777 == 0o700,
+        "capsule private root mode"
+    );
+    Ok(root_file)
+}
+fn check_targets(root: &Path, grants: &[MountGrant]) -> Result<()> {
+    let mut targets = Vec::new();
+    for grant in grants {
+        ensure!(
+            !root.starts_with(&grant.source)
+                && !grant.source.starts_with(root)
+                && !targets.contains(&grant.target),
+            "capsule root/grant overlap or duplicate"
+        );
+        targets.push(grant.target);
+    }
+    ensure!(
+        targets.contains(&MountTarget::Workspace),
+        "capsule workspace required"
+    );
+    Ok(())
+}
 impl StaticCapsulePlan {
     pub fn new(
         root: &Path,
@@ -170,51 +224,9 @@ impl StaticCapsulePlan {
         grants: Vec<MountGrant>,
         deadline_boot_ms: u64,
     ) -> Result<Self> {
-        ensure!(
-            cfg!(target_arch = "x86_64") && unsafe { libc::geteuid() } != 0,
-            "capsule rootless x86_64 candidate only"
-        );
-        let now = ownership::raw_boot_ms();
-        ensure!(
-            deadline_boot_ms > now && deadline_boot_ms - now <= MAX_LIFETIME_MS,
-            "capsule bounded original deadline"
-        );
-        ensure!(
-            !exact_stdin.is_empty()
-                && exact_stdin.len() <= MAX_STDIN
-                && !grants.is_empty()
-                && grants.len() <= 10,
-            "capsule bounded input/grants"
-        );
-        ensure!(
-            root.is_absolute()
-                && std::fs::canonicalize(root)? == root
-                && std::fs::read_dir(root)?.next().is_none(),
-            "capsule fresh canonical root"
-        );
-        let root_file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(root)?;
-        let meta = root_file.metadata()?;
-        ensure!(
-            meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o777 == 0o700,
-            "capsule private root mode"
-        );
-        let mut targets = Vec::new();
-        for grant in &grants {
-            ensure!(
-                !root.starts_with(&grant.source)
-                    && !grant.source.starts_with(root)
-                    && !targets.contains(&grant.target),
-                "capsule root/grant overlap or duplicate"
-            );
-            targets.push(grant.target);
-        }
-        ensure!(
-            targets.contains(&MountTarget::Workspace),
-            "capsule workspace required"
-        );
+        check_limits(exact_stdin, &grants, deadline_boot_ms)?;
+        let root_file = open_root(root)?;
+        check_targets(root, &grants)?;
         let (program, program_pin) = seal::source(program, expected, MAX_PROGRAM, true)?;
         let (stdin, stdin_pin) = seal::bytes(exact_stdin, false)?;
         let mut files = vec![program, stdin, root_file];
@@ -448,11 +460,12 @@ impl CapsuleHandle {
     }
 }
 
-fn spawn_guardian(helper: &PinnedHelper, plan: &StaticCapsulePlan) -> Result<(ChildOwner, u32)> {
-    let reaper = crate::reaper::Slot::reserve()?;
-    let (control, child_socket) = wire::Socket::pair()?;
-    let child_fd = child_socket.raw();
-    let helper_fd = helper.file.as_raw_fd();
+// Called only in the post-fork child before exec, using async-signal-safe syscalls.
+unsafe fn assign_descriptor(source: RawFd, target: RawFd, flags: i32) -> bool {
+    unsafe { libc::dup2(source, target) >= 0 && libc::fcntl(target, libc::F_SETFD, flags) >= 0 }
+}
+
+fn guardian_command(helper_fd: RawFd, child_fd: RawFd) -> Command {
     let mut command = Command::new("/proc/self/fd/4");
     command
         .arg("3")
@@ -473,19 +486,24 @@ fn spawn_guardian(helper: &PinnedHelper, plan: &StaticCapsulePlan) -> Result<(Ch
             }
             let image = libc::fcntl(helper_fd, libc::F_DUPFD_CLOEXEC, 64);
             let channel = libc::fcntl(child_fd, libc::F_DUPFD_CLOEXEC, 64);
-            if image < 0
-                || channel < 0
-                || libc::dup2(image, 4) < 0
-                || libc::fcntl(4, libc::F_SETFD, libc::FD_CLOEXEC) < 0
-                || libc::dup2(channel, 3) < 0
-                || libc::fcntl(3, libc::F_SETFD, 0) < 0
-            {
+            if image < 0 || channel < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if !assign_descriptor(image, 4, libc::FD_CLOEXEC) || !assign_descriptor(channel, 3, 0) {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
         });
     }
-    let child = command.spawn()?;
+    command
+}
+
+fn spawn_guardian(helper: &PinnedHelper, plan: &StaticCapsulePlan) -> Result<(ChildOwner, u32)> {
+    let reaper = crate::reaper::Slot::reserve()?;
+    let (control, child_socket) = wire::Socket::pair()?;
+    let child_fd = child_socket.raw();
+    let helper_fd = helper.file.as_raw_fd();
+    let child = guardian_command(helper_fd, child_fd).spawn()?;
     let guardian_pid = child.id();
     drop(child_socket);
     let owner = ChildOwner {

@@ -25,13 +25,76 @@ fn create(path: &Path, body: &[u8]) -> std::io::Result<()> {
         .and_then(|mut f| f.write_all(body).and_then(|()| f.sync_all()))
 }
 
+/// Write the caller's non-secret transcript beside the launch's private config.
+pub fn write_transcript(config_path: &Path, name: &str, stream: &[u8]) {
+    if let Some(dir) = config_path.parent() {
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(dir.join(name))
+            .and_then(|mut file| file.write_all(stream));
+    }
+}
+
 /// `exit.json` beside the driver config: success means the runner exited 0
 /// (backend-observed) and the workspace was copied back.
 pub fn write_exit(config_path: &Path, success: bool) {
+    write_outcome(config_path, success, false);
+}
+
+/// Marks a host driver failure in the private exit record, independently of
+/// the agent's claim and transcript. The node only submits it after real stop.
+pub fn write_platform_failure(config_path: &Path) {
+    write_outcome(config_path, false, true);
+}
+
+fn write_outcome(config_path: &Path, success: bool, platform_failure: bool) {
     if let Some(dir) = config_path.parent() {
-        let body = serde_json::json!({ "success": success }).to_string();
+        let body = if platform_failure {
+            r#"{"success":false,"platform_failure":true}"#.to_owned()
+        } else {
+            serde_json::json!({ "success": success }).to_string()
+        };
         let _ = create(&dir.join("exit.json"), body.as_bytes());
     }
+}
+
+/// The driver's exit record. Missing, unreadable or malformed is None
+/// (Unknown): only an explicit `{"success": true}` can report Success.
+pub fn driver_exit_success(path: &std::path::Path) -> Option<bool> {
+    let bytes = std::fs::read(path).ok()?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    value["success"].as_bool()
+}
+
+/// Read only the launch-owned driver file. Old, malformed and unsafe records
+/// cannot exempt a retry, even if an agent uses the same words in its result.
+pub fn platform_failed(path: &Path) -> bool {
+    super::read_private(path, 256)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .is_some_and(|exit| exit["success"] == false && exit["platform_failure"] == true)
+}
+
+#[cfg(test)]
+#[test]
+fn only_a_private_failure_record_attests_platform_failure() {
+    let ordinary = tempfile::tempdir().unwrap();
+    let failure = tempfile::tempdir().unwrap();
+    let absent = ordinary.path().join("exit.json");
+    assert!(!platform_failed(&absent));
+    write_exit(&ordinary.path().join("driver.json"), false);
+    assert!(!platform_failed(&absent));
+    // The first exit is immutable even if another failure arrives later.
+    write_platform_failure(&ordinary.path().join("driver.json"));
+    assert!(!platform_failed(&absent));
+    write_platform_failure(&failure.path().join("driver.json"));
+    let record = failure.path().join("exit.json");
+    assert!(platform_failed(&record));
+    let symlink = failure.path().join("link.json");
+    std::os::unix::fs::symlink(&record, &symlink).unwrap();
+    assert!(!platform_failed(&symlink));
 }
 
 /// The failed claim for a preserved sandbox, after its `PRESERVED_MARKER` is written beside

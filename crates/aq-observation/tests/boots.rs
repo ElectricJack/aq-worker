@@ -26,10 +26,14 @@ fn attach(
     spool: &mut Spool,
     temp: &tempfile::TempDir,
     source: Source,
-    name: &str,
-    bytes: &[u8],
+    name_and_row: (&str, &str),
 ) -> SourceFile {
-    std::fs::write(temp.path().join(name), bytes).unwrap();
+    let (name, row_id) = name_and_row;
+    std::fs::write(
+        temp.path().join(name),
+        row(source.native_session_key.as_str(), row_id),
+    )
+    .unwrap();
     let permit = SourceFile::inspect(
         source.source_id,
         temp.path(),
@@ -90,13 +94,7 @@ fn admitted_boot_preserves_global_sequence_old_facts_and_same_boot_batch_prefixe
     let root = temp.path().join("spool");
     let mut spool = support::initialize(&root, node(6), Limits::default());
     let old = source(8, 6, 40, "native-old");
-    let file_a = attach(
-        &mut spool,
-        &temp,
-        old.clone(),
-        "old.jsonl",
-        &row("native-old", "row-a"),
-    );
+    let file_a = attach(&mut spool, &temp, old.clone(), ("old.jsonl", "row-a"));
     spool
         .collect(old.source_id, &file_a, 100, OverflowPolicy::Hold)
         .unwrap();
@@ -109,13 +107,7 @@ fn admitted_boot_preserves_global_sequence_old_facts_and_same_boot_batch_prefixe
     spool.adopt_boot(&verified, 100).unwrap();
     assert_eq!(spool.node(), &node(66));
     let new = source(9, 66, 60, "native-new");
-    let file_b = attach(
-        &mut spool,
-        &temp,
-        new.clone(),
-        "new.jsonl",
-        &row("native-new", "row-b"),
-    );
+    let file_b = attach(&mut spool, &temp, new.clone(), ("new.jsonl", "row-b"));
     spool
         .collect(new.source_id, &file_b, 101, OverflowPolicy::Hold)
         .unwrap();
@@ -137,6 +129,11 @@ fn admitted_boot_preserves_global_sequence_old_facts_and_same_boot_batch_prefixe
     assert!(Spool::open(&root, node(6), Limits::default()).is_err());
     let mut spool = Spool::open_existing(&root, node(6).node_id, Limits::default()).unwrap();
     assert_eq!(spool.node(), &node(66));
+    assert_pending_batches(&mut spool);
+    assert_old_boot_fenced(&mut spool, &temp, plan);
+}
+
+fn assert_pending_batches(spool: &mut Spool) {
     let mut central = Coordinator {
         last: 0,
         receipts: BTreeMap::new(),
@@ -160,6 +157,9 @@ fn admitted_boot_preserves_global_sequence_old_facts_and_same_boot_batch_prefixe
     assert_eq!(central.last, 5);
     assert_eq!(spool.health().unwrap().acked_through, 5);
     assert_eq!(spool.next_sequence(), 6);
+}
+
+fn assert_old_boot_fenced(spool: &mut Spool, temp: &tempfile::TempDir, plan: BootTransition) {
     let mut reused = plan;
     reused.new_boot_id = Uuid::from_u128(67);
     let verified = VerifiedBootTransition::verify(reused, &support::FixtureTransportOwner).unwrap();

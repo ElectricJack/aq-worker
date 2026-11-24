@@ -58,6 +58,27 @@ impl LocalGuardian {
             stop_wait: Duration::from_secs(6),
         }
     }
+    fn request_stop(&self, identity: &GuardianIdentity) -> Result<()> {
+        let sent = guardian::control(
+            &self.directory,
+            identity,
+            Operation::Stop {
+                reason: ProcessOutcome::Cancelled,
+            },
+            || Ok(()),
+        );
+        if let Err(error) = sent {
+            // The guardian may have stopped and exited after saving proof.
+            let state = self.state(identity)?;
+            if !matches!(
+                state.phase,
+                GuardianPhase::Stopped | GuardianPhase::StopUncertain
+            ) {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
     fn state(&self, identity: &GuardianIdentity) -> Result<GuardianState> {
         guardian::read_state(&self.directory, identity)
     }
@@ -72,24 +93,7 @@ impl WriterGuardian for LocalGuardian {
         let identity = guardian::read_identity(&self.directory)?;
         let state = self.state(&identity)?;
         if matches!(state.phase, GuardianPhase::Waiting | GuardianPhase::Running) {
-            let sent = guardian::control(
-                &self.directory,
-                &identity,
-                Operation::Stop {
-                    reason: ProcessOutcome::Cancelled,
-                },
-                || Ok(()),
-            );
-            if let Err(error) = sent {
-                // The guardian may have stopped and exited after saving proof.
-                let state = self.state(&identity)?;
-                if !matches!(
-                    state.phase,
-                    GuardianPhase::Stopped | GuardianPhase::StopUncertain
-                ) {
-                    return Err(error);
-                }
-            }
+            self.request_stop(&identity)?;
         }
         let deadline = Instant::now() + self.stop_wait;
         loop {

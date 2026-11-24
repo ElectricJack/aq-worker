@@ -249,15 +249,4 @@ pub fn labels_match(labels: &Value, expected: &BTreeMap<String, String>) -> bool
         .all(|(key, value)| labels.get(key).and_then(Value::as_str) == Some(value))
 }
 
-/// Percent-encodes everything except RFC 3986 unreserved characters.
-pub fn encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                (byte as char).to_string()
-            }
-            _ => format!("%{byte:02X}"),
-        })
-        .collect()
-}
+pub use super::transport::encode;

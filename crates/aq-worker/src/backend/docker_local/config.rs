@@ -4,12 +4,15 @@ use crate::backend::{BackendError, TemplateDigest, valid_alias_name};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    os::unix::fs::{FileTypeExt, MetadataExt},
     path::{Path, PathBuf},
 };
 
-/// The host's main Docker daemon sockets (SBX10). Never used, even via symlink.
-pub const MAIN_DAEMON_SOCKETS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock"];
+pub use aq_sandbox_archive::docker_engine::MAIN_DAEMON_SOCKETS;
+use aq_sandbox_archive::docker_engine::{
+    HostStatvfs, PlacementRefusal, UnixSocketTransport, check_placement, container_path_ok,
+    exposes_daemon_socket, parent, under, validate_socket,
+};
+use std::time::Duration;
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
 /// The attempt's agent-channel directory is always mounted here (0006 §5.1).
@@ -63,6 +66,10 @@ pub struct DockerLocalConfig {
     /// SBX20 per-attempt disk limit when a reservation carries none.
     #[serde(default = "default_disk_limit_bytes")]
     pub disk_limit_bytes: u64,
+    /// Minimum daemon storage headroom before requesting or accepting work.
+    /// Defaults to one sandbox's disk budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_free_disk_bytes: Option<u64>,
     /// SBX20 watchdog sampling interval.
     #[serde(default = "default_disk_watch_interval_ms")]
     pub disk_watch_interval_ms: u64,
@@ -86,6 +93,10 @@ pub struct DockerLocalConfig {
     /// The attempt's build-cache binds; set by the driver, never read from a file.
     #[serde(skip)]
     pub cache_binds: Vec<String>,
+    /// Spec 0017: the admitted environments this node pulled; set by the service.
+    #[cfg(feature = "project_environments")]
+    #[serde(skip)]
+    pub environments: aq_environment_builder::node::Held,
 }
 
 fn default_material_path() -> String {
@@ -109,9 +120,6 @@ fn default_disk_watch_interval_ms() -> u64 {
     10_000
 }
 
-const REFUSE_MAIN: BackendError =
-    BackendError::InvalidRequest("refusing the host's main Docker daemon");
-
 impl DockerLocalConfig {
     pub fn new(socket: PathBuf) -> Self {
         Self {
@@ -127,12 +135,15 @@ impl DockerLocalConfig {
             stop_grace_secs: default_stop_grace_secs(),
             max_read_bytes: default_max_read_bytes(),
             disk_limit_bytes: default_disk_limit_bytes(),
+            minimum_free_disk_bytes: None,
             disk_watch_interval_ms: default_disk_watch_interval_ms(),
             shared_root_fs: false,
             hard_disk_limit: false,
             channel_root: None,
             transcript: None,
             cache_binds: Vec::new(),
+            #[cfg(feature = "project_environments")]
+            environments: Default::default(),
         }
     }
 
@@ -143,20 +154,23 @@ impl DockerLocalConfig {
             .map(|template| template.image.as_str())
     }
 
+    pub async fn check_admission(&self) -> Result<(), PlacementRefusal> {
+        validate_socket(&self.socket).map_err(|_| PlacementRefusal::DaemonUnavailable)?;
+        check_placement(
+            &UnixSocketTransport::new(self.socket.clone()),
+            super::API_VERSION,
+            Duration::from_millis(self.api_timeout_ms),
+            self.minimum_free_disk_bytes
+                .unwrap_or(self.disk_limit_bytes)
+                .max(1),
+            &HostStatvfs,
+        )
+        .await
+    }
+
     pub fn validate(&self) -> Result<(), BackendError> {
-        self.validate_socket()?;
-        let mut digests = BTreeSet::new();
-        for template in &self.templates {
-            let suffix = format!("@{}", template.digest.as_str());
-            if template.image.len() <= suffix.len() || !template.image.ends_with(&suffix) {
-                return Err(BackendError::InvalidRequest(
-                    "template image must be pinned to its digest",
-                ));
-            }
-            if !digests.insert(template.digest.as_str()) {
-                return Err(BackendError::InvalidRequest("duplicate template digest"));
-            }
-        }
+        validate_socket(&self.socket).map_err(BackendError::InvalidRequest)?;
+        check_templates(&self.templates)?;
         if let Some(root) = &self.channel_root {
             self.check_channel_root(root)?;
         }
@@ -191,7 +205,7 @@ impl DockerLocalConfig {
                     "mount alias host path must be absolute",
                 ));
             }
-            if self.exposes_daemon_socket(&alias.host_path) {
+            if exposes_daemon_socket(&self.socket, &alias.host_path) {
                 return Err(BackendError::InvalidRequest(
                     "mount alias exposes a daemon socket",
                 ));
@@ -234,7 +248,7 @@ impl DockerLocalConfig {
     pub fn check_channel_root(&self, root: &Path) -> Result<(), BackendError> {
         let alias = |a: &MountAlias| aq_agent_channel::paths_overlap(&a.host_path, root);
         if !root.is_absolute()
-            || self.exposes_daemon_socket(root)
+            || exposes_daemon_socket(&self.socket, root)
             || self.mount_aliases.values().any(alias)
         {
             return Err(BackendError::InvalidRequest(
@@ -243,79 +257,106 @@ impl DockerLocalConfig {
         }
         Ok(())
     }
+}
 
-    fn validate_socket(&self) -> Result<(), BackendError> {
-        if !self.socket.is_absolute() {
+/// An OCI reference `[host[:port]/]path[:tag]@<digest>` and nothing else, so it
+/// is safe in a daemon API path: no `?`, `&`, `#`, space or control character.
+pub fn pinned_reference(image: &str, digest: &TemplateDigest) -> bool {
+    let alnum = |c: u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+    let bounded = |s: &str, ok: &dyn Fn(u8) -> bool| {
+        let b = s.as_bytes();
+        !b.is_empty() && b.iter().all(|c| ok(*c)) && alnum(b[0]) && alnum(b[b.len() - 1])
+    };
+    let component = |s: &str| bounded(s, &|c| alnum(c) || b"._-".contains(&c));
+    let host = |s: &str| {
+        let (host, port) = s.split_once(':').unwrap_or((s, "0"));
+        let label = |l: &str| bounded(&l.to_ascii_lowercase(), &|c| alnum(c) || c == b'-');
+        host.split('.').all(label) && !port.is_empty() && port.bytes().all(|c| c.is_ascii_digit())
+    };
+    let Some(name) = (image.strip_suffix(digest.as_str())).and_then(|n| n.strip_suffix('@')) else {
+        return false;
+    };
+    let name = match name.rsplit_once(':') {
+        Some((name, tag)) if !tag.contains('/') => {
+            let tag_ok = |c: u8| c.is_ascii_alphanumeric() || b"._-".contains(&c);
+            let ok = tag.len() <= 128 && tag.bytes().all(tag_ok) && !tag.starts_with(['.', '-']);
+            if !ok || tag.is_empty() {
+                return false;
+            }
+            name
+        }
+        _ => name,
+    };
+    let mut parts: Vec<&str> = name.split('/').collect();
+    let first = parts[0];
+    if parts.len() > 1 && (first.contains(['.', ':']) || first == "localhost") {
+        if !host(first) {
+            return false;
+        }
+        parts.remove(0);
+    }
+    name.len() <= 255 && parts.into_iter().all(component)
+}
+
+fn check_templates(templates: &[AllowedTemplate]) -> Result<(), BackendError> {
+    let mut digests = BTreeSet::new();
+    for template in templates {
+        if !pinned_reference(&template.image, &template.digest) {
             return Err(BackendError::InvalidRequest(
-                "sandbox daemon socket must be an absolute path",
+                "template image must be a reference pinned to its digest",
             ));
         }
-        if is_main_daemon_path(&self.socket) {
-            return Err(REFUSE_MAIN);
+        if !digests.insert(template.digest.as_str()) {
+            return Err(BackendError::InvalidRequest("duplicate template digest"));
         }
-        let canonical = std::fs::canonicalize(&self.socket)
-            .map_err(|_| BackendError::InvalidRequest("sandbox daemon socket unavailable"))?;
-        let metadata = std::fs::metadata(&canonical)
-            .map_err(|_| BackendError::InvalidRequest("sandbox daemon socket unavailable"))?;
-        if is_main_daemon_path(&canonical) || same_file_as_main_daemon(&metadata) {
-            return Err(REFUSE_MAIN);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "project_environments")]
+impl DockerLocalConfig {
+    /// Merges admitted templates into `templates`, checked like the static ones.
+    pub fn admit(
+        &mut self,
+        admitted: &[aq_environment_builder::node::AdmittedEnvironment],
+    ) -> Result<(), BackendError> {
+        let mut templates = self.templates.clone();
+        for environment in admitted {
+            let digest = TemplateDigest::parse(environment.digest.clone())?;
+            if self.template_image(&digest).is_none() {
+                let image = environment.image.clone();
+                templates.push(AllowedTemplate { image, digest });
+            }
         }
-        if !metadata.file_type().is_socket() {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon socket is not a Unix socket",
-            ));
-        }
-        // SAFETY: geteuid has no preconditions and cannot fail.
-        if metadata.uid() != unsafe { libc::geteuid() } {
-            return Err(BackendError::InvalidRequest(
-                "sandbox daemon socket is not owned by the worker user",
-            ));
-        }
+        check_templates(&templates)?;
+        self.templates = templates;
         Ok(())
     }
 
-    fn exposes_daemon_socket(&self, host_path: &Path) -> bool {
-        let canonical = std::fs::canonicalize(host_path).unwrap_or_else(|_| host_path.into());
-        let socket = std::fs::canonicalize(&self.socket).unwrap_or_else(|_| self.socket.clone());
-        is_main_daemon_path(host_path)
-            || is_main_daemon_path(&canonical)
-            || socket.starts_with(&canonical)
-            || std::fs::metadata(&canonical)
-                .is_ok_and(|m| m.file_type().is_socket() || same_file_as_main_daemon(&m))
+    /// The admitted template of a held environment, once admitted here.
+    pub fn template_for(
+        &self,
+        environment: &aq_session_protocol::ArtifactRef,
+    ) -> Option<&AllowedTemplate> {
+        let held = self.environments.get(environment)?;
+        (self.templates.iter()).find(|t| t.digest.as_str() == held.digest)
     }
-}
 
-fn is_main_daemon_path(path: &Path) -> bool {
-    MAIN_DAEMON_SOCKETS
-        .iter()
-        .any(|main| path == Path::new(main))
-}
-
-fn same_file_as_main_daemon(metadata: &std::fs::Metadata) -> bool {
-    MAIN_DAEMON_SOCKETS.iter().any(|main| {
-        std::fs::metadata(main)
-            .is_ok_and(|m| m.dev() == metadata.dev() && m.ino() == metadata.ino())
-    })
-}
-
-/// Absolute, normalized and under `/aq/`.
-fn container_path_ok(path: &str) -> bool {
-    path.strip_prefix("/aq/").is_some_and(|rest| {
-        !rest.is_empty()
-            && rest
-                .split('/')
-                .all(|part| !part.is_empty() && part != "." && part != "..")
-    })
-}
-
-/// True when `path` is `base` or below it.
-fn under(path: &str, base: &str) -> bool {
-    path == base
-        || path
-            .strip_prefix(base)
-            .is_some_and(|rest| rest.starts_with('/'))
-}
-
-fn parent(path: &str) -> &str {
-    path.rsplit_once('/').map_or("/", |(parent, _)| parent)
+    /// The template an offer in `environment` runs in: a held environment's,
+    /// admitted into this copy, else `boot`. Only the boot environment reaches the
+    /// fallback: the executor's `Held::select` refuses an unheld one before launch.
+    pub fn offered_template(
+        &mut self,
+        environment: &aq_session_protocol::ArtifactRef,
+        boot: &TemplateDigest,
+    ) -> Result<TemplateDigest, BackendError> {
+        let Some(held) = self.environments.get(environment) else {
+            return Ok(boot.clone());
+        };
+        self.admit(&[held])?;
+        Ok(self
+            .template_for(environment)
+            .map_or(boot, |t| &t.digest)
+            .clone())
+    }
 }

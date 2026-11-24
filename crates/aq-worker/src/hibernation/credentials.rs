@@ -73,12 +73,7 @@ impl ScrubbedSecrets {
     }
     /// First leak found in a retained entry: a credential path or secret bytes.
     pub fn scan(&self, path: &str, bytes: &[u8]) -> Option<&'static str> {
-        let normalized = path.trim_start_matches("./");
-        let basename = normalized.rsplit('/').next().unwrap_or(normalized);
-        if CREDENTIAL_BASENAMES.contains(&basename)
-            || normalized.split('/').any(|c| c == "agent-home")
-            || LOGIN_CREDENTIALS.iter().any(|p| normalized.ends_with(p))
-        {
+        if is_credential_path(path) {
             return Some("retained state contains a credential path");
         }
         for secret in &self.secrets {
@@ -91,6 +86,18 @@ impl ScrubbedSecrets {
         }
         None
     }
+}
+
+fn is_credential_path(path: &str) -> bool {
+    let normalized = path.trim_start_matches("./");
+    let basename = normalized.rsplit('/').next().unwrap_or(normalized);
+    CREDENTIAL_BASENAMES.contains(&basename)
+        || normalized
+            .split('/')
+            .any(|component| component == "agent-home")
+        || LOGIN_CREDENTIALS
+            .iter()
+            .any(|suffix| normalized.ends_with(suffix))
 }
 
 fn trim_ascii(bytes: &[u8]) -> &[u8] {

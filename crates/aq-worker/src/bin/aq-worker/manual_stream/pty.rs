@@ -20,8 +20,7 @@ impl Pty {
         exe: &Path,
         socket: &Path,
         container: &str,
-        columns: u16,
-        rows: u16,
+        (columns, rows): (u16, u16),
     ) -> Result<Self> {
         let mut cmd = Command::new(exe);
         cmd.args(["--remote", "--url"])
@@ -187,7 +186,7 @@ mod tests {
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let p = Pty::attach(&executable, Path::new("/unused"), "fixture", 90, 31).unwrap();
+        let p = Pty::attach(&executable, Path::new("/unused"), "fixture", (90, 31)).unwrap();
         let mut output = Vec::new();
         while !output.ends_with(b"ready") {
             output.extend(

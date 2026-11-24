@@ -1,0 +1,28 @@
+[package]
+name = "aq-environment-builder"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "A builder node's runner for project environment build and try jobs (aq-server spec 0017)"
+
+[dependencies]
+aq-node-git = { path = "../aq-node-git" }
+anyhow.workspace = true
+aq-session-protocol.workspace = true
+libc.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+futures-util = "0.3"
+aq-node-git = { path = "../aq-node-git", features = ["test-support"] }
+axum.workspace = true
+
+[features]
+# spec 0017 (sandbox environments), off by default; aq-worker's feature turns it on.
+project_environments = ["aq-node-git/environment-job"]

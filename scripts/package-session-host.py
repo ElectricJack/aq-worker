@@ -31,7 +31,7 @@ def publication():
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as archive:
         for relative in sorted(set(filter(None, paths))):
             path = ROOT / relative
-            if not path.is_file() or "__pycache__" in path.parts or "target" in path.parts:
+            if not path.is_file() or {"__pycache__", "target"}.intersection(path.parts):
                 continue
             if path.is_symlink():
                 raise ValueError(f"release source must be a regular file: {relative}")

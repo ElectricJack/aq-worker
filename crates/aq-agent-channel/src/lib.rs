@@ -11,6 +11,8 @@
 //!   injected, agent `Authorization` passed through), on the same core.
 //! - [`holds_agent_credential`]: the leak guard's `aqa_` credential scan.
 mod channel;
+#[cfg(feature = "environment-try")]
+mod checkpoint;
 mod forward;
 mod issuer;
 pub mod login;
@@ -19,6 +21,8 @@ mod loopback;
 mod tests;
 
 pub use channel::{AgentChannel, ChannelConfig, NodeLink, sweep};
+#[cfg(feature = "environment-try")]
+pub use checkpoint::{Checkpoint, CheckpointError, CheckpointFuture, CheckpointGuard, TRY_PATH};
 pub use forward::{AGENT_PREFIXES, NODE_PREFIXES, agent_path, node_origin};
 pub use issuer::{AttemptIdentity, CredentialIssuer, IssueError, IssueFuture, Issued, NodeIssuer};
 pub use loopback::LoopbackProxy;
@@ -215,22 +219,27 @@ pub(crate) trait Accept: Send + 'static {
     ) -> impl std::future::Future<Output = std::io::Result<Option<Self::Stream>>> + Send;
 }
 
+pub(crate) struct ServeLimits {
+    pub slots: usize,
+    pub grace: std::time::Duration,
+}
+
 /// Bounded-concurrency accept loop. On stop it accepts nothing more, lets
 /// in-flight requests finish for `grace`, then cancels the rest.
 pub(crate) async fn serve<A, H, F>(
     mut listener: A,
     mut stopped: watch::Receiver<bool>,
-    slots: usize,
-    grace: std::time::Duration,
+    limits: ServeLimits,
     handle: H,
 ) where
     A: Accept,
     H: Fn(A::Stream) -> F + Send + 'static,
     F: std::future::Future<Output = ()> + Send + 'static,
 {
-    let slots = Arc::new(Semaphore::new(slots));
+    let slots = Arc::new(Semaphore::new(limits.slots));
     let mut requests = JoinSet::new();
-    if !*stopped.borrow_and_update() {
+    let running = !*stopped.borrow_and_update();
+    if running {
         loop {
             tokio::select! {
                 biased;
@@ -253,6 +262,10 @@ pub(crate) async fn serve<A, H, F>(
         }
     }
     drop(listener);
+    drain_requests(requests, limits.grace).await;
+}
+
+async fn drain_requests(mut requests: JoinSet<()>, grace: std::time::Duration) {
     if !grace.is_zero() {
         let _ = tokio::time::timeout(grace, async {
             while requests.join_next().await.is_some() {}

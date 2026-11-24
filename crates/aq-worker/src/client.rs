@@ -9,7 +9,7 @@ use aq_protocol::{
     ProbeResponse,
 };
 use rand::Rng;
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use reqwest::{Response, StatusCode, redirect};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -55,7 +55,7 @@ pub struct Client {
     credential: Option<String>,
 }
 
-fn secret_header(value: &str) -> anyhow::Result<HeaderValue> {
+pub(crate) fn secret_header(value: &str) -> anyhow::Result<HeaderValue> {
     let mut v = HeaderValue::from_str(value)?;
     v.set_sensitive(true);
     Ok(v)
@@ -75,14 +75,8 @@ impl Client {
         }
         let mut headers = HeaderMap::new();
         if let (Some(id), Some(secret)) = (cf_client_id, cf_client_secret) {
-            headers.insert(
-                HeaderName::from_static("cf-access-client-id"),
-                secret_header(&id)?,
-            );
-            headers.insert(
-                HeaderName::from_static("cf-access-client-secret"),
-                secret_header(&secret)?,
-            );
+            headers.insert("cf-access-client-id", secret_header(&id)?);
+            headers.insert("cf-access-client-secret", secret_header(&secret)?);
         }
         let http = reqwest::Client::builder()
             .redirect(redirect::Policy::none())
@@ -143,9 +137,8 @@ impl Client {
     ) -> Result<T, CallError> {
         let mut rb = self.http.post(format!("{}{path}", self.base)).json(body);
         if auth && let Some(cred) = &self.credential {
-            let mut v = HeaderValue::from_str(&format!("Bearer {cred}"))
+            let v = secret_header(&format!("Bearer {cred}"))
                 .map_err(|_| CallError::Other("credential is not a valid header value".into()))?;
-            v.set_sensitive(true);
             rb = rb.header(reqwest::header::AUTHORIZATION, v);
         }
         let resp = rb
@@ -187,14 +180,13 @@ fn is_html(resp: &Response) -> bool {
 
 async fn classify<T: DeserializeOwned>(resp: Response) -> Result<T, CallError> {
     let status = resp.status();
-    if status.is_server_error() {
-        return Err(CallError::Transient(format!("server returned {status}")));
-    }
-    // Timeouts and rate limits (Cloudflare's 429 page is HTML) are retryable.
-    if matches!(
-        status,
-        StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
-    ) {
+    // Timeouts and rate limits (including Cloudflare's 429 page) are retryable.
+    if status.is_server_error()
+        || matches!(
+            status,
+            StatusCode::REQUEST_TIMEOUT | StatusCode::TOO_MANY_REQUESTS
+        )
+    {
         return Err(CallError::Transient(format!("server returned {status}")));
     }
     // Cloudflare Access answers a rejected service token with a redirect to
@@ -210,30 +202,31 @@ async fn classify<T: DeserializeOwned>(resp: Response) -> Result<T, CallError> {
         return serde_json::from_slice(&bytes)
             .map_err(|_| CallError::Other("server sent an unreadable response".into()));
     }
-    let api: Option<ApiError> = serde_json::from_slice(&bytes).ok();
+    Err(classify_error(status, &bytes))
+}
+
+fn classify_error(status: StatusCode, bytes: &[u8]) -> CallError {
+    let api: Option<ApiError> = serde_json::from_slice(bytes).ok();
     match (status, api) {
-        (StatusCode::UPGRADE_REQUIRED, _) => match serde_json::from_slice(&bytes) {
-            Ok(c) => Err(CallError::Incompatible(c)),
-            Err(_) => Err(CallError::Other(
-                "server requires a different protocol version".into(),
-            )),
-        },
-        (StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN, None) => Err(CallError::AccessRejected),
-        (StatusCode::UNAUTHORIZED, Some(e)) if e.error == CREDENTIAL_REVOKED => {
-            Err(CallError::Revoked)
-        }
+        (StatusCode::UPGRADE_REQUIRED, _) => serde_json::from_slice(bytes)
+            .map(CallError::Incompatible)
+            .unwrap_or_else(|_| {
+                CallError::Other("server requires a different protocol version".into())
+            }),
+        (StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN, None) => CallError::AccessRejected,
+        (StatusCode::UNAUTHORIZED, Some(e)) if e.error == CREDENTIAL_REVOKED => CallError::Revoked,
         (StatusCode::UNAUTHORIZED, Some(e)) if e.error == INVALID_CREDENTIAL => {
-            Err(CallError::InvalidCredential)
+            CallError::InvalidCredential
         }
-        (StatusCode::NOT_FOUND, None) => Err(CallError::Other(
+        (StatusCode::NOT_FOUND, None) => CallError::Other(
             "server returned 404 Not Found; is --server pointing at the worker port (8081)?".into(),
-        )),
-        (_, Some(e)) if status == StatusCode::NOT_FOUND => Err(CallError::Other(format!(
+        ),
+        (StatusCode::NOT_FOUND, Some(e)) => CallError::Other(format!(
             "{} ({}); is --server pointing at the worker port (8081)?",
             e.message, e.error
-        ))),
-        (_, Some(e)) => Err(CallError::Other(format!("{} ({})", e.message, e.error))),
-        (s, None) => Err(CallError::Other(format!("unexpected response {s}"))),
+        )),
+        (_, Some(e)) => CallError::Other(format!("{} ({})", e.message, e.error)),
+        (s, None) => CallError::Other(format!("unexpected response {s}")),
     }
 }
 
@@ -248,6 +241,25 @@ async fn sleep_or_shutdown<F: Future + Unpin>(d: Duration, shutdown: &mut F) -> 
     }
 }
 
+async fn next_interval(client: &Client, probed: bool) -> Result<u64, CallError> {
+    if probed {
+        let req = HeartbeatRequest {
+            worker_version: env!("AQ_WORKER_VERSION").to_string(),
+            protocol_version: PROTOCOL_VERSION,
+        };
+        return client
+            .heartbeat(&req)
+            .await
+            .map(|r| r.heartbeat_interval_secs);
+    }
+    let request = ProbeRequest { nonce: nonce() };
+    let response = client.probe(&request).await?;
+    if response.nonce != request.nonce {
+        return Err(CallError::Other("probe nonce mismatch".into()));
+    }
+    Ok(0)
+}
+
 /// One probe at startup, then a heartbeat every server-provided interval.
 /// Transient failures back off with jitter; any other error is returned.
 /// `Ok(())` means `shutdown` resolved.
@@ -256,28 +268,11 @@ pub async fn run_loop(client: &Client, shutdown: impl Future) -> Result<(), Call
     let mut attempt: u32 = 0;
     let mut probed = false;
     loop {
-        let result = if probed {
-            let req = HeartbeatRequest {
-                worker_version: env!("AQ_WORKER_VERSION").to_string(),
-                protocol_version: PROTOCOL_VERSION,
-            };
-            tokio::select! {
-                _ = &mut shutdown => return Ok(()),
-                r = client.heartbeat(&req) => r.map(|r| r.heartbeat_interval_secs),
-            }
-        } else {
-            let n = nonce();
-            let req = ProbeRequest { nonce: n.clone() };
-            tokio::select! {
-                _ = &mut shutdown => return Ok(()),
-                r = client.probe(&req) => match r {
-                    Ok(p) if p.nonce == n => Ok(0),
-                    Ok(_) => return Err(CallError::Other("probe nonce mismatch".into())),
-                    Err(e) => Err(e),
-                },
-            }
+        let result = tokio::select! {
+            _ = &mut shutdown => return Ok(()),
+            interval = next_interval(client, probed) => interval,
         };
-        match result {
+        let delay = match result {
             Ok(secs) => {
                 attempt = 0;
                 if !probed {
@@ -286,14 +281,10 @@ pub async fn run_loop(client: &Client, shutdown: impl Future) -> Result<(), Call
                     continue;
                 }
                 tracing::debug!("heartbeat ok");
-                let secs = if secs == 0 {
-                    DEFAULT_INTERVAL_SECS
-                } else {
-                    secs
-                };
-                if sleep_or_shutdown(Duration::from_secs(secs), &mut shutdown).await {
-                    return Ok(());
-                }
+                Duration::from_secs(match secs {
+                    0 => DEFAULT_INTERVAL_SECS,
+                    seconds => seconds,
+                })
             }
             Err(CallError::Transient(msg)) => {
                 let d = backoff::delay(attempt, &mut rand::thread_rng());
@@ -303,11 +294,12 @@ pub async fn run_loop(client: &Client, shutdown: impl Future) -> Result<(), Call
                     "{msg}; retrying"
                 );
                 attempt = attempt.saturating_add(1);
-                if sleep_or_shutdown(d, &mut shutdown).await {
-                    return Ok(());
-                }
+                d
             }
             Err(e) => return Err(e),
+        };
+        if sleep_or_shutdown(delay, &mut shutdown).await {
+            return Ok(());
         }
     }
 }

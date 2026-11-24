@@ -36,26 +36,29 @@ pub struct Directives {
 impl Directives {
     /// Every packet is sealed and of the class its slot names.
     fn validate(&self) -> Result<()> {
-        if let Some(p) = &self.suspend {
-            p.validate()
-                .map_err(|e| anyhow!("suspend directive: {e}"))?;
-            if !matches!(p.body.message, Message::Suspend(_)) {
-                bail!("suspend slot holds a non-suspend packet");
-            }
-        }
-        if let Some(p) = &self.continuation {
-            p.validate()
-                .map_err(|e| anyhow!("continuation directive: {e}"))?;
-            if !matches!(p.body.message, Message::Continuation(_)) {
-                bail!("continuation slot holds a non-continuation packet");
-            }
-        }
+        validate_slot(&self.suspend, "suspend", |m| {
+            matches!(m, Message::Suspend(_))
+        })?;
+        validate_slot(&self.continuation, "continuation", |m| {
+            matches!(m, Message::Continuation(_))
+        })?;
         if let Some(a) = &self.disk_release {
             aq_lifecycle_protocol::artifact(a)
                 .map_err(|e| anyhow!("disk release directive: {e}"))?;
         }
         Ok(())
     }
+}
+
+fn validate_slot(packet: &Option<Packet>, slot: &str, accepts: fn(&Message) -> bool) -> Result<()> {
+    let Some(packet) = packet else { return Ok(()) };
+    packet
+        .validate()
+        .map_err(|e| anyhow!("{slot} directive: {e}"))?;
+    if !accepts(&packet.body.message) {
+        bail!("{slot} slot holds a non-{slot} packet");
+    }
+    Ok(())
 }
 
 /// A non-success status from a lifecycle route. The body is not kept: it is

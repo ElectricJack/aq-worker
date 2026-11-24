@@ -18,6 +18,21 @@ struct Proxy {
     client: reqwest::Client,
     fault: Arc<Mutex<Option<Fault>>>,
 }
+impl Proxy {
+    fn take_fault(&self, method: &Method, path: &str) -> Option<Fault> {
+        let mut pending = self.fault.lock().unwrap();
+        let applies = match *pending {
+            Some(Fault::CrashAfterCreate) => method == Method::POST && path == "/api/v1/sandboxes",
+            Some(Fault::DestroyFailure) => {
+                method == Method::DELETE
+                    && path.starts_with("/api/v1/sandboxes/")
+                    && !path.ends_with("/snapshots")
+            }
+            _ => false,
+        };
+        if applies { pending.take() } else { None }
+    }
+}
 async fn forward(
     State(state): State<Proxy>,
     OriginalUri(uri): OriginalUri,
@@ -25,21 +40,7 @@ async fn forward(
     mut headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let fault = {
-        let mut pending = state.fault.lock().unwrap();
-        let applies = match *pending {
-            Some(Fault::CrashAfterCreate) => {
-                method == Method::POST && uri.path() == "/api/v1/sandboxes"
-            }
-            Some(Fault::DestroyFailure) => {
-                method == Method::DELETE
-                    && uri.path().starts_with("/api/v1/sandboxes/")
-                    && !uri.path().ends_with("/snapshots")
-            }
-            _ => false,
-        };
-        if applies { pending.take() } else { None }
-    };
+    let fault = state.take_fault(&method, uri.path());
     if matches!(fault, Some(Fault::DestroyFailure)) {
         return (StatusCode::SERVICE_UNAVAILABLE, "injected unavailable").into_response();
     }
@@ -70,6 +71,39 @@ struct LiveFixture {
     boot: Uuid,
     digest: TemplateDigest,
     retention: std::path::PathBuf,
+}
+impl LiveFixture {
+    async fn cleanup(&mut self) -> bool {
+        self.fault.lock().unwrap().take();
+        // Explicit fixture-only operator release; preserve any failed stop/delete
+        // as an assertion and rely on the original bounded TTL for compute safety.
+        let owned = self
+            .backend
+            .list_owned(self.node)
+            .await
+            .expect("live cleanup inventory");
+        let mut cleanup = true;
+        for entry in owned {
+            cleanup &= self.backend.stop(&entry.sandbox).await.is_confirmed();
+            let authorization = DestroyAuthorization::operator_released(
+                entry.sandbox.clone(),
+                "boat-live-fixture-cleanup",
+            )
+            .unwrap();
+            cleanup &= self
+                .backend
+                .destroy(&entry.sandbox, &authorization)
+                .await
+                .is_confirmed();
+        }
+        let empty = self
+            .backend
+            .list_owned(self.node)
+            .await
+            .expect("final live inventory")
+            .is_empty();
+        cleanup && empty
+    }
 }
 impl BackendFixture for LiveFixture {
     type Backend = BoatBackend;
@@ -174,31 +208,10 @@ pub async fn run() {
     // VM runs at a time. BOAT_LIVE_SCENARIOS selects a subset to fit a budget.
     let selected = std::env::var("BOAT_LIVE_SCENARIOS").unwrap_or_else(|_| "all".into());
     let result = catch_panic(run_selected(&mut fixture, &selected)).await;
-    fixture.fault.lock().unwrap().take();
-    // Explicit fixture-only operator release; preserve any failed stop/delete
-    // as an assertion and rely on the original bounded TTL for compute safety.
-    let owned = fixture
-        .backend
-        .list_owned(node)
-        .await
-        .expect("live cleanup inventory");
-    let mut cleanup = true;
-    for e in owned {
-        cleanup &= fixture.backend.stop(&e.sandbox).await.is_confirmed();
-        let a =
-            DestroyAuthorization::operator_released(e.sandbox.clone(), "boat-live-fixture-cleanup")
-                .unwrap();
-        cleanup &= fixture.backend.destroy(&e.sandbox, &a).await.is_confirmed();
-    }
-    let empty = fixture
-        .backend
-        .list_owned(node)
-        .await
-        .expect("final live inventory")
-        .is_empty();
+    let cleanup = fixture.cleanup().await;
     proxy.abort();
     assert!(
-        cleanup && empty,
+        cleanup,
         "live cleanup incomplete: inspect dedicated node scope"
     );
     if let Err(panic) = result {
@@ -242,6 +255,44 @@ async fn run_selected(fixture: &mut LiveFixture, selected: &str) {
         eprintln!(
             "LIVE PASS {name} in {:.1}s",
             started.elapsed().as_secs_f64()
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_faults_wait_for_matching_requests_and_apply_once() {
+        let proxy = Proxy {
+            client: reqwest::Client::new(),
+            fault: Arc::new(Mutex::new(Some(Fault::CrashAfterCreate))),
+        };
+        assert_eq!(proxy.take_fault(&Method::GET, "/api/v1/sandboxes"), None);
+        assert_eq!(
+            proxy.take_fault(&Method::POST, "/api/v1/sandboxes/id"),
+            None
+        );
+        assert_eq!(
+            proxy.take_fault(&Method::POST, "/api/v1/sandboxes"),
+            Some(Fault::CrashAfterCreate)
+        );
+        assert_eq!(proxy.take_fault(&Method::POST, "/api/v1/sandboxes"), None);
+
+        *proxy.fault.lock().unwrap() = Some(Fault::DestroyFailure);
+        assert_eq!(
+            proxy.take_fault(&Method::DELETE, "/api/v1/sandboxes/id/snapshots"),
+            None
+        );
+        assert_eq!(proxy.take_fault(&Method::GET, "/api/v1/sandboxes/id"), None);
+        assert_eq!(
+            proxy.take_fault(&Method::DELETE, "/api/v1/sandboxes/id"),
+            Some(Fault::DestroyFailure)
+        );
+        assert_eq!(
+            proxy.take_fault(&Method::DELETE, "/api/v1/sandboxes/id"),
+            None
         );
     }
 }

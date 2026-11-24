@@ -62,6 +62,16 @@ pub struct Outcome {
     pub value: Value,
     pub exit_code: u8,
 }
+pub(crate) enum HttpRequest<'a> {
+    Get(&'a str),
+    Post(&'a str, Vec<u8>),
+}
+
+pub(crate) struct HttpCredentials<'a> {
+    pub token: &'a str,
+    pub edge: Option<&'a AgentEgressCredential>,
+}
+
 pub(crate) struct Http {
     client: reqwest::Client,
     origin: reqwest::Url,
@@ -70,23 +80,7 @@ impl Http {
     pub fn new(origin: &str) -> Result<Self> {
         let origin =
             reqwest::Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid AQ origin"))?;
-        ensure!(
-            matches!(origin.scheme(), "https" | "http")
-                && origin.host_str().is_some()
-                && origin.username().is_empty()
-                && origin.password().is_none()
-                && origin.query().is_none()
-                && origin.fragment().is_none()
-                && origin.path() == "/",
-            "AQ endpoint must be an HTTP origin without credentials"
-        );
-        ensure!(
-            origin.scheme() == "https"
-                || origin.host_str().is_some_and(|h| h == "localhost"
-                    || h == "[::1]"
-                    || h.parse::<std::net::IpAddr>().is_ok_and(|a| a.is_loopback())),
-            "unencrypted AQ access is limited to loopback fixtures"
-        );
+        validate_origin(&origin)?;
         let client = reqwest::Client::builder()
             .no_proxy()
             .retry(reqwest::retry::never())
@@ -98,36 +92,19 @@ impl Http {
     }
     pub async fn exchange(
         &self,
-        method: Method,
-        path: &str,
-        token: &str,
-        edge: Option<&AgentEgressCredential>,
-        body: Option<Vec<u8>>,
+        exchange: HttpRequest<'_>,
+        credentials: HttpCredentials<'_>,
         limit: usize,
     ) -> Result<(u16, Value), Failure> {
-        let mut bearer = header::HeaderValue::from_str(&format!("Bearer {token}"))
-            .map_err(|_| Failure::uncertain(None))?;
-        bearer.set_sensitive(true);
+        let (method, path, body) = match exchange {
+            HttpRequest::Get(path) => (Method::GET, path, None),
+            HttpRequest::Post(path, body) => (Method::POST, path, Some(body)),
+        };
         let url = self
             .origin
             .join(path)
             .map_err(|_| Failure::uncertain(None))?;
-        let mut request = self
-            .client
-            .request(method, url)
-            .header(header::AUTHORIZATION, bearer)
-            .header("X-AQ-Agent-API-Version", "1");
-        if let Some(edge) = edge {
-            for (key, value) in [
-                ("cf-access-client-id", &edge.client_id),
-                ("cf-access-client-secret", &edge.client_secret),
-            ] {
-                let mut value =
-                    header::HeaderValue::from_str(value).map_err(|_| Failure::uncertain(None))?;
-                value.set_sensitive(true);
-                request = request.header(key, value);
-            }
-        }
+        let mut request = authenticate(self.client.request(method, url), credentials)?;
         if let Some(body) = body {
             if body.len() > aq_agent_api::MAX_DOCUMENT_BYTES {
                 return Err(Failure::uncertain(None));
@@ -138,30 +115,86 @@ impl Http {
                 .header("X-AQ-Request", "1")
                 .body(body);
         }
-        let mut response = request.send().await.map_err(|_| Failure::uncertain(None))?;
-        let code = response.status().as_u16();
-        if response
-            .headers()
-            .get("X-AQ-Agent-API-Version")
-            .is_none_or(|h| h != "1")
-            || response.content_length().is_some_and(|n| n > limit as u64)
-        {
+        let response = request.send().await.map_err(|_| Failure::uncertain(None))?;
+        read_response(response, limit).await
+    }
+}
+
+fn authenticate(
+    request: reqwest::RequestBuilder,
+    credentials: HttpCredentials<'_>,
+) -> Result<reqwest::RequestBuilder, Failure> {
+    let mut bearer = header::HeaderValue::from_str(&format!("Bearer {}", credentials.token))
+        .map_err(|_| Failure::uncertain(None))?;
+    bearer.set_sensitive(true);
+    let mut request = request
+        .header(header::AUTHORIZATION, bearer)
+        .header("X-AQ-Agent-API-Version", "1");
+    if let Some(edge) = credentials.edge {
+        for (key, value) in [
+            ("cf-access-client-id", &edge.client_id),
+            ("cf-access-client-secret", &edge.client_secret),
+        ] {
+            let mut value =
+                header::HeaderValue::from_str(value).map_err(|_| Failure::uncertain(None))?;
+            value.set_sensitive(true);
+            request = request.header(key, value);
+        }
+    }
+    Ok(request)
+}
+
+async fn read_response(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<(u16, Value), Failure> {
+    let code = response.status().as_u16();
+    if response
+        .headers()
+        .get("X-AQ-Agent-API-Version")
+        .is_none_or(|h| h != "1")
+        || response.content_length().is_some_and(|n| n > limit as u64)
+    {
+        return Err(Failure::uncertain(None));
+    }
+    let mut bytes = vec![];
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| Failure::uncertain(None))?
+    {
+        if chunk.len() > limit - bytes.len() {
             return Err(Failure::uncertain(None));
         }
-        let mut bytes = vec![];
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| Failure::uncertain(None))?
-        {
-            if chunk.len() > limit - bytes.len() {
-                return Err(Failure::uncertain(None));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let body = parse(&bytes).map_err(|_| Failure::uncertain(None))?;
-        Ok((code, body))
+        bytes.extend_from_slice(&chunk);
     }
+    let body = parse(&bytes).map_err(|_| Failure::uncertain(None))?;
+    Ok((code, body))
+}
+
+fn validate_origin(origin: &reqwest::Url) -> Result<()> {
+    ensure!(
+        matches!(origin.scheme(), "https" | "http")
+            && origin.host_str().is_some()
+            && origin.username().is_empty()
+            && origin.password().is_none()
+            && origin.query().is_none()
+            && origin.fragment().is_none()
+            && origin.path() == "/",
+        "AQ endpoint must be an HTTP origin without credentials"
+    );
+    ensure!(
+        origin.scheme() == "https" || origin.host_str().is_some_and(is_loopback),
+        "unencrypted AQ access is limited to loopback fixtures"
+    );
+    Ok(())
+}
+
+fn is_loopback(host: &str) -> bool {
+    matches!(host, "localhost" | "[::1]")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 pub struct AgentClient {
@@ -243,26 +276,27 @@ impl AgentClient {
             Ok(None)
         }
     }
-    async fn request(
-        &self,
-        method: Method,
-        path: &str,
-        body: Option<Vec<u8>>,
-        now: &Stamp,
-    ) -> Result<(u16, Value)> {
+    async fn request(&self, request: HttpRequest<'_>, now: &Stamp) -> Result<(u16, Value)> {
         let secret = self.credential(now)?;
         let edge = self.edge()?;
         let limit = secret.context["profile"]["max_response_bytes"]
             .as_u64()
             .context("response cap absent")? as usize;
         self.http
-            .exchange(method, path, &secret.token, edge.as_ref(), body, limit)
+            .exchange(
+                request,
+                HttpCredentials {
+                    token: &secret.token,
+                    edge: edge.as_ref(),
+                },
+                limit,
+            )
             .await
             .map_err(Into::into)
     }
     pub async fn context(&self) -> Result<Outcome> {
         let (status, value) = self
-            .request(Method::GET, "/v1/agent/context", None, &Stamp::now()?)
+            .request(HttpRequest::Get("/v1/agent/context"), &Stamp::now()?)
             .await?;
         if status != 200 {
             return remote_refusal(status, value, None);
@@ -281,9 +315,7 @@ impl AgentClient {
         );
         let (status, value) = self
             .request(
-                Method::POST,
-                "/v1/agent/graph/read",
-                Some(canonical(&request)?),
+                HttpRequest::Post("/v1/agent/graph/read", canonical(&request)?),
                 &Stamp::now()?,
             )
             .await?;
@@ -347,7 +379,7 @@ impl AgentClient {
                 retryable: false,
             })?;
         match self
-            .request(Method::POST, "/v1/agent/graph/commands", Some(bytes), &now)
+            .request(HttpRequest::Post("/v1/agent/graph/commands", bytes), &now)
             .await
         {
             Ok((status, value)) if valid("OperationStatus", &value) => {
@@ -371,12 +403,12 @@ impl AgentClient {
             .ok()
             .map(|op| op.payload_digest.clone());
         let path = format!("/v1/agent/operations/{id}");
-        match self.request(Method::GET, &path, None, &Stamp::now()?).await {
+        match self.request(HttpRequest::Get(&path), &Stamp::now()?).await {
             Ok((status, value)) if valid("OperationStatus", &value) => {
-                if !operation_http_status(status, &value)
-                    || value["operation_id"] != id.to_string()
-                    || value["binding"] != serde_json::to_value(&self.config.binding)?
-                {
+                let association = operation_http_status(status, &value)
+                    && value["operation_id"] == id.to_string()
+                    && value["binding"] == serde_json::to_value(&self.config.binding)?;
+                if !association {
                     return Err(Failure::uncertain(Some(id)).into());
                 }
                 crate::journal::check_operation_response(
@@ -461,17 +493,7 @@ impl AgentClient {
             crate::mail::valid(request_schema, &request),
             "message request contract refused"
         );
-        let recipient = &request["recipient"];
-        let scoped = if route == MessageRoute::Send {
-            // Sends stay inside the credential's workspace/project scope, or go
-            // to the supervisor conversation; the daemon decides whether the
-            // named mailbox accepts this sender.
-            crate::mail::supervisor_mailbox(recipient)
-                || recipient["workspace_id"] == self.mailbox(false)["workspace_id"]
-                    && recipient["project_id"] == self.mailbox(false)["project_id"]
-        } else {
-            *recipient == self.mailbox(false) || *recipient == self.mailbox(true)
-        };
+        let scoped = self.recipient_in_scope(route, &request["recipient"]);
         ensure!(scoped, "message recipient outside the bound mailbox scope");
         let operation_id = request["operation_id"]
             .as_str()
@@ -485,7 +507,7 @@ impl AgentClient {
             retryable: false,
         })?;
         let (status, value) = match self
-            .request(Method::POST, path, Some(canonical(&request)?), &now)
+            .request(HttpRequest::Post(path, canonical(&request)?), &now)
             .await
         {
             Ok(reply) => reply,
@@ -494,21 +516,8 @@ impl AgentClient {
         if status != 200 {
             return remote_refusal(status, value, operation_id);
         }
-        let associated = crate::mail::valid(response_schema, &value)
-            && match route {
-                MessageRoute::Send | MessageRoute::Ack => {
-                    value["operation_id"] == request["operation_id"]
-                        && value["message_id"] == request["message_id"]
-                        && value["recipient"] == request["recipient"]
-                }
-                MessageRoute::Inbox => {
-                    value["recipient"] == request["recipient"] && value["after"] == request["after"]
-                }
-                MessageRoute::Body => {
-                    value["message_id"] == request["message_id"]
-                        && value["offset"] == request["offset"]
-                }
-            };
+        let associated =
+            crate::mail::valid(response_schema, &value) && route.associates(&request, &value);
         if !associated {
             return Err(Failure::uncertain(operation_id).into());
         }
@@ -518,6 +527,39 @@ impl AgentClient {
         })
     }
 }
+impl MessageRoute {
+    fn associates(self, request: &Value, value: &Value) -> bool {
+        match self {
+            MessageRoute::Send | MessageRoute::Ack => {
+                value["operation_id"] == request["operation_id"]
+                    && value["message_id"] == request["message_id"]
+                    && value["recipient"] == request["recipient"]
+            }
+            MessageRoute::Inbox => {
+                value["recipient"] == request["recipient"] && value["after"] == request["after"]
+            }
+            MessageRoute::Body => {
+                value["message_id"] == request["message_id"] && value["offset"] == request["offset"]
+            }
+        }
+    }
+}
+
+impl AgentClient {
+    fn recipient_in_scope(&self, route: MessageRoute, recipient: &Value) -> bool {
+        if route == MessageRoute::Send {
+            // Sends stay inside the credential's workspace/project scope, or go
+            // to the supervisor conversation; the daemon decides whether the
+            // named mailbox accepts this sender.
+            crate::mail::supervisor_mailbox(recipient)
+                || recipient["workspace_id"] == self.mailbox(false)["workspace_id"]
+                    && recipient["project_id"] == self.mailbox(false)["project_id"]
+        } else {
+            *recipient == self.mailbox(false) || *recipient == self.mailbox(true)
+        }
+    }
+}
+
 /// Inbox pages scanned by one reply lookup (32 messages each).
 const MAX_REPLY_PAGES: usize = 64;
 /// Body chunks followed by one body retrieval.
@@ -632,13 +674,8 @@ impl AgentClient {
             retryable: true,
             ..Failure::uncertain(Some(operation_id))
         };
-        self.comment_exchange(
-            crate::comments::ADD_PATH,
-            request,
-            Some(operation_id),
-            uncertain,
-        )
-        .await
+        self.comment_exchange(crate::comments::ADD_PATH, request, uncertain)
+            .await
     }
     /// One page of the task's thread, newest first.
     pub async fn comment_list(&self, cursor: Option<&str>, limit: Option<u16>) -> Result<Outcome> {
@@ -651,7 +688,6 @@ impl AgentClient {
         self.comment_exchange(
             crate::comments::LIST_PATH,
             request,
-            None,
             Failure::uncertain(None),
         )
         .await
@@ -660,9 +696,9 @@ impl AgentClient {
         &self,
         path: &str,
         request: Value,
-        operation_id: Option<Uuid>,
         uncertain: Failure,
     ) -> Result<Outcome> {
+        let operation_id = uncertain.operation_id;
         let now = Stamp::now()?;
         // Nothing is sent with an expired or malformed credential.
         self.credential(&now).map_err(|_| Failure {
@@ -672,7 +708,7 @@ impl AgentClient {
             retryable: false,
         })?;
         let Ok((status, value)) = self
-            .request(Method::POST, path, Some(canonical(&request)?), &now)
+            .request(HttpRequest::Post(path, canonical(&request)?), &now)
             .await
         else {
             return Err(uncertain.into());

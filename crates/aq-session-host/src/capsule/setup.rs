@@ -1,3 +1,4 @@
+mod ipc_policy;
 use super::*;
 use std::ffi::CString;
 
@@ -73,90 +74,7 @@ fn cap_drop() -> Result<()> {
     Ok(())
 }
 fn filter() -> Result<()> {
-    fn statement(code: u32, value: u32) -> libc::sock_filter {
-        libc::sock_filter {
-            code: code as u16,
-            jt: 0,
-            jf: 0,
-            k: value,
-        }
-    }
-    fn jump(code: u32, value: u32, jt: u8, jf: u8) -> libc::sock_filter {
-        libc::sock_filter {
-            code: code as u16,
-            jt,
-            jf,
-            k: value,
-        }
-    }
-    let load = libc::BPF_LD | libc::BPF_W | libc::BPF_ABS;
-    let equal = libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K;
-    let ret = libc::BPF_RET | libc::BPF_K;
-    let deny = 0x00050000 | libc::EPERM as u32;
-    let allow = 0x7fff0000;
-    let argument = |i: u32| 16 + i * 8;
-    let mut code = vec![
-        statement(load, 4),
-        jump(equal, 0xc000003e, 1, 0),
-        statement(ret, 0x80000000),
-        statement(load, 0),
-        jump(
-            libc::BPF_JMP | libc::BPF_JGE | libc::BPF_K,
-            0x40000000,
-            0,
-            1,
-        ),
-        statement(ret, 0x80000000),
-    ];
-    for syscall in [
-        libc::SYS_io_uring_setup,
-        libc::SYS_io_uring_enter,
-        libc::SYS_io_uring_register,
-    ] {
-        code.extend([jump(equal, syscall as u32, 0, 1), statement(ret, deny)]);
-    }
-    code.extend([
-        jump(equal, libc::SYS_socket as u32, 0, 19),
-        statement(load, argument(0)),
-        jump(equal, libc::AF_INET as u32, 2, 0),
-        jump(equal, libc::AF_INET6 as u32, 1, 0),
-        statement(ret, deny),
-        statement(load, argument(1)),
-        statement(
-            libc::BPF_ALU | libc::BPF_AND | libc::BPF_K,
-            !(libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK) as u32,
-        ),
-        jump(equal, libc::SOCK_STREAM as u32, 0, 5),
-        statement(load, argument(2)),
-        jump(equal, 0, 2, 0),
-        jump(equal, libc::IPPROTO_TCP as u32, 1, 0),
-        statement(ret, deny),
-        statement(ret, allow),
-        jump(equal, libc::SOCK_DGRAM as u32, 1, 0),
-        statement(ret, deny),
-        statement(load, argument(2)),
-        jump(equal, 0, 2, 0),
-        jump(equal, libc::IPPROTO_UDP as u32, 1, 0),
-        statement(ret, deny),
-        statement(ret, allow),
-        jump(equal, libc::SYS_socketpair as u32, 0, 12),
-        statement(load, argument(0)),
-        jump(equal, libc::AF_UNIX as u32, 1, 0),
-        statement(ret, deny),
-        statement(load, argument(2)),
-        jump(equal, 0, 1, 0),
-        statement(ret, deny),
-        statement(load, argument(1)),
-        statement(
-            libc::BPF_ALU | libc::BPF_AND | libc::BPF_K,
-            !(libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK) as u32,
-        ),
-        jump(equal, libc::SOCK_STREAM as u32, 2, 0),
-        jump(equal, libc::SOCK_SEQPACKET as u32, 1, 0),
-        statement(ret, deny),
-        statement(ret, allow),
-        statement(ret, allow),
-    ]);
+    let mut code = ipc_policy::program();
     let program = libc::sock_fprog {
         len: code.len() as u16,
         filter: code.as_mut_ptr(),
@@ -226,7 +144,12 @@ fn remap(
         TcpListener::from_raw_fd(6)
     }))
 }
-fn exec(plan: PlanRecord, control: wire::Socket, port: u16) -> Result<()> {
+struct ExecMaterial {
+    arguments: Vec<CString>,
+    environment: Vec<CString>,
+}
+
+fn exec_material(plan: &PlanRecord, control: &wire::Socket, port: u16) -> Result<ExecMaterial> {
     control.send(
         &Message::Harness {
             nonce: plan.nonce,
@@ -244,7 +167,7 @@ fn exec(plan: PlanRecord, control: wire::Socket, port: u16) -> Result<()> {
         let Message::Commit(record) = packet.value else {
             bail!("prepared commit missing")
         };
-        super::prepared::verify_exec(&plan, port, &record)?.into_parts()
+        super::prepared::verify_exec(plan, port, &record)?.into_parts()
     } else {
         ensure!(
             matches!(packet.value,Message::Release{nonce} if nonce==plan.nonce),
@@ -269,9 +192,24 @@ fn exec(plan: PlanRecord, control: wire::Socket, port: u16) -> Result<()> {
         .into_iter()
         .map(|(k, v)| CString::new(format!("{k}={v}")))
         .collect::<std::result::Result<Vec<_>, _>>()?;
-    let mut argv = arguments.iter().map(|a| a.as_ptr()).collect::<Vec<_>>();
+    Ok(ExecMaterial {
+        arguments,
+        environment,
+    })
+}
+fn exec(plan: PlanRecord, control: wire::Socket, port: u16) -> Result<()> {
+    let material = exec_material(&plan, &control, port)?;
+    let mut argv = material
+        .arguments
+        .iter()
+        .map(|a| a.as_ptr())
+        .collect::<Vec<_>>();
     argv.push(std::ptr::null());
-    let mut env = environment.iter().map(|a| a.as_ptr()).collect::<Vec<_>>();
+    let mut env = material
+        .environment
+        .iter()
+        .map(|a| a.as_ptr())
+        .collect::<Vec<_>>();
     env.push(std::ptr::null());
     ensure!(unsafe { libc::dup2(5, 0) } == 0, "capsule exact stdin");
     drop(control);

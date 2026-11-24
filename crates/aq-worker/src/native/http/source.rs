@@ -36,18 +36,22 @@ pub(crate) fn transfer(binding: &LaunchBinding, manifest: &TransferManifest) -> 
     let SessionIdentity::Remote { session_id, .. } = binding.session else {
         anyhow::bail!("native source worker binding");
     };
+    let correct_profile = manifest.role == SourceRole::Base
+        && manifest.bundle_bytes > 0
+        && manifest.transfer_id == manifest.artifact_id;
     ensure!(
-        manifest.role == SourceRole::Base
-            && manifest.bundle_bytes > 0
-            && manifest.transfer_id == manifest.artifact_id
-            && manifest.attempt.attempt_id == binding.attempt_id
-            && manifest.attempt.session_id == session_id
-            && manifest.attempt.generation == binding.assignment_generation
-            && manifest.resolved_spec_digest == binding.execution_spec_digest.as_str()
+        correct_profile
+            && belongs_to_attempt(manifest, binding, session_id)
             && manifest.source.base.hex.bytes().any(|b| b != b'0'),
         "native source assignment/profile mismatch"
     );
     Ok(())
+}
+fn belongs_to_attempt(manifest: &TransferManifest, binding: &LaunchBinding, session: Uuid) -> bool {
+    manifest.attempt.attempt_id == binding.attempt_id
+        && manifest.attempt.session_id == session
+        && manifest.attempt.generation == binding.assignment_generation
+        && manifest.resolved_spec_digest == binding.execution_spec_digest.as_str()
 }
 impl NativeClient {
     /// A source GET, retried while it fails transiently (`fetch_retried`).

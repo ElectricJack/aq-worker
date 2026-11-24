@@ -239,11 +239,11 @@ async fn lost_reply_never_reissues_plaintext_and_explicit_cas_rotation_recovers(
     );
     let refused = Uuid::new_v4();
     a.prepare_rotation(&node, session, refused, 0).unwrap();
-    assert!(a.issue_once(&node, session, refused).await.is_err());
-    assert_eq!(a.status(session).unwrap().state, IssuanceState::Unknown);
-    assert_eq!(peer.lock().unwrap().requests.len(), 2);
-    assert!(a.issue_once(&node, session, refused).await.is_err());
-    assert_eq!(peer.lock().unwrap().requests.len(), 2);
+    for _ in 0..2 {
+        assert!(a.issue_once(&node, session, refused).await.is_err());
+        assert_eq!(a.status(session).unwrap().state, IssuanceState::Unknown);
+        assert_eq!(peer.lock().unwrap().requests.len(), 2);
+    }
     let next = Uuid::new_v4();
     a.prepare_rotation(&node, session, next, 1).unwrap();
     let path = a.issue_once(&node, session, next).await.unwrap();
@@ -295,11 +295,12 @@ async fn mismatched_real_response_stays_unknown_and_never_publishes_config() {
     let mut a = Allocator::open(&root, node, one_session()).unwrap();
     let id = Uuid::new_v4();
     a.allocate(&client, startup, id, 0, None).unwrap();
-    assert!(a.issue_once(&client, session, id).await.is_err());
-    assert_eq!(a.status(session).unwrap().state, IssuanceState::Unknown);
-    assert!(!root.join(session.to_string()).join("client.json").exists());
-    assert!(a.issue_once(&client, session, id).await.is_err());
-    assert_eq!(peer.lock().unwrap().requests.len(), 1);
+    for _ in 0..2 {
+        assert!(a.issue_once(&client, session, id).await.is_err());
+        assert_eq!(a.status(session).unwrap().state, IssuanceState::Unknown);
+        assert!(!root.join(session.to_string()).join("client.json").exists());
+        assert_eq!(peer.lock().unwrap().requests.len(), 1);
+    }
     server.abort();
 }
 
@@ -451,6 +452,12 @@ async fn explicit_refresh_atomically_replaces_credential_while_agent_journal_is_
     a.prepare_rotation(&node, session, second, 1).unwrap();
     assert!(a.ready_path(session).is_err());
     a.issue_once(&node, session, second).await.unwrap();
+    assert_credential_replaced(&path, &old, old_inode);
+    assert_eq!(a.ready_path(session).unwrap(), path);
+    assert_eq!(peer.lock().unwrap().requests.len(), 2);
+    server.abort();
+}
+fn assert_credential_replaced(path: &std::path::Path, old: &[u8], old_inode: u64) {
     let new = std::fs::read(path.join("credential.json")).unwrap();
     assert_ne!(old, new);
     assert_ne!(
@@ -463,10 +470,8 @@ async fn explicit_refresh_atomically_replaces_credential_while_agent_journal_is_
         serde_json::from_slice::<Value>(&new).unwrap()["context"]["credential"]["version"],
         "2"
     );
-    assert_eq!(a.ready_path(session).unwrap(), path);
-    assert_eq!(peer.lock().unwrap().requests.len(), 2);
-    server.abort();
 }
+
 #[tokio::test]
 async fn changed_startup_bytes_and_impossible_disk_reservation_refuse() {
     let (startup, context) = startup();
@@ -589,10 +594,10 @@ async fn explicit_new_intent_can_recover_loss_before_server_commit_at_same_cas_v
     let first = Uuid::new_v4();
     let mut a = Allocator::open(&root, node_id, one_session()).unwrap();
     a.allocate(&node, startup, first, 0, None).unwrap();
-    assert!(a.issue_once(&node, session, first).await.is_err());
-    assert_eq!(state.0.load(Ordering::SeqCst), 1);
-    assert!(a.issue_once(&node, session, first).await.is_err());
-    assert_eq!(state.0.load(Ordering::SeqCst), 1);
+    for _ in 0..2 {
+        assert!(a.issue_once(&node, session, first).await.is_err());
+        assert_eq!(state.0.load(Ordering::SeqCst), 1);
+    }
     let next = Uuid::new_v4();
     a.prepare_rotation(&node, session, next, 0).unwrap();
     let path = a.issue_once(&node, session, next).await.unwrap();

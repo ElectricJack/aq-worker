@@ -37,6 +37,32 @@ pub(crate) struct NamedReadonlyIdentity {
     pub changed_ns: i64,
     pub role: NamedImageRole,
 }
+struct NamedSource<'a> {
+    path: &'a Path,
+    expected: &'a ArtifactRef,
+    role: NamedImageRole,
+}
+
+fn qualified_source(source: &Path, role: &NamedImageRole) -> Result<(File, std::fs::Metadata)> {
+    let file = open(source)?;
+    let m = file.metadata()?;
+    let limit = if *role == NamedImageRole::Program {
+        MAX_NAMED_EXEC_BYTES
+    } else {
+        MAX_AUXILIARY_BYTES
+    };
+    ensure!(
+        m.is_file()
+            && (64..=limit).contains(&m.len())
+            && m.nlink() == 1
+            && m.mode() & 0o111 != 0
+            && m.mode() & 0o6022 == 0
+            && (m.uid() == 0 || m.uid() == unsafe { libc::geteuid() }),
+        "named image file type/size/ownership/mode/link bound"
+    );
+    Ok((file, m))
+}
+
 struct Image {
     identity: ElfIdentity,
     file: File,
@@ -161,57 +187,13 @@ impl NamedReadonlyExecPool {
             },
             "named image entry quota"
         );
-        let file = open(source)?;
-        let m = file.metadata()?;
-        let limit = if program {
-            MAX_NAMED_EXEC_BYTES
-        } else {
-            MAX_AUXILIARY_BYTES
+        let source = NamedSource {
+            path: source,
+            expected,
+            role,
         };
-        ensure!(
-            m.is_file()
-                && (64..=limit).contains(&m.len())
-                && m.nlink() == 1
-                && m.mode() & 0o111 != 0
-                && m.mode() & 0o6022 == 0
-                && (m.uid() == 0 || m.uid() == unsafe { libc::geteuid() }),
-            "named image file type/size/ownership/mode/link bound"
-        );
-        let reserved = state
-            .bytes
-            .checked_add(m.len())
-            .context("named byte quota overflow")?;
-        ensure!(reserved <= self.inner.bytes, "named image byte quota");
-        readonly(&file)?;
-        readonly_ancestors(source)?;
-        self.inner.environment.verify_aliases(m.dev(), m.ino())?;
-        let (mount_namespace, user_namespace) = self.inner.environment.identities();
-        let identity = ElfIdentity {
-            artifact: expected.clone(),
-            bytes: m.len(),
-            device: m.dev(),
-            inode: m.ino(),
-            profile: Some(ImageProfile::NamedReadonlyExecStdinV1(Box::new(
-                NamedReadonlyIdentity {
-                    source: source.into(),
-                    qualification: self.qualification().clone(),
-                    mount_namespace,
-                    user_namespace,
-                    mount_id: mount_id(&file)?,
-                    mode: m.mode(),
-                    uid: m.uid(),
-                    gid: m.gid(),
-                    modified: m.mtime(),
-                    modified_ns: m.mtime_nsec(),
-                    changed: m.ctime(),
-                    changed_ns: m.ctime_nsec(),
-                    role: role.clone(),
-                },
-            ))),
-        };
-        hash_once(&file, &identity)?;
-        verify_received(&file, &identity)?;
-        let image = Arc::new(Image { identity, file });
+        let (image, reserved) = self.admit(source, state.bytes)?;
+        let image = Arc::new(image);
         state.bytes = reserved;
         if program {
             state.programs += 1
@@ -224,6 +206,59 @@ impl NamedReadonlyExecPool {
             pool: self.inner.clone(),
         })
     }
+    fn admit(&self, source: NamedSource<'_>, charged: u64) -> Result<(Image, u64)> {
+        let (file, m) = qualified_source(source.path, &source.role)?;
+        let reserved = charged
+            .checked_add(m.len())
+            .context("named byte quota overflow")?;
+        ensure!(reserved <= self.inner.bytes, "named image byte quota");
+        let identity = self.identity(&file, &m, source)?;
+        hash_once(&file, &identity)?;
+        verify_received(&file, &identity)?;
+        let image = Image { identity, file };
+        Ok((image, reserved))
+    }
+
+    fn identity(
+        &self,
+        file: &File,
+        m: &std::fs::Metadata,
+        source: NamedSource<'_>,
+    ) -> Result<ElfIdentity> {
+        let NamedSource {
+            path: source,
+            expected,
+            role,
+        } = source;
+        readonly(file)?;
+        readonly_ancestors(source)?;
+        self.inner.environment.verify_aliases(m.dev(), m.ino())?;
+        let (mount_namespace, user_namespace) = self.inner.environment.identities();
+        Ok(ElfIdentity {
+            artifact: expected.clone(),
+            bytes: m.len(),
+            device: m.dev(),
+            inode: m.ino(),
+            profile: Some(ImageProfile::NamedReadonlyExecStdinV1(Box::new(
+                NamedReadonlyIdentity {
+                    source: source.into(),
+                    qualification: self.qualification().clone(),
+                    mount_namespace,
+                    user_namespace,
+                    mount_id: mount_id(file)?,
+                    mode: m.mode(),
+                    uid: m.uid(),
+                    gid: m.gid(),
+                    modified: m.mtime(),
+                    modified_ns: m.mtime_nsec(),
+                    changed: m.ctime(),
+                    changed_ns: m.ctime_nsec(),
+                    role,
+                },
+            ))),
+        })
+    }
+
     pub fn charged_bytes(&self) -> Result<u64> {
         ensure!(
             self.inner.pid == std::process::id(),
@@ -327,6 +362,33 @@ fn mount_id(file: &File) -> Result<u64> {
     );
     Ok(stat.stx_mnt_id)
 }
+impl NamedReadonlyIdentity {
+    fn verify_route(&self, identity: &ElfIdentity) -> Result<()> {
+        ensure!(
+            self.source.is_absolute()
+                && self.source.components().count() <= 64
+                && std::fs::canonicalize(&self.source)? == self.source,
+            "named canonical route changed"
+        );
+        let route = open(&self.source)?;
+        readonly(&route)?;
+        let current = route.metadata()?;
+        ensure!(
+            identity.matches_file(&current) && mount_id(&route)? == self.mount_id,
+            "named route no longer resolves to retained image"
+        );
+        Ok(())
+    }
+    fn matches_metadata(&self, m: &std::fs::Metadata) -> bool {
+        m.mode() == self.mode
+            && m.uid() == self.uid
+            && m.gid() == self.gid
+            && m.mtime() == self.modified
+            && m.mtime_nsec() == self.modified_ns
+            && m.ctime() == self.changed
+            && m.ctime_nsec() == self.changed_ns
+    }
+}
 /// O(1) in executable byte count. No hashing/copying/recovery adoption here.
 pub(super) fn verify_received(file: &File, identity: &ElfIdentity) -> Result<()> {
     let e = named(identity)?;
@@ -342,38 +404,14 @@ pub(super) fn verify_received(file: &File, identity: &ElfIdentity) -> Result<()>
     };
     ensure!(
         m.is_file()
-            && m.dev() == identity.device
-            && m.ino() == identity.inode
-            && m.len() == identity.bytes
+            && identity.matches_file(&m)
             && (64..=limit).contains(&m.len())
             && m.nlink() == 1
-            && m.mode() == e.mode
-            && m.uid() == e.uid
-            && m.gid() == e.gid
-            && m.mtime() == e.modified
-            && m.mtime_nsec() == e.modified_ns
-            && m.ctime() == e.changed
-            && m.ctime_nsec() == e.changed_ns
+            && e.matches_metadata(&m)
             && mount_id(file)? == e.mount_id,
         "named retained image identity changed"
     );
-    ensure!(
-        e.source.is_absolute()
-            && e.source.components().count() <= 64
-            && std::fs::canonicalize(&e.source)? == e.source,
-        "named canonical route changed"
-    );
-    let route = open(&e.source)?;
-    readonly(&route)?;
-    let current = route.metadata()?;
-    ensure!(
-        current.dev() == identity.device
-            && current.ino() == identity.inode
-            && current.len() == identity.bytes
-            && mount_id(&route)? == e.mount_id,
-        "named route no longer resolves to retained image"
-    );
-    Ok(())
+    e.verify_route(identity)
 }
 fn hash_once(file: &File, identity: &ElfIdentity) -> Result<()> {
     let mut hash = Sha256::new();

@@ -172,6 +172,28 @@ mod tests {
         assert!(took <= std::time::Duration::from_millis(2500), "{took:?}");
         hold.join().unwrap();
     }
+    fn read_comment_request(stream: &mut std::os::unix::net::UnixStream) -> String {
+        let mut chunk = vec![0u8; 64 * 1024];
+        let mut received = Vec::new();
+        loop {
+            let count = stream.read(&mut chunk).unwrap();
+            assert!(count > 0, "connection closed before the complete request");
+            received.extend_from_slice(&chunk[..count]);
+            let text = String::from_utf8_lossy(&received);
+            let Some((head, body)) = text.split_once("\r\n\r\n") else {
+                continue;
+            };
+            let length: usize = head
+                .lines()
+                .find_map(|line| line.strip_prefix("Content-Length: "))
+                .unwrap()
+                .parse()
+                .unwrap();
+            if body.len() >= length {
+                return text.into_owned();
+            }
+        }
+    }
     #[test]
     fn post_sends_one_idempotent_comment_through_the_channel() {
         let dir = tempfile::tempdir().unwrap();
@@ -186,25 +208,7 @@ mod tests {
             let mut seen = Vec::new();
             for status in ["200 OK", "200 OK", "403 Forbidden"] {
                 let (mut s, _) = listener.accept().unwrap();
-                let mut buf = vec![0u8; 64 * 1024];
-                let mut got = Vec::new();
-                loop {
-                    let n = s.read(&mut buf).unwrap();
-                    got.extend_from_slice(&buf[..n]);
-                    let text = String::from_utf8_lossy(&got).to_string();
-                    if let Some((head, body)) = text.split_once("\r\n\r\n") {
-                        let len: usize = head
-                            .lines()
-                            .find_map(|l| l.strip_prefix("Content-Length: "))
-                            .unwrap()
-                            .parse()
-                            .unwrap();
-                        if body.len() >= len {
-                            seen.push(text);
-                            break;
-                        }
-                    }
-                }
+                seen.push(read_comment_request(&mut s));
                 write!(s, "HTTP/1.1 {status}\r\nContent-Length: 0\r\n\r\n").unwrap();
             }
             seen

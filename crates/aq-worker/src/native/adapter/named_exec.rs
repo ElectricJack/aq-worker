@@ -27,6 +27,24 @@ impl NamedExecManifest {
         );
         Ok(serde_json::from_slice(bytes)?)
     }
+    fn validate_profile(
+        &self,
+        expected: &ExpectedAdapter<'_>,
+        expected_environment: &ArtifactRef,
+        pool: &NamedReadonlyExecPool,
+    ) -> Result<()> {
+        ensure!(
+            self.schema_version == 1
+                && self.installation.schema_version == 1
+                && self.digest()? == *expected.manifest_digest
+                && serde_json::to_vec(self)?.len() <= MAX_MANIFEST
+                && (64..=MAX_NAMED_EXEC_BYTES).contains(&self.executable_bytes)
+                && self.environment == *expected_environment
+                && self.environment == *pool.qualification(),
+            "named installation profile/size/independent environment pin"
+        );
+        Ok(())
+    }
     pub fn digest(&self) -> Result<Digest> {
         super::super::journal::canonical_digest(self)
     }
@@ -48,28 +66,13 @@ impl NamedExecInstallation {
         expected_environment: &ArtifactRef,
         pool: &NamedReadonlyExecPool,
     ) -> Result<Self> {
-        ensure!(
-            manifest.schema_version == 1
-                && manifest.installation.schema_version == 1
-                && manifest.digest()? == *expected.manifest_digest
-                && serde_json::to_vec(&manifest)?.len() <= MAX_MANIFEST
-                && (64..=MAX_NAMED_EXEC_BYTES).contains(&manifest.executable_bytes)
-                && manifest.environment == *expected_environment
-                && manifest.environment == *pool.qualification(),
-            "named installation profile/size/independent environment pin"
-        );
+        manifest.validate_profile(&expected, expected_environment, pool)?;
         let m = &manifest.installation;
         ensure!(
-            m.adapter == *expected.adapter
-                && m.runtime == *expected.runtime
-                && m.qualification == *expected.qualification
-                && m.renderer == *expected.renderer,
+            m.matches_references(&expected),
             "named installation independent references"
         );
-        for reference in [&m.adapter, &m.runtime, &m.qualification, &m.renderer] {
-            reference.id.validate()?;
-            reference.version.validate()?;
-        }
+        m.validate_references()?;
         let program = pool.load_verified(&m.executable.path, &m.executable.artifact)?;
         ensure!(
             program.bytes() == manifest.executable_bytes,
@@ -177,44 +180,7 @@ mod tests {
             NamedReadonlyEnvironment::inspect(environment.clone()).unwrap(),
         )
         .unwrap();
-        let host = FilePin {
-            path: "/opt/aq-qualification/aq-session-host".into(),
-            artifact: ArtifactRef {
-                digest: serde_json::from_value(serde_json::json!(
-                    std::env::var("AQ_NATIVE_HOST_SHA256").unwrap()
-                ))
-                .unwrap(),
-                ..reference()
-            },
-        };
-        let tmux = FilePin {
-            path: "/opt/aq-qualification/tmux".into(),
-            artifact: ArtifactRef {
-                id: aq_session_protocol::Text::new("tmux-fixture").unwrap(),
-                digest: serde_json::from_value(serde_json::json!(
-                    std::env::var("AQ_NATIVE_TMUX_SHA256").unwrap()
-                ))
-                .unwrap(),
-                ..reference()
-            },
-        };
-        let manifest = NamedExecManifest {
-            schema_version: 1,
-            profile: NamedExecKind::Codex0166NamedReadonlyExecStdinV1,
-            executable_bytes: std::fs::metadata(&host.path).unwrap().len(),
-            environment: environment.clone(),
-            installation: AdapterManifest {
-                schema_version: 1,
-                adapter: reference(),
-                runtime: reference(),
-                qualification: reference(),
-                renderer: reference(),
-                handoff: HandoffKind::OpaquePrivateFileV1,
-                executable: host.clone(),
-                helper: host,
-                tmux,
-            },
-        };
+        let manifest = fixture_manifest(&environment);
         let digest = manifest.digest().unwrap();
         let r = reference();
         let wrong = ArtifactRef {
@@ -246,5 +212,45 @@ mod tests {
             );
         }
         assert_eq!(pool.charged_bytes().unwrap(), charged);
+    }
+    fn fixture_manifest(environment: &ArtifactRef) -> NamedExecManifest {
+        let host = FilePin {
+            path: "/opt/aq-qualification/aq-session-host".into(),
+            artifact: ArtifactRef {
+                digest: serde_json::from_value(serde_json::json!(
+                    std::env::var("AQ_NATIVE_HOST_SHA256").unwrap()
+                ))
+                .unwrap(),
+                ..reference()
+            },
+        };
+        let tmux = FilePin {
+            path: "/opt/aq-qualification/tmux".into(),
+            artifact: ArtifactRef {
+                id: aq_session_protocol::Text::new("tmux-fixture").unwrap(),
+                digest: serde_json::from_value(serde_json::json!(
+                    std::env::var("AQ_NATIVE_TMUX_SHA256").unwrap()
+                ))
+                .unwrap(),
+                ..reference()
+            },
+        };
+        NamedExecManifest {
+            schema_version: 1,
+            profile: NamedExecKind::Codex0166NamedReadonlyExecStdinV1,
+            executable_bytes: std::fs::metadata(&host.path).unwrap().len(),
+            environment: environment.clone(),
+            installation: AdapterManifest {
+                schema_version: 1,
+                adapter: reference(),
+                runtime: reference(),
+                qualification: reference(),
+                renderer: reference(),
+                handoff: HandoffKind::OpaquePrivateFileV1,
+                executable: host.clone(),
+                helper: host,
+                tmux,
+            },
+        }
     }
 }

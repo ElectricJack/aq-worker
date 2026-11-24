@@ -119,7 +119,12 @@ macro_rules! journal_terminal {
                         grant_id: i.grant_id,
                         stop_receipt_digest: mapped.digest()?,
                     },
-                    reason: aq_admission::transport::StopReason::Reconciliation,
+                    reason: aq_handoff_note::platform_failed(
+                        &crate::native::launch::claude_driver_dir(&i.host_root, i.launch_id)
+                            .join("exit.json"),
+                    )
+                    .then_some(aq_admission::transport::StopReason::GuardianFailure)
+                    .unwrap_or(aq_admission::transport::StopReason::Reconciliation),
                 },
                 reservation_id: i.reservation_id,
                 runtime: i.runtime.runtime.clone(),

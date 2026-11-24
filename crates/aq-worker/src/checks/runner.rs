@@ -242,6 +242,26 @@ impl<B: PlacementBackend, T: CheckTransport, S: CheckpointSource> CheckRunner<B,
         self.deliver(record).await
     }
 
+    fn validator_inputs(&self, raw: Value) -> Result<(TemplateDigest, PrivateMaterial)> {
+        let claim: CheckClaim =
+            serde_json::from_value(raw).map_err(|_| anyhow::anyhow!("malformed check claim"))?;
+        claim
+            .validate()
+            .map_err(|e| anyhow::anyhow!("refusing check claim: {e}"))?;
+        let installed = self
+            .config
+            .validators
+            .iter()
+            .find(|v| v.validator == claim.check.validator)
+            .context("validator is not installed on this node")?;
+        let material = self
+            .source
+            .materialize(&claim)
+            .context("checkpoint source unreadable")?
+            .context("checkpoint source is not retained here")?;
+        Ok((installed.template.clone(), material))
+    }
+
     /// Runs the validator. Every failure before a trustworthy exit is `lost`
     /// with incomplete inputs; the server derives no evidence from it.
     async fn execute(
@@ -251,39 +271,13 @@ impl<B: PlacementBackend, T: CheckTransport, S: CheckpointSource> CheckRunner<B,
         shutdown: &watch::Receiver<bool>,
     ) -> Result<(StopKind, bool)> {
         let operation = record.operation_id;
-        let claim: CheckClaim = match serde_json::from_value(raw) {
-            Ok(claim) => claim,
-            Err(_) => {
-                tracing::warn!(%operation, "malformed check claim; reporting lost");
+        let (template, material) = match self.validator_inputs(raw) {
+            Ok(inputs) => inputs,
+            Err(reason) => {
+                tracing::warn!(%operation, "{reason:#}; reporting lost");
                 return Ok((StopKind::Lost, false));
             }
         };
-        if let Err(e) = claim.validate() {
-            tracing::warn!(%operation, "refusing check claim: {e}; reporting lost");
-            return Ok((StopKind::Lost, false));
-        }
-        let Some(template) = self
-            .config
-            .validators
-            .iter()
-            .find(|v| v.validator == claim.check.validator)
-            .map(|v| v.template.clone())
-        else {
-            tracing::warn!(%operation, "validator is not installed on this node; reporting lost");
-            return Ok((StopKind::Lost, false));
-        };
-        let material = match self.source.materialize(&claim) {
-            Ok(Some(material)) => material,
-            Ok(None) => {
-                tracing::warn!(%operation, "checkpoint source is not retained here; reporting lost");
-                return Ok((StopKind::Lost, false));
-            }
-            Err(e) => {
-                tracing::warn!(%operation, "checkpoint source unreadable: {e:#}; reporting lost");
-                return Ok((StopKind::Lost, false));
-            }
-        };
-
         let owner = Ownership {
             node_id: self.node_id,
             boot_id: self.boot_id,
@@ -323,9 +317,19 @@ impl<B: PlacementBackend, T: CheckTransport, S: CheckpointSource> CheckRunner<B,
             let _ = self.backend.stop(&sandbox).await;
             return Ok((StopKind::Lost, false));
         }
+        self.await_exit(&sandbox, deadline, shutdown).await
+    }
+
+    async fn await_exit(
+        &mut self,
+        sandbox: &SandboxIdentity,
+        deadline: u64,
+        shutdown: &watch::Receiver<bool>,
+    ) -> Result<(StopKind, bool)> {
+        let operation = sandbox.owner.attempt_id;
         let poll = Duration::from_millis(self.config.poll_interval_ms);
         loop {
-            let state = match self.backend.inspect(&sandbox).await {
+            let state = match self.backend.inspect(sandbox).await {
                 Ok(entry) => entry.state,
                 Err(e) => {
                     tracing::warn!(%operation, "check sandbox inspect failed: {e}");
@@ -335,7 +339,7 @@ impl<B: PlacementBackend, T: CheckTransport, S: CheckpointSource> CheckRunner<B,
             match state {
                 SandboxState::Created | SandboxState::Running => {}
                 SandboxState::Stopped => {
-                    return Ok(match self.backend.runner_exit(&sandbox).await {
+                    return Ok(match self.backend.runner_exit(sandbox).await {
                         Ok(RunnerExit::Exited(code)) => (StopKind::Exited { code }, true),
                         Ok(RunnerExit::Signalled) => (StopKind::Signalled, false),
                         Err(e) => {
@@ -345,16 +349,16 @@ impl<B: PlacementBackend, T: CheckTransport, S: CheckpointSource> CheckRunner<B,
                     });
                 }
                 SandboxState::Archived | SandboxState::Destroyed | SandboxState::Unknown => {
-                    let _ = self.backend.stop(&sandbox).await;
+                    let _ = self.backend.stop(sandbox).await;
                     return Ok((StopKind::Lost, false));
                 }
             }
             if now_ms() >= deadline {
-                let _ = self.backend.stop(&sandbox).await;
+                let _ = self.backend.stop(sandbox).await;
                 return Ok((StopKind::TimedOut, false));
             }
             if *shutdown.borrow() {
-                let _ = self.backend.stop(&sandbox).await;
+                let _ = self.backend.stop(sandbox).await;
                 return Ok((StopKind::Lost, false));
             }
             let mut stopping = shutdown.clone();

@@ -118,6 +118,10 @@ impl Sink {
             seen: vec![],
         }
     }
+    async fn poll(&mut self, mail: &mut MailLoop) -> anyhow::Result<Vec<(Uuid, &'static str)>> {
+        mail.poll_once(AttemptInput::Accepting, Delivery::Native(self))
+            .await
+    }
     fn ids(&self) -> Vec<Value> {
         self.seen.iter().map(|d| d["delivery_id"].clone()).collect()
     }
@@ -136,29 +140,21 @@ impl SafeBoundary for Sink {
 async fn message_delivered_once_across_runner_restart() {
     let rig = Rig::new().await;
     let mut sink = Sink::new();
-    let native = AttemptInput::Accepting;
     // Loop A hands D1 to the qualified boundary exactly once.
     let mut a = rig.open();
     rig.serve(vec![delivery(1, 'a')]);
-    let acked = a
-        .poll_once(native, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut a).await.unwrap();
     assert_eq!(acked, vec![(id(1), "handed_to_harness")]);
     assert_eq!(sink.ids(), vec![json!(id(1))]);
     assert_eq!(sink.seen[0]["body"], "Review é界🙂 safely.");
     drop(a);
 
     // Runner restart: the server replays D1 (received_by_node) alongside D2.
-    let b = rig.open();
+    let mut b = rig.open();
     let mut replayed = delivery(1, 'a');
     replayed["disposition"] = json!("received_by_node");
     rig.serve(vec![replayed.clone(), delivery(2, 'a')]);
-    let mut b = b;
-    let acked = b
-        .poll_once(native, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut b).await.unwrap();
     assert_eq!(acked, vec![(id(2), "handed_to_harness")]);
     assert_eq!(sink.ids(), vec![json!(id(1)), json!(id(2))]);
 
@@ -167,18 +163,12 @@ async fn message_delivered_once_across_runner_restart() {
     b.record_intent(id(3), Uuid::from_u128(0x503), &"a".repeat(64))
         .unwrap();
     rig.serve(vec![replayed.clone(), delivery(2, 'a'), delivery(3, 'a')]);
-    let acked = b
-        .poll_once(native, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut b).await.unwrap();
     assert_eq!(acked, vec![(id(3), "delivery_unknown")]);
     assert_eq!(sink.seen.len(), 2);
 
     // A full replay of journaled, acked deliveries delivers and acks nothing.
-    let acked = b
-        .poll_once(native, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut b).await.unwrap();
     assert!(acked.is_empty());
     assert_eq!(sink.seen.len(), 2);
     assert_eq!(rig.acks().len(), 3);
@@ -187,19 +177,12 @@ async fn message_delivered_once_across_runner_restart() {
     // re-acks the same operation and disposition instead of re-delivering.
     rig.mail.refuse_ack.store(true, Ordering::SeqCst);
     rig.serve(vec![delivery(4, 'a')]);
-    assert!(
-        b.poll_once(native, Delivery::Native(&mut sink))
-            .await
-            .is_err()
-    );
+    assert!(sink.poll(&mut b).await.is_err());
     assert_eq!(sink.seen.len(), 3);
     rig.mail.refuse_ack.store(false, Ordering::SeqCst);
     drop(b);
     let mut c = rig.open();
-    let acked = c
-        .poll_once(native, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut c).await.unwrap();
     assert_eq!(acked, vec![(id(4), "handed_to_harness")]);
     assert_eq!(sink.seen.len(), 3);
     let acks = rig.mail.acks.lock().unwrap().clone();
@@ -209,11 +192,7 @@ async fn message_delivered_once_across_runner_restart() {
     // The same delivery_id replayed with a different digest is refused and
     // nothing in that batch is delivered or acked.
     rig.serve(vec![delivery(5, 'a'), delivery(1, 'b')]);
-    assert!(
-        c.poll_once(native, Delivery::Native(&mut sink))
-            .await
-            .is_err()
-    );
+    assert!(sink.poll(&mut c).await.is_err());
     assert_eq!(sink.seen.len(), 3);
     assert_eq!(rig.acks().len(), 5);
     rig.server.abort();
@@ -242,29 +221,17 @@ async fn mail_inbox_mode_and_rejecting_attempt() {
     // next replay at a ready boundary hands it over once.
     sink.ready = false;
     rig.serve(vec![delivery(3, 'a')]);
-    let acked = mail
-        .poll_once(AttemptInput::Accepting, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut mail).await.unwrap();
     assert_eq!(acked, vec![(id(3), "received_by_node")]);
-    let acked = mail
-        .poll_once(AttemptInput::Accepting, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut mail).await.unwrap();
     assert!(acked.is_empty(), "receipt is acked once while deferred");
     sink.ready = true;
-    let acked = mail
-        .poll_once(AttemptInput::Accepting, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut mail).await.unwrap();
     assert_eq!(acked, vec![(id(3), "handed_to_harness")]);
     // An uncertain injection is reported once and never retried.
     sink.outcome = Injection::Unknown;
     rig.serve(vec![delivery(3, 'a'), delivery(4, 'a')]);
-    let acked = mail
-        .poll_once(AttemptInput::Accepting, Delivery::Native(&mut sink))
-        .await
-        .unwrap();
+    let acked = sink.poll(&mut mail).await.unwrap();
     assert_eq!(acked, vec![(id(4), "delivery_unknown")]);
     assert_eq!(sink.ids(), vec![json!(id(3)), json!(id(4))]);
     assert!(sink.seen.iter().all(|d| d["delivery_id"] != json!(id(1))));

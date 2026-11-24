@@ -150,18 +150,12 @@ impl PermitProvider for Lease {
     }
 }
 
-pub fn launch(
-    identity: &WorkerIdentity,
-    digest: &TemplateDigest,
-    harness: &str,
-    cli: &str,
-    run_timeout: Duration,
-) -> LaunchRequest {
+fn launch_manifest_fixture() -> LaunchManifest {
     let fixtures: Value = serde_json::from_str(include_str!(
         "../../../aq-session-protocol/artifacts/fixtures.json"
     ))
     .unwrap();
-    let mut m: LaunchManifest = serde_json::from_value(
+    serde_json::from_value(
         fixtures["valid_documents"]
             .as_array()
             .unwrap()
@@ -170,26 +164,39 @@ pub fn launch(
             .unwrap()["body"]["manifest"]
             .clone(),
     )
-    .unwrap();
-    m.bindings.attempt_id = Uuid::new_v4();
-    m.bindings.session = SessionIdentity::Remote {
+    .unwrap()
+}
+
+fn session_digest(digest: &TemplateDigest) -> Digest {
+    serde_json::from_value(json!(digest.as_str().strip_prefix("sha256:").unwrap())).unwrap()
+}
+
+pub fn launch(
+    identity: &WorkerIdentity,
+    digest: &TemplateDigest,
+    harness: &str,
+    cli: &str,
+    run_timeout: Duration,
+) -> LaunchRequest {
+    let mut manifest = launch_manifest_fixture();
+    manifest.bindings.attempt_id = Uuid::new_v4();
+    manifest.bindings.session = SessionIdentity::Remote {
         node_id: identity.node_id,
         boot_id: identity.boot_id,
         session_id: Uuid::new_v4(),
-        attempt_id: m.bindings.attempt_id,
-        assignment_generation: m.bindings.assignment_generation,
+        attempt_id: manifest.bindings.attempt_id,
+        assignment_generation: manifest.bindings.assignment_generation,
     };
-    m.harness.harness = Text::new(harness).unwrap();
-    m.harness.cli_version = Text::new(cli).unwrap();
-    m.harness.environment.digest =
-        serde_json::from_value(json!(digest.as_str().strip_prefix("sha256:").unwrap())).unwrap();
-    m.resources.cpu_millis = 2000;
-    m.resources.memory_bytes = 4 << 30;
-    m.resources.process_limit = 512;
-    m.resources.wall_time_ms = run_timeout.as_millis() as u64;
-    m.resources.stop_grace_ms = 5_000;
+    manifest.harness.harness = Text::new(harness).unwrap();
+    manifest.harness.cli_version = Text::new(cli).unwrap();
+    manifest.harness.environment.digest = session_digest(digest);
+    manifest.resources.cpu_millis = 2000;
+    manifest.resources.memory_bytes = 4 << 30;
+    manifest.resources.process_limit = 512;
+    manifest.resources.wall_time_ms = run_timeout.as_millis() as u64;
+    manifest.resources.stop_grace_ms = 5_000;
     LaunchRequest {
-        manifest: m,
+        manifest,
         hard_deadline_ms: now_ms() + run_timeout.as_millis() as u64 + 60_000,
         disk_bytes: 4 << 30,
         required_capabilities: vec![Capability::PersistentDiskDuringAttempt],
@@ -207,8 +214,7 @@ pub fn node(digest: &TemplateDigest, harness: &str, cli: &str) -> NodeConfig {
         capabilities: vec![],
         features: vec![],
         templates: vec![TemplateAdvertisement {
-            digest: serde_json::from_value(json!(digest.as_str().strip_prefix("sha256:").unwrap()))
-                .unwrap(),
+            digest: session_digest(digest),
             harnesses: vec![HarnessVersion {
                 harness: harness.into(),
                 version: cli.into(),
@@ -233,4 +239,55 @@ pub fn node(digest: &TemplateDigest, harness: &str, cli: &str) -> NodeConfig {
 
 pub async fn read(shared: &Shared, sandbox: &SandboxIdentity, path: &str) -> Option<Vec<u8>> {
     shared.0.lock().await.read_file(sandbox, path).await.ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launch_binds_identity_template_and_deadline() {
+        let identity = WorkerIdentity {
+            node_id: Uuid::new_v4(),
+            boot_id: Uuid::new_v4(),
+        };
+        let digest = TemplateDigest::parse(format!("sha256:{}", "a".repeat(64))).unwrap();
+        let timeout = Duration::from_millis(1234);
+        let before = now_ms();
+        let request = launch(&identity, &digest, "native-probe", "1", timeout);
+        let after = now_ms();
+        let manifest = &request.manifest;
+        let SessionIdentity::Remote {
+            node_id,
+            boot_id,
+            attempt_id,
+            assignment_generation,
+            ..
+        } = &manifest.bindings.session
+        else {
+            panic!("live launch must use a remote session");
+        };
+        assert_eq!(*node_id, identity.node_id);
+        assert_eq!(*boot_id, identity.boot_id);
+        assert_eq!(*attempt_id, manifest.bindings.attempt_id);
+        assert_eq!(
+            *assignment_generation,
+            manifest.bindings.assignment_generation
+        );
+        assert_eq!(
+            manifest.harness.environment.digest,
+            node(&digest, "native-probe", "1").templates[0].digest
+        );
+        assert_eq!(
+            serde_json::to_value(&manifest.harness.environment.digest).unwrap(),
+            json!("a".repeat(64))
+        );
+        assert_eq!(manifest.resources.wall_time_ms, 1234);
+        assert_eq!(manifest.resources.stop_grace_ms, 5_000);
+        assert!((before + 61_234..=after + 61_234).contains(&request.hard_deadline_ms));
+        assert_eq!(
+            request.required_capabilities,
+            vec![Capability::PersistentDiskDuringAttempt]
+        );
+    }
 }

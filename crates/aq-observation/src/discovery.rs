@@ -29,6 +29,16 @@ pub enum Resolution {
     IdentityMismatch,
     Unsupported,
 }
+impl Resolution {
+    fn from_identity(permit: SourcePermit, matches: bool) -> Self {
+        if matches {
+            Self::Found(permit)
+        } else {
+            Self::IdentityMismatch
+        }
+    }
+}
+
 impl Discovery {
     pub fn resolve(&self) -> Result<Resolution> {
         self.resolve_owned(None)
@@ -38,6 +48,33 @@ impl Discovery {
         self.resolve_owned(Some(owner_uid))
     }
     fn resolve_owned(&self, owner_uid: Option<u32>) -> Result<Resolution> {
+        self.validate()?;
+        let key = self.native_session_key.as_str();
+        if self.format == Format::OpenCodeSessionDto6c24ec9 {
+            return Ok(Resolution::Unsupported);
+        }
+        if let Some(member) = self.direct_member(key) {
+            return self.probe(&member, owner_uid);
+        }
+        let Some(candidates) = self.candidates(key)? else {
+            return Ok(Resolution::BudgetExceeded);
+        };
+        self.probe_candidates(candidates, owner_uid)
+    }
+
+    fn direct_member(&self, key: &str) -> Option<String> {
+        if let Some(member) = &self.exact_member {
+            return Some(member.clone());
+        }
+        let direct = format!("{key}.jsonl");
+        match self.format {
+            Format::ClaudeV1Jsonl9a9b8e8 => Some(direct),
+            Format::GeminiRecording6814e00 if self.root.join(&direct).exists() => Some(direct),
+            _ => None,
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
         ensure!(
             !self.source_id.is_nil()
                 && (1..=4096).contains(&self.maximum_entries)
@@ -57,48 +94,47 @@ impl Discovery {
             self.root.is_absolute() && std::fs::canonicalize(&self.root)? == self.root,
             "canonical admitted native directory required"
         );
-        if self.format == Format::OpenCodeSessionDto6c24ec9 {
-            return Ok(Resolution::Unsupported);
-        }
-        if let Some(member) = &self.exact_member {
-            return self.probe(member, owner_uid);
-        }
-        if self.format == Format::ClaudeV1Jsonl9a9b8e8 {
-            return self.probe(&format!("{key}.jsonl"), owner_uid);
-        }
-        if self.format == Format::GeminiRecording6814e00 {
-            let direct = format!("{key}.jsonl");
-            if self.root.join(&direct).exists() {
-                return self.probe(&direct, owner_uid);
+        Ok(())
+    }
+
+    fn candidates(&self, key: &str) -> Result<Option<Vec<String>>> {
+        let mut candidates = Vec::new();
+        for (index, entry) in std::fs::read_dir(&self.root)?.enumerate() {
+            if index >= self.maximum_entries {
+                return Ok(None);
             }
-        }
-        let mut entries = 0;
-        let mut candidates = vec![];
-        for entry in std::fs::read_dir(&self.root)? {
-            entries += 1;
-            if entries > self.maximum_entries {
-                return Ok(Resolution::BudgetExceeded);
-            }
-            let entry = entry?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
-            let matches = match self.format {
-                Format::CodexRollout67f0994 => {
-                    name.starts_with("rollout-") && name.ends_with(&format!("-{key}.jsonl"))
-                }
-                Format::GeminiRecording6814e00 => {
-                    name.starts_with("session-")
-                        && name.ends_with(&format!("-{}.jsonl", &key[..key.len().min(8)]))
-                }
-                _ => false,
-            };
-            if matches {
+            let name = entry?.file_name();
+            if let Some(name) = name
+                .to_str()
+                .filter(|name| self.matches_candidate(name, key))
+            {
                 candidates.push(name.to_owned());
-                if candidates.len() > self.maximum_candidates {
-                    return Ok(Resolution::BudgetExceeded);
-                }
+            }
+            if candidates.len() > self.maximum_candidates {
+                return Ok(None);
             }
         }
+        Ok(Some(candidates))
+    }
+
+    fn matches_candidate(&self, name: &str, key: &str) -> bool {
+        match self.format {
+            Format::CodexRollout67f0994 => {
+                name.starts_with("rollout-") && name.ends_with(&format!("-{key}.jsonl"))
+            }
+            Format::GeminiRecording6814e00 => {
+                name.starts_with("session-")
+                    && name.ends_with(&format!("-{}.jsonl", &key[..key.len().min(8)]))
+            }
+            _ => false,
+        }
+    }
+
+    fn probe_candidates(
+        &self,
+        candidates: Vec<String>,
+        owner_uid: Option<u32>,
+    ) -> Result<Resolution> {
         let mut found = vec![];
         let mut not_ready = false;
         for candidate in candidates {
@@ -138,39 +174,45 @@ impl Discovery {
         let ReadOutcome::Ready(read) = source.read(&Cursor::default(), MAX_READ_BYTES)? else {
             return Ok(Resolution::NotReady);
         };
-        let framed = frame(&read.bytes, 0, false)?;
+        self.verify_record_identity(permit, &read.bytes)
+    }
+
+    fn verify_record_identity(&self, permit: SourcePermit, bytes: &[u8]) -> Result<Resolution> {
+        let framed = frame(bytes, 0, false)?;
         for row in framed.records {
             if row.oversized {
                 return Ok(Resolution::BudgetExceeded);
             }
-            let value = match crate::json::parse(&row.bytes) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let key = match self.format {
-                Format::CodexRollout67f0994 if value["type"] == "session_meta" => {
-                    value["payload"]["id"].as_str()
-                }
-                Format::ClaudeV1Jsonl9a9b8e8 => value["sessionId"].as_str(),
-                Format::GeminiRecording6814e00 => value["sessionId"]
-                    .as_str()
-                    .or_else(|| value["$set"]["sessionId"].as_str()),
-                _ => None,
-            };
-            if let Some(key) = key {
-                return Ok(if key == self.native_session_key.as_str() {
-                    Resolution::Found(permit)
-                } else {
-                    Resolution::IdentityMismatch
-                });
+            if let Some(is_match) = self.session_matches(&row.bytes) {
+                return Ok(Resolution::from_identity(permit, is_match));
             }
         }
-        Ok(if framed.partial || read.bytes.is_empty() {
+        Ok(if framed.partial || bytes.is_empty() {
             Resolution::NotReady
         } else {
             Resolution::BudgetExceeded
         })
     }
+
+    fn session_matches(&self, bytes: &[u8]) -> Option<bool> {
+        let value = crate::json::parse(bytes).ok()?;
+        self.record_key(&value)
+            .map(|key| key == self.native_session_key.as_str())
+    }
+
+    fn record_key<'a>(&self, value: &'a serde_json::Value) -> Option<&'a str> {
+        match self.format {
+            Format::CodexRollout67f0994 if value["type"] == "session_meta" => {
+                value["payload"]["id"].as_str()
+            }
+            Format::ClaudeV1Jsonl9a9b8e8 => value["sessionId"].as_str(),
+            Format::GeminiRecording6814e00 => value["sessionId"]
+                .as_str()
+                .or_else(|| value["$set"]["sessionId"].as_str()),
+            _ => None,
+        }
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }

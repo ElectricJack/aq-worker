@@ -121,21 +121,13 @@ pub fn recover_stopped_with(
     boot: &str,
     prior_gone: Option<&PriorGone>,
 ) -> Result<StoppedProof> {
-    let direct = || -> Result<StoppedProof> {
-        let mut handle = SessionHost::recover(root, expected)?;
-        handle.stop()?;
-        handle.wait_stopped(Duration::from_secs(10))?;
-        handle.stopped_proof()
-    };
-    let error = match direct() {
+    let error = match stop_recovered_host(root, expected) {
         Ok(proof) => return Ok(proof),
         Err(error) => error,
     };
-    let state = || -> Result<HostObservation> {
-        let dir = std::fs::canonicalize(root)?.join(expected.launch_id.to_string());
-        read_json(&dir.join("state.json"))
-    };
-    let last = last.cloned().or_else(|| state().ok());
+    let last = last
+        .cloned()
+        .or_else(|| stored_observation(root, expected).ok());
     let Some(last) = last.filter(|o| o.guardian.intent == *expected) else {
         let detail = format!("no observation of the guardian survives: {error:#}");
         return Err(StopUnproven {
@@ -152,6 +144,18 @@ pub fn recover_stopped_with(
         detail: format!("{error:#}"),
     }
     .into())
+}
+
+fn stop_recovered_host(root: &Path, expected: &LaunchIntent) -> Result<StoppedProof> {
+    let mut handle = SessionHost::recover(root, expected)?;
+    handle.stop()?;
+    handle.wait_stopped(Duration::from_secs(10))?;
+    handle.stopped_proof()
+}
+
+fn stored_observation(root: &Path, expected: &LaunchIntent) -> Result<HostObservation> {
+    let dir = std::fs::canonicalize(root)?.join(expected.launch_id.to_string());
+    read_json(&dir.join("state.json"))
 }
 
 #[cfg(test)]
@@ -253,6 +257,38 @@ mod tests {
             "a guardian of this invocation is not covered"
         );
         assert_eq!(running(NOW, 500).phase, HostPhase::Running);
+    }
+    #[test]
+    fn recovery_uses_stored_observation_only_when_journal_observation_is_absent() {
+        let root = tempfile::tempdir().unwrap();
+        let stored = running(OLD, 500);
+        let intent = &stored.guardian.intent;
+        let directory = root.path().join(intent.launch_id.to_string());
+        std::fs::create_dir(&directory).unwrap();
+        let state_path = directory.join("state.json");
+        std::fs::write(&state_path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        let recover = |last| {
+            recover_stopped_with(root.path(), intent, last, NOW, Some(&attested()))
+                .unwrap_err()
+                .downcast::<StopUnproven>()
+                .unwrap()
+        };
+        assert_eq!(
+            recover(None).proof.as_ref().map(StopProof::kind),
+            Some("boot_changed")
+        );
+        let journal = running(NOW, 500);
+        assert_eq!(
+            recover(Some(&journal)).proof.as_ref().map(StopProof::kind),
+            Some("cgroup_teardown")
+        );
+        let mut mismatched = stored.clone();
+        mismatched.guardian.intent.launch_id = uuid::Uuid::new_v4();
+        assert!(recover(Some(&mismatched)).proof.is_none());
+        std::fs::write(&state_path, serde_json::to_vec(&mismatched).unwrap()).unwrap();
+        assert!(recover(None).proof.is_none());
+        std::fs::write(&state_path, b"malformed observation").unwrap();
+        assert!(recover(None).proof.is_none());
     }
     #[test]
     fn a_proof_needs_a_changed_boot_or_the_attested_teardown_of_the_same_boot() {

@@ -5,8 +5,9 @@ use std::path::Path;
 mod preserve;
 mod secret_file;
 pub use preserve::{
-    CopyBackIncomplete, PRESERVED_MARKER, preserved, preserved_claim, preserved_claim_bytes,
-    preserved_conclusion, write_exit,
+    CopyBackIncomplete, PRESERVED_MARKER, driver_exit_success, platform_failed, preserved,
+    preserved_claim, preserved_claim_bytes, preserved_conclusion, write_exit,
+    write_platform_failure, write_transcript,
 };
 pub mod claim;
 pub mod final_message;
@@ -71,7 +72,11 @@ pub fn read_handoff_marker(path: &Path) -> Option<aq_protocol::HandoffReason> {
             return None;
         }
     };
-    match serde_json::from_slice::<HandoffMarker>(&bytes) {
+    parse_handoff_marker(&bytes)
+}
+
+fn parse_handoff_marker(bytes: &[u8]) -> Option<aq_protocol::HandoffReason> {
+    match serde_json::from_slice::<HandoffMarker>(bytes) {
         Ok(m) if m.schema_version == 1 => Some(m.reason),
         _ => {
             println!("aq-sandbox-harness: handoff marker invalid; ignored");
@@ -130,27 +135,42 @@ impl TranscriptBound {
     /// one entry and is never followed, and the walk ends at the first entry past
     /// `max_files`, so it reads at most `max_files + 1` entries.
     pub fn exceeded(&self, directory: &Path) -> Option<Stop> {
-        use std::os::unix::fs::MetadataExt;
-        let (mut bytes, mut files, mut pending) = (0u64, 0u64, vec![directory.to_owned()]);
-        while let Some(directory) = pending.pop() {
+        let mut walk = TranscriptWalk::default();
+        walk.pending.push(directory.to_owned());
+        while let Some(directory) = walk.pending.pop() {
             for entry in std::fs::read_dir(directory).into_iter().flatten().flatten() {
-                files += 1;
-                if files > self.max_files {
-                    return Some(Stop::TranscriptFiles);
+                if let Some(stop) = walk.count(entry, self) {
+                    return Some(stop);
                 }
-                // `DirEntry::metadata` does not follow a link.
-                let Ok(metadata) = entry.metadata() else {
-                    continue;
-                };
-                if metadata.is_dir() {
-                    pending.push(entry.path());
-                } else if metadata.is_file() {
-                    // Allocated blocks: a sparse file costs what it occupies.
-                    bytes = bytes.saturating_add(metadata.blocks().saturating_mul(512));
-                    if bytes > self.max_bytes {
-                        return Some(Stop::TranscriptBytes);
-                    }
-                }
+            }
+        }
+        None
+    }
+}
+
+#[derive(Default)]
+struct TranscriptWalk {
+    bytes: u64,
+    files: u64,
+    pending: Vec<std::path::PathBuf>,
+}
+impl TranscriptWalk {
+    fn count(&mut self, entry: std::fs::DirEntry, bound: &TranscriptBound) -> Option<Stop> {
+        use std::os::unix::fs::MetadataExt;
+        self.files += 1;
+        if self.files > bound.max_files {
+            return Some(Stop::TranscriptFiles);
+        }
+        // DirEntry::metadata reports a link itself. Charge regular files for allocated blocks.
+        let metadata = entry.metadata().ok()?;
+        if metadata.is_dir() {
+            self.pending.push(entry.path());
+        } else if metadata.is_file() {
+            self.bytes = self
+                .bytes
+                .saturating_add(metadata.blocks().saturating_mul(512));
+            if self.bytes > bound.max_bytes {
+                return Some(Stop::TranscriptBytes);
             }
         }
         None
@@ -196,6 +216,25 @@ pub fn handoff_note(
         ));
     }
     fold_claim(note)
+}
+
+/// Omit agent text if any credential in this login would appear in the note.
+pub fn handoff_note_for_login(
+    reason: Stop,
+    changed: &[String],
+    stream: &[u8],
+    secrets: &[zeroize::Zeroizing<Vec<u8>>],
+) -> String {
+    let note = handoff_note(reason, changed, stream, &secrets[0]);
+    if secrets
+        .iter()
+        .skip(1)
+        .any(|token| holds_token(note.as_bytes(), token))
+    {
+        handoff_note(reason, changed, &[], &[])
+    } else {
+        note
+    }
 }
 
 /// A salvaged handoff's note, with the interrupted host's recorded stop reason, if any.
