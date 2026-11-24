@@ -685,14 +685,17 @@ fn status(profile: &str) -> Result<()> {
     }
     Ok(())
 }
-/// One slot of `service status`: held with its reason, or not held.
+/// One slot of `service status`, including any owner hold or automatic readiness wait.
 fn slot_line(layout: &Layout, slot: u32) -> String {
-    match layout.held_reason(slot) {
-        Some(why) => format!(
+    if let Some(why) = layout.held_reason(slot) {
+        format!(
             "slot {slot}: held until the owner releases it: {}",
             why.trim()
-        ),
-        None => format!("slot {slot}: not held"),
+        )
+    } else if let Some(why) = layout.admission_wait_reason(slot) {
+        format!("slot {slot}: waiting for sandbox readiness (automatic retry): {why}")
+    } else {
+        format!("slot {slot}: not held")
     }
 }
 /// `service release-sandbox`: the operator release of a sandbox one of the slot's attempts

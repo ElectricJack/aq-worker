@@ -200,7 +200,8 @@ pub enum NativeStopOutcome {
     Unknown,
 }
 mod host;
-pub use host::{claude_driver_dir, driver_exit_success, wipe_claude_driver_secrets};
+pub use aq_handoff_note::driver_exit_success;
+pub use host::{claude_driver_dir, wipe_claude_driver_secrets};
 mod entry;
 impl InputPipeline {
     pub fn phase_host_history(&self, id: Uuid) -> Result<Option<NativeHostHistory>> {

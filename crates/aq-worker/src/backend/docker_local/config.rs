@@ -9,8 +9,10 @@ use std::{
 
 pub use aq_sandbox_archive::docker_engine::MAIN_DAEMON_SOCKETS;
 use aq_sandbox_archive::docker_engine::{
-    container_path_ok, exposes_daemon_socket, parent, under, validate_socket,
+    HostStatvfs, PlacementRefusal, UnixSocketTransport, check_placement, container_path_ok,
+    exposes_daemon_socket, parent, under, validate_socket,
 };
+use std::time::Duration;
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
 /// The attempt's agent-channel directory is always mounted here (0006 §5.1).
@@ -64,6 +66,10 @@ pub struct DockerLocalConfig {
     /// SBX20 per-attempt disk limit when a reservation carries none.
     #[serde(default = "default_disk_limit_bytes")]
     pub disk_limit_bytes: u64,
+    /// Minimum daemon storage headroom before requesting or accepting work.
+    /// Defaults to one sandbox's disk budget.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_free_disk_bytes: Option<u64>,
     /// SBX20 watchdog sampling interval.
     #[serde(default = "default_disk_watch_interval_ms")]
     pub disk_watch_interval_ms: u64,
@@ -129,6 +135,7 @@ impl DockerLocalConfig {
             stop_grace_secs: default_stop_grace_secs(),
             max_read_bytes: default_max_read_bytes(),
             disk_limit_bytes: default_disk_limit_bytes(),
+            minimum_free_disk_bytes: None,
             disk_watch_interval_ms: default_disk_watch_interval_ms(),
             shared_root_fs: false,
             hard_disk_limit: false,
@@ -145,6 +152,20 @@ impl DockerLocalConfig {
             .iter()
             .find(|template| &template.digest == digest)
             .map(|template| template.image.as_str())
+    }
+
+    pub async fn check_admission(&self) -> Result<(), PlacementRefusal> {
+        validate_socket(&self.socket).map_err(|_| PlacementRefusal::DaemonUnavailable)?;
+        check_placement(
+            &UnixSocketTransport::new(self.socket.clone()),
+            super::API_VERSION,
+            Duration::from_millis(self.api_timeout_ms),
+            self.minimum_free_disk_bytes
+                .unwrap_or(self.disk_limit_bytes)
+                .max(1),
+            &HostStatvfs,
+        )
+        .await
     }
 
     pub fn validate(&self) -> Result<(), BackendError> {

@@ -11,6 +11,29 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const ADMISSION_WAIT_FILE: &str = "admission-wait";
+
+/// Publishes a slot's temporary readiness failure for service status.
+pub fn report_admission_wait(current: &Path, readiness: &Result<()>) {
+    let path = current.join(ADMISSION_WAIT_FILE);
+    let previous = std::fs::read_to_string(&path).ok();
+    let result = match readiness {
+        Ok(()) if previous.is_some() => std::fs::remove_file(&path).map_err(anyhow::Error::from),
+        Ok(()) => return,
+        Err(error) => {
+            let reason = format!("{error:#}");
+            if previous.as_deref() == Some(&reason) {
+                return;
+            }
+            tracing::warn!(%reason, "native sandbox admission deferred; rechecking automatically");
+            write_private(&path, reason.as_bytes())
+        }
+    };
+    if let Err(error) = result {
+        tracing::warn!(%error, "could not update sandbox admission status");
+    }
+}
+
 #[derive(Clone)]
 pub struct Layout {
     /// None for the machine view; Some(index) for one enrolled node.
@@ -284,6 +307,9 @@ impl Layout {
     pub fn held_reason(&self, slot: u32) -> Option<String> {
         std::fs::read_to_string(self.slot_held(slot)).ok()
     }
+    pub fn admission_wait_reason(&self, slot: u32) -> Option<String> {
+        std::fs::read_to_string(self.current(slot).join(ADMISSION_WAIT_FILE)).ok()
+    }
     pub fn machine_json(&self) -> PathBuf {
         self.config_dir.join("machine.json")
     }
@@ -373,6 +399,18 @@ mod tests {
     }
     fn mode(p: &Path) -> u32 {
         std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+    #[test]
+    fn admission_wait_reason_clears_without_an_owner_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = layout(dir.path());
+        let current = layout.fresh_current(1).unwrap();
+        let reason = "sandbox_daemon_unavailable";
+        report_admission_wait(&current, &Err(anyhow::anyhow!(reason)));
+        assert_eq!(layout.admission_wait_reason(1).as_deref(), Some(reason));
+        assert_eq!(layout.held_reason(1), None);
+        report_admission_wait(&current, &Ok(()));
+        assert_eq!(layout.admission_wait_reason(1), None);
     }
     #[test]
     fn two_nodes_with_three_agents_have_six_isolated_roots() {

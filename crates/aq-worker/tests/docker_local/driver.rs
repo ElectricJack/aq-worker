@@ -175,6 +175,53 @@ fn fixture_driver_config(
         build_cache: None,
     }
 }
+
+#[tokio::test]
+async fn a_create_timeout_is_named_and_never_triggers_an_image_pull_or_second_create() {
+    let h = harness().await;
+    let daemon = h.docker.clone();
+    daemon.script(Rule {
+        method: DockerMethod::Post,
+        path_prefix: "/v1.44/containers/create".into(),
+        effect: Effect::StallBeforeApply,
+    });
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("context-0.bin"), "Run the fixture.").unwrap();
+    let token = dir.path().join("token");
+    write_private_fixture(&token, &codex_login().0);
+    let mut docker = h.backend.config().clone();
+    docker.api_timeout_ms = 20;
+    let config = fixture_driver_config(docker, dir.path().to_path_buf(), token);
+    let path = dir.path().join("driver.json");
+    write_private_fixture(&path, &serde_json::to_vec(&config).unwrap());
+    let error = bounded(aq_worker::sandbox_driver::run_with(
+        &path,
+        Some(dir.path()),
+        |config| DockerLocalBackend::connect(config, daemon.clone()),
+        |_, _| async {
+            Err::<(tokio::io::DuplexStream, aq_worker::sandbox_driver::Pane), _>(
+                anyhow::anyhow!("an uncertain create must not attach a terminal"),
+            )
+        },
+    ))
+    .await
+    .unwrap_err();
+    assert_eq!(error.to_string(), "create sandbox");
+    assert_eq!(
+        error.downcast_ref::<BackendError>(),
+        Some(&BackendError::Uncertain(UnconfirmedReason::Timeout))
+    );
+    let posts = daemon
+        .requests()
+        .into_iter()
+        .filter(|(method, _)| *method == DockerMethod::Post)
+        .map(|(_, path)| path)
+        .collect::<Vec<_>>();
+    assert_eq!(posts.len(), 2);
+    assert!(posts[0].starts_with("/v1.44/volumes/create"));
+    assert!(posts[1].starts_with("/v1.44/containers/create"));
+}
+
 async fn fixture_terminal(
     docker: &ScriptedDocker,
     config_file: &std::path::Path,

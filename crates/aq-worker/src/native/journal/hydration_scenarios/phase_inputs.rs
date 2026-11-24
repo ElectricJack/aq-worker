@@ -416,3 +416,5 @@ async fn production_collect_dispatch_retains_actual_frozen_inputs_without_launch
     assert!(state.attempts[&h.id].native_host.is_none());
     assert_eq!(h.pipeline().retained_input_stats().unwrap().attempts, 1);
 }
+#[path = "../../../../tests/support/native_backend_admission.rs"]
+mod backend_admission;

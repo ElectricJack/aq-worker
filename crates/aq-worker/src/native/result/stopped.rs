@@ -1,5 +1,13 @@
 //! Actual stopped custody. A deserialized anchor cannot construct this owner.
 use super::*;
+#[derive(Debug)]
+pub struct StoppedSubmissionPending(pub Uuid);
+impl std::fmt::Display for StoppedSubmissionPending {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("stopped attempt has a pending local result submission")
+    }
+}
+impl std::error::Error for StoppedSubmissionPending {}
 #[derive(Clone, Copy, Debug)]
 pub enum ResultStopCause {
     Natural,
@@ -15,10 +23,9 @@ pub enum ResultStopCause {
     HarnessSucceeded,
 }
 impl ResultStopCause {
-    /// Process outcome retained in the stop anchor. root_status is the tmux
-    /// SERVER wait status and proves no harness exit code, so natural pane exit
-    /// and a worker stop after a recorded result both remain Unknown; the
-    /// recorded claim, not the process outcome, carries the completed work.
+    /// Retained process outcome. The tmux server wait status leaves natural pane
+    /// exit and a stop after a claim as Unknown. The claim independently carries
+    /// the completed work.
     pub fn process_outcome(self) -> aq_admission::transport::ProcessOutcome {
         use aq_admission::transport::ProcessOutcome;
         match self {
@@ -59,13 +66,7 @@ impl DurableStoppedResult {
             .owned
             .lock()
             .map_err(|_| anyhow::anyhow!("result original owner poisoned"))?;
-        let h = a
-            .journal
-            .state()
-            .attempts
-            .get(&c.scope.id)
-            .and_then(|a| a.result.as_ref())
-            .context("result stopped history absent")?;
+        let h = a.journal.state().result_history(c.scope.id)?;
         let digest = crate::native::journal::canonical_digest(&self.proof)?;
         ensure!(
             h.scope.binding == c.binding
@@ -85,9 +86,6 @@ impl DurableStoppedResult {
         let id = self.attempt_id();
         let a = journal.state().result_attempt(id)?;
         let old = a.result.as_ref().context("result history absent")?;
-        if old.claim.is_none() {
-            return Ok(None);
-        }
         let stopped = a
             .native_host
             .as_ref()
@@ -98,6 +96,12 @@ impl DurableStoppedResult {
             "result actual stopped proof differs"
         );
         let (_, receipt) = crate::native::journal::result_terminal_stop(a)?;
+        if old.claim.is_none() {
+            if stopped_submission(old)?.is_some() {
+                return Err(StoppedSubmissionPending(id).into());
+            }
+            return Ok(None);
+        }
         if matches!(cause, ResultStopCause::Expired) {
             ensure!(
                 boot_ns()? >= self.custody.scope.deadline,
@@ -130,14 +134,17 @@ impl DurableStoppedResult {
         )?))
     }
 }
+pub(super) fn stopped_submission(history: &ResultHistory) -> Result<Option<wire::Submission>> {
+    ensure!(history.intake_closed, "stopped result intake is open");
+    super::retained_submission(&history.scope)
+}
 impl InputPipeline {
     pub async fn retain_stopped_result(
         &self,
         id: Uuid,
         cause: ResultStopCause,
     ) -> Result<Option<DurableStoppedResult>> {
-        let custody = self.results.custody(id)?;
-        let Some(custody) = custody else {
+        let Some(custody) = self.results.custody(id)? else {
             return Ok(None);
         };
         self.close_result_intake(id).await?;

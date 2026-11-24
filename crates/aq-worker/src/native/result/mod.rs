@@ -27,7 +27,7 @@ use salvage::{Live, ResultJournal, StoppedOwner};
 pub use salvage::{SalvageRoots, finish_salvage, salvage_roots};
 use source::snapshot;
 pub(crate) use source::transfer_bound;
-pub use stopped::{DurableStoppedResult, ResultStopCause};
+pub use stopped::{DurableStoppedResult, ResultStopCause, StoppedSubmissionPending};
 use storage::ChannelStorage;
 pub(in crate::native) fn retained_submission(
     scope: &ScopeRecord,
@@ -35,7 +35,12 @@ pub(in crate::native) fn retained_submission(
     let StorageStage::Ready { pins, .. } = &scope.storage else {
         return Ok(None);
     };
-    storage::retained_submission(&scope.root, pins, &scope.binding)
+    let original = storage::retained_submission(&scope.root, pins, &scope.binding)?;
+    Ok(original.filter(|submission| {
+        let bytes = submission.conclusion.as_str().as_bytes();
+        !aq_agent_channel::holds_agent_credential(bytes)
+            && !aq_agent_channel::holds_claude_token_shape(bytes)
+    }))
 }
 #[derive(Default)]
 pub(super) struct Registry {
@@ -358,24 +363,19 @@ impl InputPipeline {
         .await
     }
     pub async fn close_result_intake(&self, id: Uuid) -> Result<()> {
-        let custody = self.results.custody(id)?;
-        let Some(custody) = custody else {
+        let Some(custody) = self.results.custody(id)? else {
             return Ok(());
         };
         custody.storage.close_intake();
         self.storage(move |owner| {
-            let h = owner.journal.state().attempts[&id]
-                .result
-                .as_ref()
-                .context("result history absent")?;
+            let h = owner.journal.state().result_history(id)?;
             if h.claim.is_none() {
                 custody.storage.release_presence();
             }
             if h.intake_closed {
                 return Ok(());
             }
-            let digest = h.digest()?;
-            owner.journal.update_result(id, &digest, |h, _| {
+            owner.journal.update_result(id, &h.digest()?, |h, _| {
                 h.intake_closed = true;
                 Ok(())
             })?;
@@ -409,8 +409,7 @@ impl InputPipeline {
         id: Uuid,
         code: wire::RecoveryCode,
     ) -> Result<()> {
-        let custody = self.results.custody(id)?;
-        let Some(custody) = custody else {
+        let Some(custody) = self.results.custody(id)? else {
             return Ok(());
         };
         custody.storage.close_intake();
@@ -420,8 +419,7 @@ impl InputPipeline {
                 if h.claim.is_none() {
                     return Ok(h.clone());
                 }
-                let digest = h.digest()?;
-                owner.journal.update_result(id, &digest, |h, _| {
+                owner.journal.update_result(id, &h.digest()?, |h, _| {
                     if h.receipt.is_none() {
                         h.failure = Some(code);
                     }

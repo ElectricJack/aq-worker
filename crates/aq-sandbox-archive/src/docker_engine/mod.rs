@@ -4,8 +4,10 @@
 
 mod info;
 mod socket;
+mod storage;
 pub use info::*;
 pub use socket::*;
+pub use storage::*;
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};

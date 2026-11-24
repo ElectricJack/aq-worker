@@ -262,10 +262,7 @@ async fn salvage_claim(
         return Ok(Err("credential_in_workspace"));
     }
     let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
-    if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope)
-        && !aq_agent_channel::holds_agent_credential(original.conclusion.as_str().as_bytes())
-        && !aq_agent_channel::holds_claude_token_shape(original.conclusion.as_str().as_bytes())
-    {
+    if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope) {
         return Ok(Ok(original));
     }
     let conclusion = local::Conclusion::new(salvage_note(reason, &changed, proof))?;

@@ -2,6 +2,8 @@ use super::*;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 #[path = "../../../tests/support/result_history.rs"]
 mod history_fixture;
+#[path = "../../../tests/support/result_pending_submission.rs"]
+mod pending_submission_tests;
 use crate::native::journal::RuntimeIdentity;
 use history_fixture::binding;
 pub(crate) use history_fixture::history;
@@ -41,22 +43,6 @@ pub(crate) fn pending_submission(h: &mut ResultHistory) -> (tempfile::TempDir, w
     (temp, submission)
 }
 
-#[test]
-fn retained_submission_requires_the_original_directories_and_binding() {
-    let mut h = history();
-    let (temp, expected) = pending_submission(&mut h);
-    assert_eq!(retained_submission(&h.scope).unwrap(), Some(expected));
-    let original = h.scope.binding.clone();
-    h.scope.binding.nonce = Uuid::new_v4();
-    assert!(retained_submission(&h.scope).is_err());
-    h.scope.binding = original;
-    let moved = temp.path().join("moved-result");
-    std::fs::rename(&h.scope.root, &moved).unwrap();
-    h.scope.root = temp.path().join("fresh-result");
-    let fresh = ChannelStorage::create(&h.scope.root, &temp.path().join("workspace")).unwrap();
-    assert!(retained_submission(&h.scope).is_err());
-    drop(fresh);
-}
 fn publish(storage: &ChannelStorage) -> wire::Binding {
     let b = binding();
     let presence = wire::Presence {

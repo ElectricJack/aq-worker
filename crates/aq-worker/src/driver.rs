@@ -148,7 +148,7 @@ impl DriverOptions {
                 1024 * 1024
             },
             max_preparing: self.max_agents as usize,
-            minimum_free_disk_bytes: 16 * 1024 * 1024,
+            minimum_free_disk_bytes: crate::config::MINIMUM_FREE_JOURNAL_BYTES,
         }
     }
 }

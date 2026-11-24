@@ -228,6 +228,37 @@ impl Statvfs for FailedStatvfs {
 }
 
 #[tokio::test]
+async fn placement_probes_refuse_and_recover_without_daemon_side_effects() {
+    use aq_sandbox_archive::docker_engine::{PlacementRefusal, check_placement};
+    let daemon = ScriptedDocker::new();
+    let stat = FakeStatvfs(std::sync::Arc::default());
+    let probe = |minimum| {
+        check_placement(&daemon, "/v1.44", Duration::from_millis(15), minimum, &stat)
+    };
+    daemon.script(Rule {
+        method: DockerMethod::Get,
+        path_prefix: "/v1.44/info".into(),
+        effect: Effect::StallBeforeApply,
+    });
+    assert_eq!(probe(1).await, Err(PlacementRefusal::InfoTimeout));
+    assert_eq!(
+        probe(1_024_001).await,
+        Err(PlacementRefusal::DiskHeadroom {
+            available: 1_024_000,
+            minimum: 1_024_001,
+        })
+    );
+    assert_eq!(probe(1_024_000).await, Ok(()));
+    assert!(
+        daemon.requests().iter().all(|request| {
+            request.0 == DockerMethod::Get && request.1 == "/v1.44/info"
+        })
+    );
+    assert!(daemon.container_names().is_empty());
+    assert!(daemon.volume_names().is_empty());
+}
+
+#[tokio::test]
 async fn measured_disk_usage_keeps_unknown_sizes_absent() {
     let mut h = harness().await;
     let request = request(1, 2, 3);

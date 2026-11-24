@@ -5,6 +5,7 @@ pub(super) struct Drive<'a, T: DockerTransport> {
     pub(super) sandbox: &'a SandboxIdentity,
     pub(super) login: &'a Login,
     pub(super) handoff: &'a Path,
+    pub(super) runner_may_have_started: bool,
     pub(super) cache: Option<&'a aq_sandbox_archive::build_cache::Opened>,
 }
 pub(super) struct Signals {
@@ -60,7 +61,15 @@ impl<T: DockerTransport> Drive<'_, T> {
             stopped.is_confirmed()
         );
         save_conversation(self.backend, self.config, self.sandbox, &self.login.token).await;
-        write_exit(config_path, false);
+        let backend_unavailable = matches!(
+            error.downcast_ref::<BackendError>(),
+            Some(BackendError::Unavailable(_) | BackendError::Uncertain(_))
+        );
+        if backend_unavailable && !self.runner_may_have_started {
+            aq_handoff_note::write_platform_failure(config_path);
+        } else {
+            write_exit(config_path, false);
+        }
         // The marker precedes the claim: the node never destroys a preserved sandbox.
         let Some(claim) = preserved_claim(&error, &self.sandbox.backend_id, config_path) else {
             println!(
@@ -102,6 +111,7 @@ impl<T: DockerTransport> Drive<'_, T> {
             now_ms() < self.config.hard_deadline_ms,
             "sandbox preparation reached the attempt deadline"
         );
+        self.runner_may_have_started = true;
         self.backend
             .start_runner(self.sandbox)
             .await
