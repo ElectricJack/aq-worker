@@ -48,12 +48,17 @@ impl Guardian<'_> {
     }
 
     fn check_stop(&mut self, now: u64) {
-        if now < self.last_time {
+        let clock_regressed = now < self.last_time;
+        self.last_time = now;
+        self.state.observed_boot_ms = now;
+        // Keep the first stop cause in the final receipt while reaping children.
+        if self.state.phase == HostPhase::Stopping {
+            return;
+        }
+        if clock_regressed {
             self.state.phase = HostPhase::Stopping;
             self.state.stop_reason = Some("clock regressed".into());
         }
-        self.last_time = now;
-        self.state.observed_boot_ms = now;
         // Stop and expiry are evaluated before renewal or any new process effect.
         if self.dir.join("stop.request").exists() {
             match request(self.dir, "stop.request", self.identity) {

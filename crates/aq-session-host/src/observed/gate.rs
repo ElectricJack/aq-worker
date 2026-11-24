@@ -345,16 +345,17 @@ impl Owner {
         let ready = self.ready.as_ref().context("closed helper missing")?;
         verify_closed(turn.config, turn.host, ready, turn.directory)?;
         let baseline = self.baseline.as_ref().context("baseline not confirmed")?;
+        let baseline_bytes = serde_json::to_vec(baseline)?;
         ensure!(
-            Digest::of(&serde_json::to_vec(baseline)?) == baseline_digest
-                && turn.readers.drained_after(ready.helper_ready_boot_ms),
-            "baseline release digest/read lease mismatch"
+            Digest::of(&baseline_bytes) == baseline_digest,
+            "baseline release digest mismatch"
+        );
+        ensure!(
+            turn.readers.drained_after(ready.helper_ready_boot_ms),
+            "baseline release reader lease missing or undrained"
         );
         turn.guard.verify()?;
-        durable_new(
-            &turn.directory.join("pane-exec.claim"),
-            &serde_json::to_vec(baseline)?,
-        )?;
+        durable_new(&turn.directory.join("pane-exec.claim"), &baseline_bytes)?;
         turn.guard.verify()?;
         verify_closed(turn.config, turn.host, ready, turn.directory)?;
         ensure!(

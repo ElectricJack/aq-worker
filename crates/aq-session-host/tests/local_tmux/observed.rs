@@ -373,18 +373,25 @@ fn stop_observed_reader(process: &ProcessEvidence) -> std::os::fd::OwnedFd {
 
 fn assert_stopped_without_exec(c: &Case, initial: &HostObservation, mode: &str) {
     let mut recovered = SessionHost::recover(c.temp.path(), &initial.guardian.intent).unwrap();
-    assert!(
-        recovered
-            .wait_stopped(Duration::from_millis(
-                initial
-                    .permit_deadline_boot_ms
-                    .saturating_sub(ownership::raw_boot_ms())
-                    + 3_000
-            ))
-            .unwrap()
-            .kernel_wait_echild,
-        "{mode}"
-    );
+    let stopped = recovered
+        .wait_stopped(Duration::from_millis(
+            initial
+                .permit_deadline_boot_ms
+                .saturating_sub(ownership::raw_boot_ms())
+                + 3_000,
+        ))
+        .unwrap();
+    assert!(stopped.kernel_wait_echild, "{mode}");
+    if mode == "reader-drop" {
+        assert!(
+            stopped
+                .stop_reason
+                .as_deref()
+                .is_some_and(|reason| reason.ends_with("baseline release reader lease missing or undrained")),
+            "{:?}",
+            stopped.stop_reason
+        );
+    }
     assert!(!c.adapter.dir.join("pane-exec.claim").exists(), "{mode}");
     assert!(
         !c.temp.path().join("caller-started.json").exists(),
