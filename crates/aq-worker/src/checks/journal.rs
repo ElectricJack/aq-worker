@@ -50,6 +50,13 @@ impl Record {
             released: false,
         }
     }
+    fn unsettled(&self) -> bool {
+        match self.delivery {
+            Delivery::Pending => true,
+            Delivery::Recorded => !self.released && self.sandbox.is_some(),
+            _ => false,
+        }
+    }
     /// Sets the one stop. An existing stop always wins.
     pub fn decide(&mut self, stop: StopReport) -> &StopReport {
         self.stop.get_or_insert(stop)
@@ -137,12 +144,7 @@ impl Journal {
             else {
                 continue;
             };
-            if let Some(record) = self.load(op)?
-                && (record.delivery == Delivery::Pending
-                    || (record.delivery == Delivery::Recorded
-                        && !record.released
-                        && record.sandbox.is_some()))
-            {
+            if let Some(record) = self.load(op)?.filter(Record::unsettled) {
                 out.push(record);
             }
         }

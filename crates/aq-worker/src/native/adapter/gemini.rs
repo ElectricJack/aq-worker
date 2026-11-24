@@ -25,6 +25,7 @@
 //!
 //! Only container confinement is offered: Gemini's own `--sandbox` needs
 //! docker/podman (or macOS `sandbox-exec`), so there is no native mode.
+use super::recipe::{self, RecipeSettings};
 use crate::native::runner::sandbox::confinement::ConfinementMode;
 use anyhow::{Context, Result, ensure};
 use aq_session_protocol::{
@@ -32,7 +33,7 @@ use aq_session_protocol::{
 };
 use std::{
     collections::BTreeMap,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 /// The pinned `@google/gemini-cli` npm version (contains commit 6814e00, the
@@ -113,44 +114,14 @@ pub struct GeminiRecipe {
 /// Crate-private: callers reach it through `GeminiAgentHome::install`, which
 /// requires an `AuthorizedConfinement`. The prompt is delivered on stdin.
 pub(crate) fn map(
-    harness: &HarnessSettings,
-    model: &ModelSettings,
+    settings: RecipeSettings<'_>,
     paths: GeminiPaths<'_>,
     mode: ConfinementMode,
     auth: GeminiAuth<'_>,
 ) -> Result<GeminiRecipe> {
-    ensure!(
-        harness.harness.as_str() == "gemini"
-            && harness.cli_version.as_str() == GEMINI_CLI_VERSION
-            && model.provider.as_str() == "google"
-            && model.spending_budget.is_none(),
-        "Gemini recipe unsupported settings"
-    );
-    let reasoning = model.reasoning.as_str();
-    ensure!(
-        reasoning == "default",
-        "Gemini recipe unsupported reasoning {reasoning:?}: expected default"
-    );
-    let declares = |id: &str| {
-        harness
-            .required_capabilities
-            .iter()
-            .any(|c| c.id.as_str() == id && c.version == 1)
-    };
-    ensure!(
-        mode == ConfinementMode::Container
-            && declares(CONTAINER_CONFINEMENT_CAPABILITY)
-            && !declares(NATIVE_CONFINEMENT_CAPABILITY),
-        "Gemini runs only under declared container confinement"
-    );
+    let RecipeSettings { harness, model } = settings;
+    validate_settings(harness, model, mode)?;
     let model_id = model.model.as_str();
-    ensure!(
-        !model_id.is_empty()
-            && model_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b)),
-        "Gemini model id"
-    );
     let GeminiPaths {
         node,
         script,
@@ -158,26 +129,7 @@ pub(crate) fn map(
         private_home,
         system_settings_dir,
     } = paths;
-    for path in [node, script, workspace, private_home, system_settings_dir] {
-        ensure!(
-            path.is_absolute()
-                && path
-                    .components()
-                    .all(|c| matches!(c, Component::RootDir | Component::Normal(_)))
-                && !path.as_os_str().as_encoded_bytes().contains(&0),
-            "Gemini recipe requires absolute normalized paths"
-        );
-    }
-    ensure!(
-        !private_home.starts_with(workspace) && !workspace.starts_with(private_home),
-        "Gemini private home must be disjoint from the workspace"
-    );
-    ensure!(
-        [private_home, workspace].into_iter().all(|other| {
-            !system_settings_dir.starts_with(other) && !other.starts_with(system_settings_dir)
-        }),
-        "Gemini system settings must be outside the agent home and workspace"
-    );
+    paths.validate()?;
     let home = private_home.to_str().context("Gemini home UTF8")?;
     let system_settings = system_settings_dir.join(SYSTEM_SETTINGS_FILE);
     let arguments = vec![
@@ -212,20 +164,104 @@ pub(crate) fn map(
     .into_iter()
     .map(|(k, v)| (k.to_owned(), v.to_owned()))
     .collect();
-    let auth_type = match auth {
-        GeminiAuth::ApiKeyProxy { origin, capability } => {
-            let url = reqwest::Url::parse(origin).context("Gemini proxy origin")?;
+    let auth_type = apply_auth(auth, &mut environment)?;
+    Ok(GeminiRecipe {
+        executable: node.to_owned(),
+        arguments,
+        environment,
+        working_directory: workspace.to_owned(),
+        system_settings_json: serde_json::to_vec_pretty(&system_settings_json(auth_type))?,
+    })
+}
+
+impl GeminiPaths<'_> {
+    fn validate(self) -> Result<()> {
+        let Self {
+            node,
+            script,
+            workspace,
+            private_home,
+            system_settings_dir,
+        } = self;
+        for path in [node, script, workspace, private_home, system_settings_dir] {
             ensure!(
-                url.scheme() == "http"
-                    && url.host_str() == Some("127.0.0.1")
-                    && url.port().is_some()
-                    && url.path() == "/"
-                    && url.username().is_empty()
-                    && url.password().is_none()
-                    && url.query().is_none()
-                    && origin == format!("http://127.0.0.1:{}", url.port().unwrap_or(0)),
-                "Gemini proxy origin must be numeric loopback"
+                recipe::normalized(path),
+                "Gemini recipe requires absolute normalized paths"
             );
+        }
+        ensure!(
+            recipe::disjoint(private_home, workspace),
+            "Gemini private home must be disjoint from the workspace"
+        );
+        ensure!(
+            [private_home, workspace]
+                .into_iter()
+                .all(|other| { recipe::disjoint(system_settings_dir, other) }),
+            "Gemini system settings must be outside the agent home and workspace"
+        );
+        Ok(())
+    }
+}
+
+fn validate_settings(
+    harness: &HarnessSettings,
+    model: &ModelSettings,
+    mode: ConfinementMode,
+) -> Result<()> {
+    ensure!(
+        harness.harness.as_str() == "gemini"
+            && harness.cli_version.as_str() == GEMINI_CLI_VERSION
+            && model.provider.as_str() == "google"
+            && model.spending_budget.is_none(),
+        "Gemini recipe unsupported settings"
+    );
+    let reasoning = model.reasoning.as_str();
+    ensure!(
+        reasoning == "default",
+        "Gemini recipe unsupported reasoning {reasoning:?}: expected default"
+    );
+    let declares = |id| recipe::declares(harness, id);
+    ensure!(
+        mode == ConfinementMode::Container
+            && declares(CONTAINER_CONFINEMENT_CAPABILITY)
+            && !declares(NATIVE_CONFINEMENT_CAPABILITY),
+        "Gemini runs only under declared container confinement"
+    );
+    let model_id = model.model.as_str();
+    ensure!(
+        !model_id.is_empty()
+            && model_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b)),
+        "Gemini model id"
+    );
+    Ok(())
+}
+fn validate_proxy_origin(origin: &str) -> Result<()> {
+    let url = reqwest::Url::parse(origin).context("Gemini proxy origin")?;
+    ensure!(
+        url.scheme() == "http"
+            && url.host_str() == Some("127.0.0.1")
+            && url.port().is_some()
+            && url.path() == "/"
+            && !has_extra_authority_or_query(&url)
+            && origin == format!("http://127.0.0.1:{}", url.port().unwrap_or(0)),
+        "Gemini proxy origin must be numeric loopback"
+    );
+    Ok(())
+}
+
+fn has_extra_authority_or_query(url: &reqwest::Url) -> bool {
+    !url.username().is_empty() || url.password().is_some() || url.query().is_some()
+}
+
+fn apply_auth(
+    auth: GeminiAuth<'_>,
+    environment: &mut BTreeMap<String, String>,
+) -> Result<&'static str> {
+    Ok(match auth {
+        GeminiAuth::ApiKeyProxy { origin, capability } => {
+            validate_proxy_origin(origin)?;
             ensure!(
                 is_capability(capability),
                 "Gemini home accepts only the proxy's local capability"
@@ -235,13 +271,6 @@ pub(crate) fn map(
             "gemini-api-key"
         }
         GeminiAuth::Subscription => "oauth-personal",
-    };
-    Ok(GeminiRecipe {
-        executable: node.to_owned(),
-        arguments,
-        environment,
-        working_directory: workspace.to_owned(),
-        system_settings_json: serde_json::to_vec_pretty(&system_settings_json(auth_type))?,
     })
 }
 

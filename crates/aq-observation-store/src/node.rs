@@ -13,6 +13,10 @@
 //! registers within `resume_grace` gets the store's explicit "fenced by worker
 //! restart" record and is released.
 use super::*;
+mod rollout;
+mod transcripts;
+use transcripts::{Admission, admit};
+mod release;
 use aq_admission::observation_source;
 use aq_observation::{
     discovery::{Discovery, Resolution},
@@ -541,6 +545,56 @@ impl<P: NodePeer> Service<P> {
     /// on this boot. Every step is persisted before its server call, so a
     /// failure is retried by calling this again.
     fn activate(&mut self) -> Result<LocalIntent> {
+        let boot = self.limits.boot_id;
+        let mut intent = self.open_or_create_intent()?;
+        let now = wall_ms();
+        // Sources of the ended boot stay collectable so their attempts can resume.
+        intent.resume_sources_after_boot();
+        loop {
+            let peer = &mut self.peer;
+            match intent.stage() {
+                LocalStage::PreparePending => intent.prepare(peer)?,
+                LocalStage::Prepared | LocalStage::CreationStarted => intent.create_store(peer)?,
+                LocalStage::StoreCreated => intent.activate(peer, Uuid::new_v4())?,
+                LocalStage::ActivationPending => {
+                    let operation = intent.pending_activation().context("activation absent")?;
+                    if intent.activate(peer, operation).is_err() {
+                        intent.resume(peer)?;
+                    }
+                }
+                LocalStage::Active if intent.owner_boot() == Some(boot) => {
+                    intent.resume(peer)?;
+                    self.resume_orphans(&intent)?;
+                    return Ok(intent);
+                }
+                LocalStage::Active => intent.advance_boot(peer, Uuid::new_v4(), boot, now)?,
+                LocalStage::BootPending => {
+                    if intent.pending_boot() != Some(boot) {
+                        // Refused when the server applied the old request; the
+                        // replay below then adopts it and the loop advances again.
+                        let _ = intent.retarget_boot(peer, Uuid::new_v4());
+                    }
+                    intent.recover_boot(peer, now)?;
+                }
+            }
+        }
+    }
+    fn resume_orphans(&mut self, intent: &LocalIntent) -> Result<()> {
+        let stored = intent.with_active(|store| store.source_ids())?;
+        let deadline = Instant::now() + self.node.resume_grace;
+        self.orphans.retain(|id, _| stored.contains(id));
+        for id in stored {
+            if !self.sources.contains_key(&id) {
+                self.orphans.entry(id).or_insert(Orphan {
+                    deadline,
+                    fenced: false,
+                    release_tried: None,
+                });
+            }
+        }
+        Ok(())
+    }
+    fn open_or_create_intent(&mut self) -> Result<LocalIntent> {
         let (root, boot) = (self.root.clone(), self.limits.boot_id);
         // `intent.pending` exists only while an intent is being replaced, which
         // happens before the server call it describes: the committed intent is
@@ -568,48 +622,7 @@ impl<P: NodePeer> Service<P> {
             std::fs::remove_dir_all(&root)?;
             intent = self.create()?;
         }
-        let now = wall_ms();
-        // Sources of the ended boot stay collectable so their attempts can resume.
-        intent.resume_sources_after_boot();
-        loop {
-            let peer = &mut self.peer;
-            match intent.stage() {
-                LocalStage::PreparePending => intent.prepare(peer)?,
-                LocalStage::Prepared | LocalStage::CreationStarted => intent.create_store(peer)?,
-                LocalStage::StoreCreated => intent.activate(peer, Uuid::new_v4())?,
-                LocalStage::ActivationPending => {
-                    let operation = intent.pending_activation().context("activation absent")?;
-                    if intent.activate(peer, operation).is_err() {
-                        intent.resume(peer)?;
-                    }
-                }
-                LocalStage::Active if intent.owner_boot() == Some(boot) => {
-                    intent.resume(peer)?;
-                    let stored = intent.with_active(|store| store.source_ids())?;
-                    let deadline = Instant::now() + self.node.resume_grace;
-                    self.orphans.retain(|id, _| stored.contains(id));
-                    for id in stored {
-                        if !self.sources.contains_key(&id) {
-                            self.orphans.entry(id).or_insert(Orphan {
-                                deadline,
-                                fenced: false,
-                                release_tried: None,
-                            });
-                        }
-                    }
-                    return Ok(intent);
-                }
-                LocalStage::Active => intent.advance_boot(peer, Uuid::new_v4(), boot, now)?,
-                LocalStage::BootPending => {
-                    if intent.pending_boot() != Some(boot) {
-                        // Refused when the server applied the old request; the
-                        // replay below then adopts it and the loop advances again.
-                        let _ = intent.retarget_boot(peer, Uuid::new_v4());
-                    }
-                    intent.recover_boot(peer, now)?;
-                }
-            }
-        }
+        Ok(intent)
     }
     fn create(&self) -> Result<LocalIntent> {
         LocalIntent::create(
@@ -655,7 +668,8 @@ impl<P: NodePeer> Service<P> {
     /// the server's receipt for it arrives; only then is the next one sealed.
     fn deliver(&mut self, store: &Store) -> Result<bool> {
         let snapshot = store.snapshot()?;
-        if !self.delivery.due() || (snapshot.delivery.is_none() && snapshot.queued == 0) {
+        let has_packets = snapshot.delivery.is_some() || snapshot.queued != 0;
+        if !self.delivery.due() || !has_packets {
             return Ok(false);
         }
         let Some(packet) = store.prepare()? else {
@@ -690,33 +704,12 @@ impl<P: NodePeer> Service<P> {
         }
     }
     fn collect(&mut self, store: &Store, id: Uuid) -> Result<bool> {
-        let (entries, tracked_identities, boot, max_sources) = (
-            self.node.discovery_entries,
-            self.node.tracked_identities,
-            self.limits.boot_id,
-            self.node.max_sources,
-        );
         let tracked = self.sources.get_mut(&id).expect("tracked source");
         if tracked.closed {
             return Ok(false);
         }
         if tracked.file.is_none() {
-            if tracked.spec.native_session_key.is_empty() {
-                let Some((day, key)) = codex_rollout(&tracked.spec.transcript, entries)? else {
-                    return Ok(false);
-                };
-                tracked.source.native_session_key = Text::new(key.as_str())?;
-                tracked.spec.native_session_key = key;
-                tracked.spec.transcript = day;
-            }
-            match admit(
-                store,
-                tracked,
-                entries,
-                tracked_identities,
-                boot,
-                max_sources,
-            )? {
+            match admit(store, tracked, &self.node, self.limits.boot_id)? {
                 Admission::Ready(file) => tracked.file = Some(file),
                 Admission::Wait => return Ok(false),
                 Admission::Refused(reason) => {
@@ -731,10 +724,8 @@ impl<P: NodePeer> Service<P> {
         let frame = store.collect_file(id, file, wall_ms(), OverflowPolicy::Hold)?;
         tracked.strikes = 0;
         tracked.drained = frame.consumed_bytes == 0 && !frame.blocked;
-        if frame.blocked
-            && frame.consumed_bytes == 0
-            && let Some(hold) = store.source(id)?.hold
-        {
+        let stopped = frame.blocked && frame.consumed_bytes == 0;
+        if stopped && let Some(hold) = store.source(id)?.hold {
             // The store queued an explicit gap record for this source.
             self.close(id, format!("held by the store: {hold:?}"));
             return Ok(false);
@@ -742,190 +733,4 @@ impl<P: NodePeer> Service<P> {
         self.status(id, SourceStatus::Collecting);
         Ok(frame.consumed_bytes > 0)
     }
-    /// Finished sources and rows of earlier boots leave the store once none of
-    /// their events awaits a receipt.
-    fn release(&mut self, store: &Store) -> Result<()> {
-        let acked = store.snapshot()?.acked;
-        let now = Instant::now();
-        let finished: Vec<Uuid> = (self.sources.iter())
-            .filter(|(_, t)| {
-                t.finish.is_some_and(|deadline| {
-                    t.closed || t.file.is_none() || t.drained || now >= deadline
-                }) && t.release_tried != Some(acked)
-            })
-            .map(|(id, _)| *id)
-            .collect();
-        for id in finished {
-            let tracked = self.sources.get_mut(&id).expect("tracked source");
-            let reason = if tracked.file.is_none() && !tracked.closed {
-                Some("its transcript never appeared")
-            } else if !tracked.drained && !tracked.closed {
-                Some("finished before its transcript was fully collected")
-            } else {
-                None
-            };
-            tracked.closed = true;
-            tracked.release_tried = Some(acked);
-            if let Some(reason) = reason {
-                self.status(id, SourceStatus::Incomplete(reason.into()));
-            }
-            if store.release_source(id)? {
-                self.sources.remove(&id);
-                self.released.insert(id);
-                self.statuses.lock().unwrap().remove(&id);
-            }
-        }
-        for (id, mut orphan) in std::mem::take(&mut self.orphans) {
-            if now < orphan.deadline {
-                self.orphans.insert(id, orphan);
-                continue;
-            }
-            if !orphan.fenced {
-                // Nobody resumed it: the server gets the explicit "fenced by
-                // worker restart" record. A full gap quota is tried again.
-                match store.fence_source(id, FENCED_BY_RESTART, wall_ms()) {
-                    Ok(_) => orphan.fenced = true,
-                    Err(_) => {
-                        ensure!(
-                            !store.snapshot()?.persistence_uncertain,
-                            "a failed fence for source {id}"
-                        );
-                        self.orphans.insert(id, orphan);
-                        continue;
-                    }
-                }
-            }
-            let acked = store.snapshot()?.acked;
-            if orphan.release_tried == Some(acked) || !store.release_source(id)? {
-                orphan.release_tried = Some(acked);
-                self.orphans.insert(id, orphan);
-            }
-        }
-        Ok(())
-    }
-}
-
-/// The first rollout a Codex CLI wrote under its `sessions` directory
-/// (`YYYY/MM/DD/rollout-<time>-<id>.jsonl`): its day directory and rollout ID.
-/// The sandbox wrote this tree, so only real directories are entered and at
-/// most `entries` directory entries are examined.
-fn codex_rollout(sessions: &Path, entries: usize) -> Result<Option<(PathBuf, String)>> {
-    fn rollout_id(path: &Path) -> Option<String> {
-        let name = path.file_name()?.to_str()?;
-        let stem = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
-        let id = stem.get(stem.len().checked_sub(36)?..)?;
-        Uuid::parse_str(id).ok().map(|_| id.to_owned())
-    }
-    let (mut level, mut seen, mut first) = (vec![sessions.to_path_buf()], 0, None::<PathBuf>);
-    for depth in 0..4 {
-        let mut next = vec![];
-        for directory in level {
-            for entry in std::fs::read_dir(&directory)? {
-                let entry = entry?;
-                let path = entry.path();
-                seen += 1;
-                ensure!(
-                    seen <= entries,
-                    "Codex sessions directory exceeds the discovery bound"
-                );
-                // `file_type` does not follow a link.
-                let kind = entry.file_type()?;
-                if depth < 3 && kind.is_dir() {
-                    next.push(path);
-                } else if depth == 3
-                    && kind.is_file()
-                    && rollout_id(&path).is_some()
-                    && first.as_ref().is_none_or(|earliest| path < *earliest)
-                {
-                    first = Some(path);
-                }
-            }
-        }
-        level = next;
-    }
-    Ok(first.and_then(|path| Some((path.parent()?.to_path_buf(), rollout_id(&path)?))))
-}
-
-enum Admission {
-    Ready(SourceFile),
-    Wait,
-    Refused(String),
-}
-
-/// Finds the exact transcript file and attaches the source to the store. Every
-/// refusal is decided before the store is written, so it cannot disturb the
-/// other sources.
-fn admit(
-    store: &Store,
-    tracked: &Tracked,
-    entries: usize,
-    tracked_identities: usize,
-    boot: Uuid,
-    max_sources: u64,
-) -> Result<Admission> {
-    let (spec, source) = (&tracked.spec, &tracked.source);
-    if let Some(row) = store.source_optional(source.source_id)? {
-        let Some(reader) = row.reader else {
-            return Ok(Admission::Refused("stored source has no transcript".into()));
-        };
-        if serde_json::to_value(&row.source)? != serde_json::to_value(source)? {
-            return Ok(Admission::Refused(
-                "stored source differs from this launch".into(),
-            ));
-        }
-        return Ok(Admission::Ready(SourceFile::open(reader.permit)?));
-    }
-    if !matches!(source.binding.session, SessionIdentity::Remote { boot_id, .. } if boot_id == boot)
-    {
-        return Ok(Admission::Refused(
-            "its session belongs to another boot of this node".into(),
-        ));
-    }
-    let (root, member) = match std::fs::symlink_metadata(&spec.transcript) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Admission::Wait),
-        Err(error) => return Err(error.into()),
-        Ok(metadata) if metadata.is_dir() => (spec.transcript.clone(), None),
-        Ok(_) => (
-            spec.transcript
-                .parent()
-                .context("transcript parent")?
-                .to_path_buf(),
-            Some(
-                (spec.transcript.file_name().and_then(|name| name.to_str()))
-                    .context("transcript file name")?
-                    .to_owned(),
-            ),
-        ),
-    };
-    if std::fs::canonicalize(&root)? != root
-        || std::fs::canonicalize(&spec.authorized_root)? != spec.authorized_root
-    {
-        return Ok(Admission::Refused(
-            "transcript path leaves its authorized root through a link".into(),
-        ));
-    }
-    let discovery = Discovery {
-        source_id: source.source_id,
-        root,
-        native_session_key: source.native_session_key.clone(),
-        format: serde_json::from_value(serde_json::to_value(&source.format)?)?,
-        exact_member: member,
-        maximum_entries: entries,
-        maximum_candidates: DISCOVERY_CANDIDATES,
-    };
-    let resolution = match spec.owner_uid {
-        Some(uid) => discovery.resolve_for_owner(uid)?,
-        None => discovery.resolve()?,
-    };
-    let permit = match resolution {
-        Resolution::Found(permit) => permit,
-        Resolution::Missing | Resolution::NotReady => return Ok(Admission::Wait),
-        other => return Ok(Admission::Refused(format!("transcript refused: {other:?}"))),
-    };
-    if store.source_count()? >= max_sources {
-        // Freed when a finished source is released.
-        return Ok(Admission::Wait);
-    }
-    store.attach_file_engine(source.clone(), tracked_identities, permit.clone())?;
-    Ok(Admission::Ready(SourceFile::open(permit)?))
 }

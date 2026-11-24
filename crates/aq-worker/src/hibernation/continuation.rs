@@ -151,38 +151,7 @@ impl ContinuationBootstrap {
         }
 
         if state.summary.is_none() {
-            let source = fetch_verified(retention, &attachment.retained, ArtifactRole::Source)?;
-            let checkpoint_bytes =
-                fetch_verified(retention, &attachment.retained, ArtifactRole::Checkpoint)?;
-            let checkpoint: Checkpoint =
-                serde_json::from_slice(&checkpoint_bytes).context("retained checkpoint")?;
-            checkpoint.validate()?;
-            require(
-                checkpoint.binding == attachment.predecessor
-                    && checkpoint.continuation == attachment.continuation,
-                "retained checkpoint belongs to another attempt or continuation generation",
-            )?;
-            let archive = SourceArchive::from_bytes(&source)?;
-            let staging = self.layout.work_root.join(".repo.hydrating");
-            remove_dir_if_present(&staging)?;
-            archive.restore(&staging)?;
-            // Only this operation's earlier, unjournaled hydration can be here.
-            remove_dir_if_present(&workspace)?;
-            std::fs::rename(&staging, &workspace)?;
-            let instructions = Instructions {
-                instruction: "Read this continuation, then acknowledge exactly this admission and continuation generation through the scoped AQ API before any other operation.",
-                admission_id: attachment.admission_id,
-                attachment_digest: &digest,
-                continuation: &attachment.continuation,
-                outcome: &attachment.outcome,
-                summary: &checkpoint.claim,
-                pending_operation_ids: &attachment.pending_operation_ids,
-                held_task_message_ids: &attachment.held_task_message_ids,
-            };
-            let path = self.layout.work_root.join(BOOTSTRAP_FILE);
-            std::fs::create_dir_all(path.parent().context("bootstrap dir")?)?;
-            crate::guardian::durable_replace(&path, &serde_json::to_vec_pretty(&instructions)?)?;
-            state.summary = Some(checkpoint.claim);
+            state.summary = Some(self.hydrate(&state, retention)?);
             self.save(&journal, &state, "hydrated")?;
         }
         if !state.launched {
@@ -200,6 +169,43 @@ impl ContinuationBootstrap {
             summary: state.summary.clone().context("hydrated summary")?,
             gate: gate(&state),
         })
+    }
+
+    fn hydrate(&self, state: &State, retention: &impl CentralRetention) -> Result<CheckpointClaim> {
+        let attachment = &state.attachment;
+        let workspace = self.layout.workspace();
+        let source = fetch_verified(retention, &attachment.retained, ArtifactRole::Source)?;
+        let checkpoint_bytes =
+            fetch_verified(retention, &attachment.retained, ArtifactRole::Checkpoint)?;
+        let checkpoint: Checkpoint =
+            serde_json::from_slice(&checkpoint_bytes).context("retained checkpoint")?;
+        checkpoint.validate()?;
+        require(
+            checkpoint.binding == attachment.predecessor
+                && checkpoint.continuation == attachment.continuation,
+            "retained checkpoint belongs to another attempt or continuation generation",
+        )?;
+        let archive = SourceArchive::from_bytes(&source)?;
+        let staging = self.layout.work_root.join(".repo.hydrating");
+        remove_dir_if_present(&staging)?;
+        archive.restore(&staging)?;
+        // Only this operation's earlier, unjournaled hydration can be here.
+        remove_dir_if_present(&workspace)?;
+        std::fs::rename(&staging, &workspace)?;
+        let instructions = Instructions {
+            instruction: "Read this continuation, then acknowledge exactly this admission and continuation generation through the scoped AQ API before any other operation.",
+            admission_id: attachment.admission_id,
+            attachment_digest: &state.attachment_digest,
+            continuation: &attachment.continuation,
+            outcome: &attachment.outcome,
+            summary: &checkpoint.claim,
+            pending_operation_ids: &attachment.pending_operation_ids,
+            held_task_message_ids: &attachment.held_task_message_ids,
+        };
+        let path = self.layout.work_root.join(BOOTSTRAP_FILE);
+        std::fs::create_dir_all(path.parent().context("bootstrap dir")?)?;
+        crate::guardian::durable_replace(&path, &serde_json::to_vec_pretty(&instructions)?)?;
+        Ok(checkpoint.claim)
     }
 
     /// Current gate from the durable journal.

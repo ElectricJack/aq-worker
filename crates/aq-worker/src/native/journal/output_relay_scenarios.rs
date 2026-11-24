@@ -60,9 +60,13 @@ async fn relay(
 async fn ready_output() -> (Inputs, GitPeer, DurablePhaseExecution) {
     let export = synthetic();
     let manifest = export.manifest.clone();
-    let h = Inputs::new_phase_output(export).await;
+    let h = {
+        let _clock = crate::native::http::test_clock::TestClock::new();
+        Inputs::new_phase_output(export).await
+    };
     let git = GitPeer::new(h.root.clone(), manifest);
-    h.grant_window_ms.store(5000, Ordering::SeqCst);
+    h.grant_window_ms
+        .store(HOST_OBSERVATION_WINDOW_MS, Ordering::SeqCst);
     let inputs = phase_join(&h, git.client.clone()).await;
     let snapshot = h.pipeline().snapshot().await.unwrap();
     let a = &snapshot.attempts[&h.id];

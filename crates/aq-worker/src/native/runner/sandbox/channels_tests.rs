@@ -35,6 +35,25 @@ impl Default for Relay {
         }
     }
 }
+impl Relay {
+    fn assert_authenticated_poll(&self, permit: &aq_admission_sandbox::sandbox::DelegatedPermit) {
+        let seen = self.seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let (path, authorization, poll) = &seen[0];
+        assert_eq!(path, "/v1/terminal-relay/poll");
+        assert_eq!(
+            authorization.as_deref(),
+            Some("Bearer fixture_only_not_a_real_secret_00000000")
+        );
+        assert_eq!(poll["hold_ms"], 20_000);
+        assert_eq!(poll["active_subscriptions"], 1);
+        assert_eq!(
+            poll["peer"],
+            json!({"kind":"remote","node_id":permit.binding.node.node_id,
+                "boot_id":permit.binding.node.boot_id})
+        );
+    }
+}
 async fn relay(State(r): State<Relay>, uri: Uri, headers: HeaderMap, body: Bytes) -> Response {
     let poll: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     r.seen.lock().unwrap().push((
@@ -104,23 +123,7 @@ async fn idle_sandbox_holds_no_terminal_poll() {
         channels.poll_terminal().await.is_err(),
         "second concurrent terminal poll for one sandbox"
     );
-    {
-        let seen = state.seen.lock().unwrap();
-        assert_eq!(seen.len(), 1);
-        let (path, authorization, poll) = &seen[0];
-        assert_eq!(path, "/v1/terminal-relay/poll");
-        assert_eq!(
-            authorization.as_deref(),
-            Some("Bearer fixture_only_not_a_real_secret_00000000")
-        );
-        assert_eq!(poll["hold_ms"], 20_000);
-        assert_eq!(poll["active_subscriptions"], 1);
-        assert_eq!(
-            poll["peer"],
-            json!({"kind":"remote","node_id":permit.binding.node.node_id,
-                "boot_id":permit.binding.node.boot_id})
-        );
-    }
+    state.assert_authenticated_poll(&permit);
 
     // Back to idle before the server answers: the loop delivers and holds nothing.
     channels.set_demand(TerminalDemand::default()).unwrap();
@@ -179,33 +182,8 @@ async fn output_runtime_rejects_unrelated_authority_and_releases_held_poll_on_st
             controllers: 0,
         })
         .unwrap();
-    let lane = channels
-        .output_from(
-            crate::native::terminal_output::TerminalOutput::from_blank(
-                aq_session_protocol::TerminalIdentity {
-                    session: http.launch_binding().session,
-                    terminal_id: uuid::Uuid::new_v4(),
-                    epoch: 1,
-                },
-                &aq_session_protocol::TerminalPolicy {
-                    host: aq_session_protocol::TerminalHost::Tmux,
-                    input_enabled: false,
-                    max_input_bytes: 1,
-                    max_pending_input_bytes: 1,
-                    max_frame_bytes: 4,
-                    replay_bytes: 8,
-                },
-                aq_session_protocol::ArtifactRef {
-                    id: aq_session_protocol::Text::new("aq-terminal-renderer").unwrap(),
-                    version: aq_session_protocol::Text::new("0.1.0").unwrap(),
-                    digest: aq_session_protocol::Digest::of(b"fixture"),
-                },
-                40,
-                4,
-            )
-            .unwrap(),
-        )
-        .unwrap();
+    let output = super::output_tests::blank_output(http.launch_binding().session);
+    let lane = channels.output_from(output).unwrap();
     let (_cancel, shutdown) = tokio::sync::watch::channel(false);
     let runtime = OutputRuntime::start(channels.clone(), lane, shutdown);
     arrived.notified().await;

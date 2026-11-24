@@ -66,6 +66,19 @@ impl SourceDownload {
     pub(crate) fn worktree_path(&self) -> Option<&PathBuf> {
         self.worktree.as_ref()
     }
+    fn worktree_matches(&self, attempt_id: Uuid) -> bool {
+        self.worktree_path().is_none_or(|path| {
+            self.manifest.is_some()
+                && self.ranges == 0
+                && *path == self.root.join("worktrees").join(attempt_id.to_string())
+        })
+    }
+    fn undiscovered(&self) -> bool {
+        (self.manifest_offset, self.bundle_offset, self.ranges) == (0, 0, 0)
+            && self.pending.is_none()
+            && self.verified.is_none()
+            && self.operations.is_empty()
+    }
     pub fn ready(&self) -> bool {
         self.worktree_path().is_some() || (self.verified.is_some() && self.complete())
     }
@@ -75,32 +88,42 @@ impl SourceDownload {
         })
     }
 }
+fn transfer_fits(manifest: &TransferManifest, range: u64) -> bool {
+    manifest.bundle_bytes > 0
+        && manifest.manifest_bytes <= 1_048_576
+        && manifest
+            .manifest_bytes
+            .div_ceil(range)
+            .checked_add(manifest.bundle_bytes.div_ceil(range))
+            .is_some_and(|n| n <= u64::from(MAX_RANGES))
+}
 fn transfer(s: &SourceDownload, m: &TransferManifest, attempt: &Attempt) -> Result<()> {
     m.validate()?;
     let b = &attempt.reservation.offer.offered.offer.binding;
+    let attempt_ref = &m.attempt;
     let SessionIdentity::Remote { session_id, .. } = b.session else {
         anyhow::bail!("source remote binding")
     };
     ensure!(
         m.role == SourceRole::Base
             && m.transfer_id == m.artifact_id
-            && m.bundle_bytes > 0
-            && m.manifest_bytes <= 1_048_576
-            && m.manifest_bytes
-                .div_ceil(u64::from(s.range_bytes))
-                .checked_add(m.bundle_bytes.div_ceil(u64::from(s.range_bytes)))
-                .is_some_and(|n| n <= u64::from(MAX_RANGES))
-            && m.attempt.attempt_id == b.attempt_id
-            && m.attempt.session_id == session_id
-            && m.attempt.generation == b.assignment_generation
+            && transfer_fits(m, u64::from(s.range_bytes))
+            && (
+                attempt_ref.attempt_id,
+                attempt_ref.session_id,
+                attempt_ref.generation
+            ) == (b.attempt_id, session_id, b.assignment_generation)
             && m.resolved_spec_digest == b.execution_spec_digest.as_str()
-            && m.source.repository_id == s.spec.source.repository_id
-            && m.source.binding_generation == s.spec.source.repository_binding_generation
-            && m.source.base.hex == s.spec.source.resolved_object.hex
-            && m.checkpoint == m.source.base,
+            && matches_source(m, s.admission()),
         "native source manifest association"
     );
     Ok(())
+}
+fn matches_source(m: &TransferManifest, source: &SourceAdmission) -> bool {
+    (m.source.repository_id, m.source.binding_generation)
+        == (source.repository_id, source.repository_binding_generation)
+        && m.source.base.hex == source.resolved_object.hex
+        && m.checkpoint == m.source.base
 }
 fn request(s: &SourceDownload, key: &str, id: Uuid) -> Result<Value> {
     let b = s.binding()?;
@@ -127,19 +150,107 @@ fn request(s: &SourceDownload, key: &str, id: Uuid) -> Result<Value> {
         _ => anyhow::bail!("unsupported native source operation"),
     })
 }
+fn valid_cursor(offset: u64, size: u64, range: u64) -> bool {
+    offset == size || (offset < size && offset.is_multiple_of(range))
+}
+fn validate_cursors(s: &SourceDownload, a: &Attempt) -> Result<()> {
+    if let Some(m) = &s.manifest {
+        transfer(s, m, a)?;
+        let range_bytes = u64::from(s.range_bytes);
+        ensure!(
+            m.manifest_bytes
+                .checked_add(m.bundle_bytes)
+                .is_some_and(|n| n <= s.reserved_bytes)
+                && valid_cursor(s.manifest_offset, m.manifest_bytes, range_bytes)
+                && valid_cursor(s.bundle_offset, m.bundle_bytes, range_bytes)
+                && (s.bundle_offset == 0 || s.manifest_offset == m.manifest_bytes)
+                && u64::from(s.ranges)
+                    == s.manifest_offset.div_ceil(range_bytes)
+                        + s.bundle_offset.div_ceil(range_bytes)
+                        + u64::from(s.pending.is_some()),
+            "source cursor bounds"
+        );
+    } else {
+        ensure!(s.undiscovered(), "source before discovery");
+    }
+    Ok(())
+}
+fn record_id(ids: &mut BTreeSet<Uuid>, id: Uuid) -> bool {
+    !id.is_nil() && ids.insert(id)
+}
+fn validate_pending(s: &SourceDownload, ids: &mut BTreeSet<Uuid>) -> Result<()> {
+    if let Some(r) = &s.pending {
+        let m = s.manifest.as_ref().context("range without manifest")?;
+        let (offset, size) = match r.file {
+            TransferFile::Manifest => (s.manifest_offset, m.manifest_bytes),
+            TransferFile::Bundle => (s.bundle_offset, m.bundle_bytes),
+        };
+        ensure!(
+            record_id(ids, r.operation_id)
+                && r.offset == offset
+                && r.offset < size
+                && u64::from(r.length) == (size - r.offset).min(u64::from(s.range_bytes))
+                && s.ranges > 0,
+            "source pending range"
+        );
+    }
+    Ok(())
+}
+fn validate_verified(s: &SourceDownload) -> Result<()> {
+    if let Some(native) = &s.verified {
+        let m = s.manifest.as_ref().context("verified without manifest")?;
+        ensure!(
+            s.complete()
+                && s.pending.is_none()
+                && (
+                    native.repository_id,
+                    &native.repository_identity,
+                    native.binding_generation
+                ) == (
+                    m.source.repository_id,
+                    &m.source.logical_identity,
+                    m.source.binding_generation
+                )
+                && native.transfer_id == m.artifact_id
+                && (
+                    native.format_version,
+                    native.object_format.as_str(),
+                    native.reference_only
+                ) == (1, "sha1", false)
+                && (&native.base, &native.source) == (&m.source.base, &m.checkpoint)
+                && (native.bundle_size, &native.bundle_sha256)
+                    == (m.bundle_bytes, &m.bundle_digest),
+            "source verified associations"
+        );
+    }
+    Ok(())
+}
 pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> Result<()> {
     let Some(s) = &a.source else { return Ok(()) };
-    s.preparation
-        .validate(a, s.created_revision, s.created_ns, revision)?;
+    validate_plan(s, a, revision, ids)?;
+    validate_cursors(s, a)?;
+    validate_pending(s, ids)?;
+    validate_verified(s)?;
+    validate_operations(s, ids)
+}
+fn validate_plan(
+    s: &SourceDownload,
+    a: &Attempt,
+    revision: u64,
+    ids: &mut BTreeSet<Uuid>,
+) -> Result<()> {
+    s.preparation.validate(
+        a,
+        super::inputs::Creation::new(s.created_revision, s.created_ns),
+        revision,
+    )?;
     s.spec
         .validate_against(&a.reservation.offer.offered.offer)?;
     ensure!(
         s.spec.artifact()? == s.spec_artifact
             && s.root.is_absolute()
-            && s.reserved_bytes > 0
-            && s.reserved_bytes <= a.reservation.disk_bytes
-            && !s.discovery_id.is_nil()
-            && ids.insert(s.discovery_id)
+            && (1..=a.reservation.disk_bytes).contains(&s.reserved_bytes)
+            && record_id(ids, s.discovery_id)
             && s.ranges <= MAX_RANGES
             && matches!(s.range_bytes, 262144 | 1048576)
             && s.operations.len() <= 5,
@@ -154,94 +265,18 @@ pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> 
         input.receipt.is_some() && input.created_revision <= revision,
         "source spec not verified"
     );
+    let attempt_id = a.reservation.offer.offered.offer.binding.attempt_id;
     ensure!(
-        s.worktree_path().is_none_or(|path| {
-            s.manifest.is_some()
-                && s.ranges == 0
-                && *path
-                    == s.root.join("worktrees").join(
-                        a.reservation
-                            .offer
-                            .offered
-                            .offer
-                            .binding
-                            .attempt_id
-                            .to_string(),
-                    )
-        }),
+        s.worktree_matches(attempt_id),
         "invalid source worktree plan"
     );
-    if let Some(m) = &s.manifest {
-        transfer(s, m, a)?;
-        ensure!(
-            m.manifest_bytes
-                .checked_add(m.bundle_bytes)
-                .is_some_and(|n| n <= s.reserved_bytes)
-                && s.manifest_offset <= m.manifest_bytes
-                && s.bundle_offset <= m.bundle_bytes
-                && (s.bundle_offset == 0 || s.manifest_offset == m.manifest_bytes)
-                && (s.manifest_offset == m.manifest_bytes
-                    || s.manifest_offset % u64::from(s.range_bytes) == 0)
-                && (s.bundle_offset == m.bundle_bytes
-                    || s.bundle_offset % u64::from(s.range_bytes) == 0)
-                && u64::from(s.ranges)
-                    == s.manifest_offset.div_ceil(u64::from(s.range_bytes))
-                        + s.bundle_offset.div_ceil(u64::from(s.range_bytes))
-                        + u64::from(s.pending.is_some()),
-            "source cursor bounds"
-        );
-    } else {
-        ensure!(
-            s.manifest_offset == 0
-                && s.bundle_offset == 0
-                && s.ranges == 0
-                && s.pending.is_none()
-                && s.verified.is_none()
-                && s.operations.is_empty(),
-            "source before discovery"
-        );
-    }
-    if let Some(r) = &s.pending {
-        let m = s.manifest.as_ref().context("range without manifest")?;
-        let (offset, size) = match r.file {
-            TransferFile::Manifest => (s.manifest_offset, m.manifest_bytes),
-            TransferFile::Bundle => (s.bundle_offset, m.bundle_bytes),
-        };
-        ensure!(
-            !r.operation_id.is_nil()
-                && ids.insert(r.operation_id)
-                && r.offset == offset
-                && (1..=s.range_bytes).contains(&r.length)
-                && r.offset < size
-                && u64::from(r.length) == (size - r.offset).min(u64::from(s.range_bytes))
-                && s.ranges > 0,
-            "source pending range"
-        );
-    }
-    if let Some(native) = &s.verified {
-        let m = s.manifest.as_ref().context("verified without manifest")?;
-        ensure!(
-            s.complete()
-                && s.pending.is_none()
-                && native.format_version == 1
-                && native.repository_id == m.source.repository_id
-                && native.repository_identity == m.source.logical_identity
-                && native.binding_generation == m.source.binding_generation
-                && native.transfer_id == m.artifact_id
-                && native.object_format == "sha1"
-                && native.base == m.source.base
-                && native.source == m.checkpoint
-                && native.bundle_size == m.bundle_bytes
-                && native.bundle_sha256 == m.bundle_digest
-                && !native.reference_only,
-            "source verified associations"
-        );
-    }
+    Ok(())
+}
+fn validate_operations(s: &SourceDownload, ids: &mut BTreeSet<Uuid>) -> Result<()> {
     for (key, op) in &s.operations {
         ensure!(
             s.verified.is_some()
-                && !op.operation_id.is_nil()
-                && ids.insert(op.operation_id)
+                && record_id(ids, op.operation_id)
                 && op.request == request(s, key, op.operation_id)?,
             "native Git immutable request"
         );
@@ -262,11 +297,7 @@ impl Journal {
         git: &GitClient,
     ) -> Result<SourceDownload> {
         let now = self.live()?;
-        let a = self
-            .state
-            .attempts
-            .get(&id)
-            .context("unknown native attempt")?;
+        let a = self.attempt(id)?;
         let p = InputOrigin::capture(a)?;
         ensure!(now < p.deadline_ns(), "source preparation expired");
         let parsed = aq_admission::execution_spec::decode_profiled_spec(spec.bytes())?;
@@ -318,7 +349,7 @@ impl Journal {
             worktree: None,
         };
         let mut next = self.next()?;
-        next.attempts.get_mut(&id).unwrap().source = Some(plan.clone());
+        next.attempt_mut(id)?.source = Some(plan.clone());
         self.persist(next)?;
         Ok(plan)
     }
@@ -355,11 +386,9 @@ impl Journal {
         })
     }
     pub(crate) fn source_range(&mut self, id: Uuid) -> Result<SourceRange> {
-        let mut result = None;
         self.source_update(id, |s| {
             if let Some(old) = &s.pending {
-                result = Some(old.clone());
-                return Ok(());
+                return Ok(old.clone());
             }
             let m = s.manifest.as_ref().context("source discovery absent")?;
             let (file, offset, size) = if s.manifest_offset < m.manifest_bytes {
@@ -379,10 +408,8 @@ impl Journal {
             };
             s.ranges += 1;
             s.pending = Some(r.clone());
-            result = Some(r);
-            Ok(())
-        })?;
-        Ok(result.unwrap())
+            Ok(r)
+        })
     }
     pub(crate) fn source_range_synced(&mut self, id: Uuid, r: &SourceRange) -> Result<()> {
         self.source_update(id, |s| {
@@ -403,11 +430,9 @@ impl Journal {
         })
     }
     pub(crate) fn source_operation(&mut self, id: Uuid, key: &str) -> Result<PendingGitOperation> {
-        let mut result = None;
         self.source_update(id, |s| {
             if let Some(old) = s.operations.get(key) {
-                result = Some(old.clone());
-                return Ok(());
+                return Ok(old.clone());
             }
             ensure!(s.verified.is_some(), "source files not verified");
             let operation_id = Uuid::new_v4();
@@ -417,10 +442,8 @@ impl Journal {
                 result: None,
             };
             s.operations.insert(key.into(), op.clone());
-            result = Some(op);
-            Ok(())
-        })?;
-        Ok(result.unwrap())
+            Ok(op)
+        })
     }
     pub(crate) fn source_result(&mut self, id: Uuid, key: &str, result: Value) -> Result<()> {
         self.source_update(id, |s| {
@@ -438,11 +461,11 @@ impl Journal {
             Ok(())
         })
     }
-    fn source_update(
+    fn source_update<T>(
         &mut self,
         id: Uuid,
-        change: impl FnOnce(&mut SourceDownload) -> Result<()>,
-    ) -> Result<()> {
+        change: impl FnOnce(&mut SourceDownload) -> Result<T>,
+    ) -> Result<T> {
         let now = self.live()?;
         let mut next = self.next()?;
         let s = next
@@ -456,10 +479,10 @@ impl Journal {
             now < s.preparation.deadline_ns(),
             "source preparation expired"
         );
-        change(s)?;
-        if same(&next.attempts[&id].source, &self.state.attempts[&id].source)? {
-            return Ok(());
+        let result = change(s)?;
+        if !same(&next.attempts[&id].source, &self.state.attempts[&id].source)? {
+            self.persist(next)?;
         }
-        self.persist(next)
+        Ok(result)
     }
 }

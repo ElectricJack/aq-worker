@@ -91,80 +91,61 @@ struct JoinedInputs {
     retained_inline_bytes: u64,
     startup_bytes: u64,
 }
+// The three public protocols join the same physical inputs and return their own request type.
+macro_rules! prepare_entry {
+    ($name:ident, $accepted:ty, $variant:ident, $prepared:ident, $error:literal) => {
+        pub async fn $name(
+            &self,
+            id: Uuid,
+            preparation: Arc<$accepted>,
+            artifacts: Vec<VerifiedArtifact>,
+            workspace: HydratedWorkspace,
+        ) -> Result<$prepared> {
+            let attempt = InputAttempt {
+                id,
+                preparation: InputContext::$variant(preparation),
+            };
+            let p = self.join_inputs(attempt, artifacts, workspace).await?;
+            let JoinedRequest::$variant(request) = p.request else {
+                anyhow::bail!($error)
+            };
+            Ok($prepared {
+                request,
+                startup: p.startup,
+                workspace: p.workspace,
+                artifacts: p.artifacts,
+                materials: p.materials,
+                retained_inline_bytes: p.retained_inline_bytes,
+                startup_bytes: p.startup_bytes,
+            })
+        }
+    };
+}
 impl InputPipeline {
-    pub async fn prepare_inputs(
-        &self,
-        id: Uuid,
-        preparation: Arc<Preparation>,
-        artifacts: Vec<VerifiedArtifact>,
-        workspace: HydratedWorkspace,
-    ) -> Result<PreparedInputs> {
-        let p = self
-            .join_inputs(id, InputContext::Legacy(preparation), artifacts, workspace)
-            .await?;
-        let JoinedRequest::Legacy(request) = p.request else {
-            anyhow::bail!("legacy join protocol mismatch")
-        };
-        Ok(PreparedInputs {
-            request,
-            startup: p.startup,
-            workspace: p.workspace,
-            artifacts: p.artifacts,
-            materials: p.materials,
-            retained_inline_bytes: p.retained_inline_bytes,
-            startup_bytes: p.startup_bytes,
-        })
-    }
-    pub async fn prepare_inputs_phase(
-        &self,
-        id: Uuid,
-        preparation: Arc<crate::native::http::preparation_v2::AcceptedPreparation>,
-        artifacts: Vec<VerifiedArtifact>,
-        workspace: HydratedWorkspace,
-    ) -> Result<PreparedPhaseInputs> {
-        let p = self
-            .join_inputs(id, InputContext::Phase(preparation), artifacts, workspace)
-            .await?;
-        let JoinedRequest::Phase(request) = p.request else {
-            anyhow::bail!("phase join protocol mismatch")
-        };
-        Ok(PreparedPhaseInputs {
-            retained_inline_bytes: p.retained_inline_bytes,
-            startup_bytes: p.startup_bytes,
-            request,
-            startup: p.startup,
-            workspace: p.workspace,
-            artifacts: p.artifacts,
-            materials: p.materials,
-        })
-    }
-    pub async fn prepare_inputs_refresh(
-        &self,
-        id: Uuid,
-        preparation: Arc<crate::native::http::preparation_refresh_v1::AcceptedPreparation>,
-        artifacts: Vec<VerifiedArtifact>,
-        workspace: HydratedWorkspace,
-    ) -> Result<PreparedRefreshInputs> {
-        let p = self
-            .join_inputs(id, InputContext::Refresh(preparation), artifacts, workspace)
-            .await?;
-        let JoinedRequest::Refresh(request) = p.request else {
-            anyhow::bail!("phase join protocol mismatch")
-        };
-        Ok(PreparedRefreshInputs {
-            retained_inline_bytes: p.retained_inline_bytes,
-            startup_bytes: p.startup_bytes,
-            request,
-            startup: p.startup,
-            workspace: p.workspace,
-            artifacts: p.artifacts,
-            materials: p.materials,
-        })
-    }
+    prepare_entry!(
+        prepare_inputs,
+        Preparation,
+        Legacy,
+        PreparedInputs,
+        "legacy join protocol mismatch"
+    );
+    prepare_entry!(
+        prepare_inputs_phase,
+        Phase,
+        Phase,
+        PreparedPhaseInputs,
+        "phase join protocol mismatch"
+    );
+    prepare_entry!(
+        prepare_inputs_refresh,
+        Refresh,
+        Refresh,
+        PreparedRefreshInputs,
+        "phase join protocol mismatch"
+    );
     async fn join_inputs(
         &self,
-        id: Uuid,
-        preparation: InputContext,
+        InputAttempt { id, preparation }: InputAttempt,
         mut artifacts: Vec<VerifiedArtifact>,
         workspace: HydratedWorkspace,
     ) -> Result<JoinedInputs> {
@@ -187,81 +168,11 @@ impl InputPipeline {
                 workspace.attempt_id() == id && workspace.binding() == preparation.binding(),
                 "Prepare source owner mismatch"
             );
-            ensure!(
-                artifacts.len() == offer.offered.artifacts.len(),
-                "Prepare missing/extra inline input"
-            );
-            let mut total = 0u64;
-            let mut identities = std::collections::BTreeSet::new();
-            for input in &artifacts {
-                total = total
-                    .checked_add(input.bytes().len() as u64)
-                    .context("Prepare input bytes overflow")?;
-                ensure!(
-                    total <= crate::native::MAX_INLINE_SET_BYTES
-                        && identities.insert(input.receipt().artifact.digest),
-                    "Prepare duplicate/oversized inline input"
-                );
-                let expected = offer
-                    .offered
-                    .artifacts
-                    .iter()
-                    .find(|d| d.artifact == input.descriptor.artifact)
-                    .context("Prepare foreign inline input")?;
-                ensure!(
-                    serde_json::to_value(expected)? == serde_json::to_value(&input.descriptor)?,
-                    "Prepare original descriptor mismatch"
-                );
-                let retained = a
-                    .downloads
-                    .values()
-                    .find(|d| d.descriptor.artifact == expected.artifact)
-                    .and_then(|d| d.receipt.as_ref())
-                    .context("Prepare durable verification absent")?;
-                ensure!(
-                    serde_json::to_value(retained)? == serde_json::to_value(input.receipt())?,
-                    "Prepare verification changed"
-                );
-            }
-            let descriptor_id = offer.startup.artifact()?;
-            let descriptor = artifacts.remove(
-                artifacts
-                    .iter()
-                    .position(|d| d.receipt().artifact == descriptor_id)
-                    .context("Prepare startup descriptor absent")?,
-            );
-            let payload = artifacts.remove(
-                artifacts
-                    .iter()
-                    .position(|d| d.receipt().artifact == offer.startup.payload)
-                    .context("Prepare startup payload absent")?,
-            );
-            let startup_bytes = payload.bytes().len() as u64;
-            let retained_inline_bytes =
-                artifacts.iter().try_fold(startup_bytes, |sum, input| {
-                    sum.checked_add(input.bytes().len() as u64)
-                        .context("retained input byte overflow")
-                })?;
-            ensure!(
-                retained_inline_bytes <= crate::native::MAX_INLINE_SET_BYTES,
-                "retained input byte bound"
-            );
-            let startup = crate::native::prepare_startup(offer, descriptor, payload)?;
-            let mut materials = Vec::new();
-            let mut receipts = Vec::new();
-            for lease in preparation.materials() {
-                let pin = a
-                    .material_downloads
-                    .get(&lease.lease_id)
-                    .context("Prepare material intent absent")?
-                    .receipt()?
-                    .context("Prepare installation pin absent")?;
-                let installed = owner.materials.reopen_pinned(&pin)?;
-                let receipt = installed.receipt()?;
-                receipt.validate_against(lease, receipt.received_at_ms)?;
-                materials.push(installed);
-                receipts.push(receipt);
-            }
+            validate_inline(a, &artifacts)?;
+            let (startup, retained_inline_bytes, startup_bytes) =
+                render_startup(offer, &mut artifacts)?;
+            let (materials, receipts) =
+                open_materials(a, &owner.materials, preparation.materials())?;
             workspace.revalidate(&owner.journal)?;
             preparation.check(&owner.journal, id)?;
             let request = match &preparation {
@@ -291,4 +202,101 @@ impl InputPipeline {
         })
         .await
     }
+}
+
+fn validate_inline(
+    a: &crate::native::journal::Attempt,
+    artifacts: &[VerifiedArtifact],
+) -> Result<()> {
+    let offer = &a.reservation.offer;
+    ensure!(
+        artifacts.len() == offer.offered.artifacts.len(),
+        "Prepare missing/extra inline input"
+    );
+    let mut total = 0u64;
+    let mut identities = std::collections::BTreeSet::new();
+    for input in artifacts {
+        total = total
+            .checked_add(input.bytes().len() as u64)
+            .context("Prepare input bytes overflow")?;
+        ensure!(
+            total <= crate::native::MAX_INLINE_SET_BYTES
+                && identities.insert(input.receipt().artifact.digest),
+            "Prepare duplicate/oversized inline input"
+        );
+        let expected = offer
+            .offered
+            .artifacts
+            .iter()
+            .find(|d| d.artifact == input.descriptor.artifact)
+            .context("Prepare foreign inline input")?;
+        ensure!(
+            serde_json::to_value(expected)? == serde_json::to_value(&input.descriptor)?,
+            "Prepare original descriptor mismatch"
+        );
+        let retained = a
+            .downloads
+            .values()
+            .find(|d| d.descriptor.artifact == expected.artifact)
+            .and_then(|d| d.receipt.as_ref())
+            .context("Prepare durable verification absent")?;
+        ensure!(
+            serde_json::to_value(retained)? == serde_json::to_value(input.receipt())?,
+            "Prepare verification changed"
+        );
+    }
+    Ok(())
+}
+
+fn render_startup(
+    offer: &aq_admission::startup::NativeOffer,
+    artifacts: &mut Vec<VerifiedArtifact>,
+) -> Result<(RenderedStartup, u64, u64)> {
+    let descriptor_id = offer.startup.artifact()?;
+    let descriptor = artifacts.remove(
+        artifacts
+            .iter()
+            .position(|d| d.receipt().artifact == descriptor_id)
+            .context("Prepare startup descriptor absent")?,
+    );
+    let payload = artifacts.remove(
+        artifacts
+            .iter()
+            .position(|d| d.receipt().artifact == offer.startup.payload)
+            .context("Prepare startup payload absent")?,
+    );
+    let startup_bytes = payload.bytes().len() as u64;
+    let retained_inline_bytes = artifacts.iter().try_fold(startup_bytes, |sum, input| {
+        sum.checked_add(input.bytes().len() as u64)
+            .context("retained input byte overflow")
+    })?;
+    ensure!(
+        retained_inline_bytes <= crate::native::MAX_INLINE_SET_BYTES,
+        "retained input byte bound"
+    );
+    let startup = crate::native::prepare_startup(offer, descriptor, payload)?;
+    Ok((startup, retained_inline_bytes, startup_bytes))
+}
+
+fn open_materials(
+    a: &crate::native::journal::Attempt,
+    store: &MaterialStore,
+    leases: &[aq_admission::MaterialLease],
+) -> Result<(Vec<InstalledMaterial>, Vec<MaterialReceipt>)> {
+    let mut materials = Vec::new();
+    let mut receipts = Vec::new();
+    for lease in leases {
+        let pin = a
+            .material_downloads
+            .get(&lease.lease_id)
+            .context("Prepare material intent absent")?
+            .receipt()?
+            .context("Prepare installation pin absent")?;
+        let installed = store.reopen_pinned(&pin)?;
+        let receipt = installed.receipt()?;
+        receipt.validate_against(lease, receipt.received_at_ms)?;
+        materials.push(installed);
+        receipts.push(receipt);
+    }
+    Ok((materials, receipts))
 }

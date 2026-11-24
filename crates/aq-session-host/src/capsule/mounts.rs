@@ -191,7 +191,10 @@ fn no_submounts(path: &Path, file: &File) -> Result<()> {
         .take(MAX_MOUNTINFO as u64 + 1)
         .read_to_end(&mut body)?;
     ensure!(body.len() <= MAX_MOUNTINFO, "capsule mountinfo byte bound");
-    let body = std::str::from_utf8(&body)?;
+    verify_mountinfo(path, id, &body)
+}
+fn verify_mountinfo(path: &Path, id: u64, body: &[u8]) -> Result<()> {
+    let body = std::str::from_utf8(body)?;
     let mut seen = false;
     let mut count = 0;
     for line in body.lines() {
@@ -224,6 +227,51 @@ fn pivot() -> Result<()> {
     std::fs::remove_dir("/.old-root")?;
     Ok(())
 }
+fn attach_grant(record: &GrantRecord, source: &File) -> Result<()> {
+    let anchor = anchor(&record.source, &record.pin, source)?;
+    no_submounts(&record.source, &anchor)?;
+    let target = PathBuf::from(record.target.relative()?);
+    std::fs::create_dir_all(&target)?;
+    let tree = unsafe {
+        libc::syscall(
+            libc::SYS_open_tree,
+            anchor.as_raw_fd(),
+            c"".as_ptr(),
+            libc::AT_EMPTY_PATH | 1 | libc::O_CLOEXEC,
+        )
+    };
+    ensure!(
+        tree >= 0,
+        "capsule retained open_tree: {}",
+        std::io::Error::last_os_error()
+    );
+    let tree = unsafe { OwnedFd::from_raw_fd(tree as RawFd) };
+    let target_path = cpath(&target)?;
+    ensure!(
+        unsafe {
+            libc::syscall(
+                libc::SYS_move_mount,
+                tree.as_raw_fd(),
+                c"".as_ptr(),
+                libc::AT_FDCWD,
+                target_path.as_ptr(),
+                4u32,
+            )
+        } == 0,
+        "capsule exact grant attachment"
+    );
+    mount(
+        None,
+        &target,
+        None,
+        libc::MS_BIND
+            | libc::MS_REMOUNT
+            | libc::MS_NOSUID
+            | libc::MS_NODEV
+            | if record.writable { 0 } else { libc::MS_RDONLY },
+    )?;
+    Ok(())
+}
 pub(super) fn enter(plan: &PlanRecord, files: &[File]) -> Result<()> {
     private()?;
     let target = root_anchor(plan, &files[2])?;
@@ -236,48 +284,7 @@ pub(super) fn enter(plan: &PlanRecord, files: &[File]) -> Result<()> {
         std::fs::create_dir(name)?;
     }
     for (record, source) in plan.grants.iter().zip(&files[3..]) {
-        let anchor = anchor(&record.source, &record.pin, source)?;
-        no_submounts(&record.source, &anchor)?;
-        let target = PathBuf::from(record.target.relative()?);
-        std::fs::create_dir_all(&target)?;
-        let tree = unsafe {
-            libc::syscall(
-                libc::SYS_open_tree,
-                anchor.as_raw_fd(),
-                c"".as_ptr(),
-                libc::AT_EMPTY_PATH | 1 | libc::O_CLOEXEC,
-            )
-        };
-        ensure!(
-            tree >= 0,
-            "capsule retained open_tree: {}",
-            std::io::Error::last_os_error()
-        );
-        let tree = unsafe { OwnedFd::from_raw_fd(tree as RawFd) };
-        let target_path = cpath(&target)?;
-        ensure!(
-            unsafe {
-                libc::syscall(
-                    libc::SYS_move_mount,
-                    tree.as_raw_fd(),
-                    c"".as_ptr(),
-                    libc::AT_FDCWD,
-                    target_path.as_ptr(),
-                    4u32,
-                )
-            } == 0,
-            "capsule exact grant attachment"
-        );
-        mount(
-            None,
-            &target,
-            None,
-            libc::MS_BIND
-                | libc::MS_REMOUNT
-                | libc::MS_NOSUID
-                | libc::MS_NODEV
-                | if record.writable { 0 } else { libc::MS_RDONLY },
-        )?;
+        attach_grant(record, source)?;
     }
     pivot()?;
     mount(
@@ -381,4 +388,53 @@ pub(super) fn probe(base: &Path) -> Result<()> {
         "capsule pivot lost FD root"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mountinfo_requires_source_id_and_refuses_only_descendant_mounts() {
+        let body = b"7 1 0:1 / / rw - tmpfs tmpfs rw\n8 7 0:2 / /grant rw - tmpfs tmpfs rw\n9 7 0:3 / /grant-other rw - tmpfs tmpfs rw\n";
+        assert!(verify_mountinfo(Path::new("/grant"), 8, body).is_ok());
+        assert!(verify_mountinfo(Path::new("/grant"), 10, body).is_err());
+        let mut submount = body.to_vec();
+        submount.extend_from_slice(b"10 8 0:4 / /grant/child rw - tmpfs tmpfs rw\n");
+        assert!(verify_mountinfo(Path::new("/grant"), 8, &submount).is_err());
+    }
+
+    #[test]
+    fn mountinfo_decodes_escaped_paths_and_rejects_malformed_rows() {
+        assert_eq!(
+            decode_path(r"/grant\040space\011tab\012line\134slash").unwrap(),
+            Path::new("/grant space\ttab\nline\\slash")
+        );
+        assert!(
+            verify_mountinfo(
+                Path::new("/grant space"),
+                8,
+                b"8 1 0:1 / /grant\\040space/child rw - tmpfs tmpfs rw\n"
+            )
+            .is_err()
+        );
+        for body in [
+            b"8 1 0:1 / /grant".as_slice(),
+            b"invalid 1 0:1 / /grant rw",
+            b"8 1 0:1 / /grant\\04 rw",
+            b"8 1 0:1 / /grant\\041 rw",
+            b"8 1 0:1 / /grant\xff rw",
+        ] {
+            assert!(verify_mountinfo(Path::new("/grant"), 8, body).is_err());
+        }
+    }
+
+    #[test]
+    fn mountinfo_row_bound_is_inclusive() {
+        let row = "8 1 0:1 / /grant rw - tmpfs tmpfs rw\n";
+        let mut body = row.repeat(MAX_MOUNTS);
+        assert!(verify_mountinfo(Path::new("/grant"), 8, body.as_bytes()).is_ok());
+        body.push_str(row);
+        assert!(verify_mountinfo(Path::new("/grant"), 8, body.as_bytes()).is_err());
+    }
 }

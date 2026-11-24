@@ -7,6 +7,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::time::Duration;
 use zeroize::Zeroizing;
 
+pub type TerminalStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
 pub struct ServerLink {
     origin: url::Url,
     credential: Zeroizing<String>,
@@ -37,10 +40,8 @@ impl LinkError {
 /// no userinfo, query, fragment or path.
 pub fn checked_origin(origin: &str) -> Result<url::Url> {
     let origin = url::Url::parse(origin).map_err(|_| anyhow::anyhow!("invalid server origin"))?;
-    let loopback = matches!(origin.host(), Some(url::Host::Ipv4(ip)) if ip.is_loopback() && ip.octets() == [127, 0, 0, 1])
-        || matches!(origin.host(), Some(url::Host::Ipv6(ip)) if ip.is_loopback());
     ensure!(
-        origin.scheme() == "https" || (origin.scheme() == "http" && loopback),
+        secure_transport(&origin),
         "the server origin must be https (plain http only to 127.0.0.1 or ::1)"
     );
     ensure!(
@@ -54,55 +55,36 @@ pub fn checked_origin(origin: &str) -> Result<url::Url> {
     );
     Ok(origin)
 }
+fn secure_transport(origin: &url::Url) -> bool {
+    let local = match origin.host() {
+        Some(url::Host::Ipv4(ip)) => ip == std::net::Ipv4Addr::LOCALHOST,
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        _ => false,
+    };
+    origin.scheme() == "https" || (origin.scheme() == "http" && local)
+}
+
 impl ServerLink {
     /// A bounded, original-node WebSocket. Never follows a redirect or exposes credentials to a sandbox.
-    pub async fn terminal_stream(
-        &self,
-        id: uuid::Uuid,
-    ) -> Result<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    > {
+    pub async fn terminal_stream(&self, id: uuid::Uuid) -> Result<TerminalStream> {
         self.terminal_stream_path(&format!("/v1/worker/manual-agents/{id}/terminal-stream"))
             .await
     }
     /// The live terminal of a queued attempt this node runs.
-    pub async fn attempt_terminal_stream(
-        &self,
-        id: uuid::Uuid,
-    ) -> Result<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    > {
+    pub async fn attempt_terminal_stream(&self, id: uuid::Uuid) -> Result<TerminalStream> {
         self.terminal_stream_path(&format!(
             "/v1/worker/attempt-terminals/{id}/terminal-stream"
         ))
         .await
     }
-    pub async fn host_terminal_stream(
-        &self,
-        id: uuid::Uuid,
-    ) -> Result<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    > {
+    pub async fn host_terminal_stream(&self, id: uuid::Uuid) -> Result<TerminalStream> {
         self.terminal_stream_path(&format!("/v1/worker/host-terminals/{id}/terminal-stream"))
             .await
     }
     pub async fn host_terminal_poll(&self, body: &serde_json::Value) -> Result<serde_json::Value> {
         self.post("/v1/worker/host-terminals", body).await
     }
-    async fn terminal_stream_path(
-        &self,
-        path: &str,
-    ) -> Result<
-        tokio_tungstenite::WebSocketStream<
-            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-        >,
-    > {
+    async fn terminal_stream_path(&self, path: &str) -> Result<TerminalStream> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         let mut url = self.origin.join(path)?;
         let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
@@ -376,7 +358,7 @@ pub fn default_machine_key(hostname: &str) -> Option<String> {
         .to_lowercase()
         .bytes()
         .map(|b| {
-            if b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' {
+            if matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-') {
                 b as char
             } else {
                 '-'

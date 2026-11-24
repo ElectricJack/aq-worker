@@ -45,18 +45,26 @@ struct Begin<'a> {
     manifest: &'a TransferManifest,
 }
 
+fn validate_coordinator_url(value: &str) -> Result<()> {
+    let url = reqwest::Url::parse(value)
+        .map_err(|_| anyhow::anyhow!("invalid source coordinator URL"))?;
+    ensure!(
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none(),
+        "invalid source transport configuration"
+    );
+    Ok(())
+}
+
 impl TransferClient {
     pub fn from_config(config: &WorkerConfig, max_bulk: usize) -> Result<Self> {
-        let url = reqwest::Url::parse(&config.server_url)
-            .map_err(|_| anyhow::anyhow!("invalid source coordinator URL"))?;
+        validate_coordinator_url(&config.server_url)?;
         ensure!(
-            matches!(url.scheme(), "http" | "https")
-                && url.host_str().is_some()
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.query().is_none()
-                && url.fragment().is_none()
-                && !config.node_id.is_nil()
+            !config.node_id.is_nil()
                 && !config.credential.is_empty()
                 && (1..=8).contains(&max_bulk),
             "invalid source transport configuration"
@@ -65,11 +73,9 @@ impl TransferClient {
             config.cf_client_id.is_some() == config.cf_client_secret.is_some(),
             "incomplete machine authentication configuration"
         );
-        let secret_header = |value: &str| -> Result<header::HeaderValue> {
-            let mut value = header::HeaderValue::from_str(value)
-                .map_err(|_| anyhow::anyhow!("invalid protected transport header"))?;
-            value.set_sensitive(true);
-            Ok(value)
+        let secret_header = |value: &str| {
+            crate::client::secret_header(value)
+                .map_err(|_| anyhow::anyhow!("invalid protected transport header"))
         };
         let credential = secret_header(&format!("Bearer {}", config.credential))?;
         let mut headers = header::HeaderMap::new();
@@ -189,39 +195,44 @@ impl TransferClient {
         Ok(response)
     }
 
-    /// Recovery/status has no bulk semaphore and cannot consume its admission
-    /// slots. The durable owner still limits outstanding status operations.
-    pub async fn status(&self, request: &TransferStatusRequest) -> Result<TransferStatus> {
+    async fn fetch_status(
+        &self,
+        request: &TransferStatusRequest,
+        finalize: bool,
+    ) -> Result<TransferStatus> {
         self.identity(&request.identity)?;
         request.validate()?;
+        let (_permit, route, timeout) = if finalize {
+            (Some(self.bulk_permit()?), "finalize", 40)
+        } else {
+            (None, "status", 5)
+        };
         let response: TransferStatus = Self::json(
-            self.request(Method::POST, "status")
-                .timeout(Duration::from_secs(5))
+            self.request(Method::POST, route)
+                .timeout(Duration::from_secs(timeout))
                 .json(request),
         )
         .await?;
-        ensure!(
-            response.transfer_id == request.transfer_id,
-            "source status association mismatch"
-        );
+        let associated = response.transfer_id == request.transfer_id;
+        if finalize {
+            ensure!(
+                associated && response.receipt.is_some(),
+                "source finalize retention remains unconfirmed"
+            );
+        } else {
+            ensure!(associated, "source status association mismatch");
+        }
         Ok(response)
     }
 
+    /// Recovery/status has no bulk semaphore and cannot consume its admission
+    /// slots. The durable owner still limits outstanding status operations.
+    pub async fn status(&self, request: &TransferStatusRequest) -> Result<TransferStatus> {
+        self.fetch_status(request, false).await
+    }
+
     pub async fn finalize(&self, request: &TransferStatusRequest) -> Result<TransferStatus> {
-        self.identity(&request.identity)?;
-        request.validate()?;
-        let _permit = self.bulk_permit()?;
-        let response: TransferStatus = Self::json(
-            self.request(Method::POST, "finalize")
-                .timeout(Duration::from_secs(40))
-                .json(request),
-        )
-        .await?;
-        ensure!(
-            response.transfer_id == request.transfer_id && response.receipt.is_some(),
-            "source finalize retention remains unconfirmed"
-        );
-        Ok(response)
+        self.fetch_status(request, true).await
     }
 
     pub async fn upload(

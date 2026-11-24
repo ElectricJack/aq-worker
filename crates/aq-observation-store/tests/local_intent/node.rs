@@ -456,31 +456,7 @@ fn a_missing_or_refused_transcript_is_incomplete_and_never_delays_the_others() {
 fn a_restart_resends_only_the_unacknowledged_batch_and_resumes_the_surviving_source() {
     let temp = tempfile::tempdir().unwrap();
     let server = Server::on(6);
-    server.state().down = true;
-    let (node, observations, log) = start(&temp, 6, &server);
-    let old = transcripts(&temp, "old");
-    let first = observations
-        .register(spec(4, 6, &old.join("a.jsonl"), "a"))
-        .unwrap();
-    append(&old.join("a.jsonl"), &line("a", 1, false));
-    // Unreachable at start: retried, and nothing was lost meanwhile.
-    wait("a refused handshake", || {
-        (log.lock().unwrap().iter()).any(|l| l.contains("not active"))
-    });
-    assert!(server.state().calls.is_empty());
-    server.state().down = false;
-    wait("the acknowledged batch", || {
-        server.state().events.len() == 2
-    });
-    server.state().lose = true;
-    append(&old.join("a.jsonl"), &line("a", 2, true));
-    wait("the batch whose receipt is lost", || server.state().down);
-    node.shutdown();
-    let first_id = first.source_id();
-    drop(first);
-    assert_eq!(sequences(&server), [1, 2, 3]);
-    assert_eq!(server.state().calls, ["prepare", "activate"]);
-
+    let (old, first_id) = lose_first_boot_receipt(&temp, &server);
     // The worker restarts: the server admits a new boot of the node.
     {
         let mut state = server.state();
@@ -511,50 +487,7 @@ fn a_restart_resends_only_the_unacknowledged_batch_and_resumes_the_surviving_sou
             == 5
     });
     assert_eq!(resumed.status(), Some(SourceStatus::Collecting));
-    {
-        let state = server.state();
-        assert_eq!(state.calls, ["prepare", "activate", "boot"]);
-        let expected: Vec<u64> = (1..=state.events.len() as u64).collect();
-        assert_eq!(
-            state
-                .events
-                .iter()
-                .map(|e| e.body.sequence)
-                .collect::<Vec<_>>(),
-            expected,
-            "no duplicate and no missing sequence across the restart"
-        );
-        // The lost-receipt batch was sent twice, byte for byte; every other once.
-        let mut sent: BTreeMap<&[u8], usize> = BTreeMap::new();
-        for post in &state.posts {
-            *sent.entry(post.as_slice()).or_default() += 1;
-        }
-        let lost = &state.posts[1];
-        assert_eq!(sent[lost.as_slice()], 2);
-        assert_eq!(sent.values().filter(|n| **n != 1).count(), 1);
-        // Resumed, not fenced: no gap record, no event twice, generation 1.
-        assert!(state.events.iter().all(|e| kind(e) != "gap"));
-        let ids: BTreeSet<Uuid> = state.events.iter().map(|e| e.event_id).collect();
-        assert_eq!(ids.len(), state.events.len());
-        let own: Vec<String> = (state.events.iter())
-            .filter(|e| e.body.provenance.source_id == first_id)
-            .map(kind)
-            .collect();
-        assert_eq!(
-            own,
-            [
-                "text_reference",
-                "tool_started",
-                "tool_result",
-                "text_reference",
-                "tool_started"
-            ]
-        );
-        assert!(
-            (state.events.iter()).all(|e| e.body.provenance.source_generation == 1),
-            "same source, generation 1"
-        );
-    }
+    assert_resumed_delivery(&server.state(), first_id);
     // Finished and earlier-boot sources leave the store once acknowledged.
     drop((second, resumed));
     wait("release", || {
@@ -761,4 +694,77 @@ fn a_node_restarts_past_64_boots_and_a_stale_boot_still_cannot_write() {
     let mut intent = LocalIntent::open(&root, Uuid::from_u128(1070)).unwrap();
     intent.resume(&mut peer).unwrap();
     intent.with_active(|store| store.audit()).unwrap();
+}
+
+fn assert_resumed_delivery(state: &State, first_id: Uuid) {
+    assert_eq!(state.calls, ["prepare", "activate", "boot"]);
+    let expected: Vec<u64> = (1..=state.events.len() as u64).collect();
+    assert_eq!(
+        state
+            .events
+            .iter()
+            .map(|e| e.body.sequence)
+            .collect::<Vec<_>>(),
+        expected,
+        "no duplicate and no missing sequence across the restart"
+    );
+    // The lost-receipt batch was sent twice, byte for byte; every other once.
+    let mut sent: BTreeMap<&[u8], usize> = BTreeMap::new();
+    for post in &state.posts {
+        *sent.entry(post.as_slice()).or_default() += 1;
+    }
+    let lost = &state.posts[1];
+    assert_eq!(sent[lost.as_slice()], 2);
+    assert_eq!(sent.values().filter(|n| **n != 1).count(), 1);
+    // Resumed, not fenced: no gap record, no event twice, generation 1.
+    assert!(state.events.iter().all(|e| kind(e) != "gap"));
+    let ids: BTreeSet<Uuid> = state.events.iter().map(|e| e.event_id).collect();
+    assert_eq!(ids.len(), state.events.len());
+    let own: Vec<String> = (state.events.iter())
+        .filter(|e| e.body.provenance.source_id == first_id)
+        .map(kind)
+        .collect();
+    assert_eq!(
+        own,
+        [
+            "text_reference",
+            "tool_started",
+            "tool_result",
+            "text_reference",
+            "tool_started"
+        ]
+    );
+    assert!(
+        (state.events.iter()).all(|e| e.body.provenance.source_generation == 1),
+        "same source, generation 1"
+    );
+}
+
+fn lose_first_boot_receipt(temp: &tempfile::TempDir, server: &Server) -> (PathBuf, Uuid) {
+    server.state().down = true;
+    let (node, observations, log) = start(temp, 6, server);
+    let old = transcripts(temp, "old");
+    let first = observations
+        .register(spec(4, 6, &old.join("a.jsonl"), "a"))
+        .unwrap();
+    append(&old.join("a.jsonl"), &line("a", 1, false));
+    // Unreachable at start: retried, and nothing was lost meanwhile.
+    wait("a refused handshake", || {
+        (log.lock().unwrap().iter()).any(|l| l.contains("not active"))
+    });
+    assert!(server.state().calls.is_empty());
+    server.state().down = false;
+    wait("the acknowledged batch", || {
+        server.state().events.len() == 2
+    });
+    server.state().lose = true;
+    append(&old.join("a.jsonl"), &line("a", 2, true));
+    wait("the batch whose receipt is lost", || server.state().down);
+    node.shutdown();
+    let first_id = first.source_id();
+    drop(first);
+    assert_eq!(sequences(server), [1, 2, 3]);
+    assert_eq!(server.state().calls, ["prepare", "activate"]);
+
+    (old, first_id)
 }

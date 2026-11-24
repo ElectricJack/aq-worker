@@ -64,6 +64,9 @@ pub struct Ownership {
     pub attempt_id: Uuid,
 }
 impl Ownership {
+    fn has_ids(&self) -> bool {
+        ![self.node_id, self.boot_id, self.attempt_id].contains(&Uuid::nil())
+    }
     /// Boot is a label, not part of the name: a new boot must discover old work.
     pub fn deterministic_name(&self) -> String {
         format!("aq-{}-{}", self.node_id.simple(), self.attempt_id.simple())
@@ -119,12 +122,8 @@ impl CreateRequest {
         self
     }
     pub fn validate(&self) -> Result<(), BackendError> {
-        if self.name != self.owner.deterministic_name()
-            || self.hard_deadline_ms == 0
-            || self.owner.node_id.is_nil()
-            || self.owner.boot_id.is_nil()
-            || self.owner.attempt_id.is_nil()
-        {
+        let valid_owner = self.owner.has_ids() && self.name == self.owner.deterministic_name();
+        if !valid_owner || self.hard_deadline_ms == 0 {
             return Err(BackendError::InvalidRequest(
                 "invalid identity, name or deadline",
             ));
@@ -159,11 +158,10 @@ pub struct ResourceLimits {
 }
 impl ResourceLimits {
     pub fn validate(&self) -> Result<(), BackendError> {
-        if self.cpu_millis == 0
-            || self.pids == 0
-            || self.memory_bytes < MIN_MEMORY_BYTES
-            || self.disk_bytes == Some(0)
-        {
+        let has_compute = self.cpu_millis > 0 && self.pids > 0;
+        let has_memory_and_disk =
+            self.memory_bytes >= MIN_MEMORY_BYTES && self.disk_bytes != Some(0);
+        if !has_compute || !has_memory_and_disk {
             return Err(BackendError::InvalidRequest("invalid reservation limits"));
         }
         Ok(())

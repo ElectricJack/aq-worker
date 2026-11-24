@@ -1,5 +1,5 @@
 //! Native synthetic host lifecycle history. Loading it never grants execution.
-use super::*;
+use super::{phase_view::PhaseScope, *};
 use aq_session_host::{GuardianIdentity, HostObservation, HostPhase, LaunchIntent as HostIntent};
 use aq_session_protocol::TerminalIdentity;
 #[derive(Clone, Serialize, Deserialize)]
@@ -134,186 +134,271 @@ impl NativeLaunchIntent {
     }
 }
 pub(super) fn validate(a: &Attempt, revision: u64, ids: &mut BTreeSet<Uuid>) -> Result<()> {
-    let Some(h) = &a.native_host else {
+    let Some(history) = &a.native_host else {
         return Ok(());
     };
-    let i = &h.intent;
+    let intent = &history.intent;
     ensure!(
-        ids.insert(i.started_operation_id) && ids.insert(i.stopped_operation_id),
+        ids.insert(intent.started_operation_id) && ids.insert(intent.stopped_operation_id),
         "native report operation ID reused"
     );
     let execution = a.phase_scope()?;
-    let r = &a.reservation;
-    i.binding.validate()?;
-    i.terminal.validate()?;
-    ensure!(
-        i.execution_digest == execution.digest
-            && i.binding == r.offer.offered.offer.binding
-            && i.grant_id == execution.grant.grant_id
-            && i.logical_guardian_id == execution.guardian_id
-            && i.launch_id == execution.launch_id
-            && i.reservation_id == r.reservation_id
-            && same(&i.runtime, &r.runtime)?
-            && i.terminal.session == i.binding.session
-            && i.terminal.epoch == 1,
-        "native host exact execution scope"
-    );
-    ensure!(
-        !i.started_operation_id.is_nil()
-            && !i.stopped_operation_id.is_nil()
-            && i.started_operation_id != i.stopped_operation_id
-            && i.created_revision >= execution.record_revision
-            && i.created_revision < revision
-            && i.created_ns >= execution.observed_before_write_ns
-            && i.created_ns < i.deadline_ns
-            && i.deadline_ns <= execution.deadline_ns
-            && i.deadline_ns <= i.hard_deadline_ns
-            && i.hard_deadline_ns <= execution.hard_deadline_ns
-            && i.root_inode > 0
-            && i.pid_namespace.len() <= 128
-            && i.pid_namespace.starts_with("pid:[")
-            && i.pid_namespace.ends_with(']')
-            && i.host_root.is_absolute()
-            && i.host_root.as_os_str().len() <= 2048
-            && i.columns > 0
-            && i.columns <= 240
-            && i.rows > 0
-            && i.rows <= 120
-            && u32::from(i.columns) * u32::from(i.rows) <= 12000,
-        "native host bounds/clock"
-    );
-    for reference in [&i.executable, &i.helper, &i.tmux, &i.renderer] {
-        reference.id.validate()?;
-        reference.version.validate()?;
-    }
-    if let Some(host) = &h.host_intent {
+    intent.validate_scope(&a.reservation, &execution)?;
+    intent.validate_bounds(&execution, revision)?;
+    history.validate_host(execution.kernel_boot_id)?;
+    history.validate_closure(revision)?;
+    history.validate_baseline()?;
+    history.validate_running(revision)?;
+    history.validate_stopped(execution.kernel_boot_id, revision)
+}
+impl NativeLaunchIntent {
+    fn validate_scope(&self, r: &Reservation, execution: &PhaseScope<'_>) -> Result<()> {
+        self.binding.validate()?;
+        self.terminal.validate()?;
         ensure!(
-            host.launch_id == i.launch_id
-                && host.session == i.binding.session
-                && host.manifest_digest == i.binding.launch_manifest_digest,
-            "host configuration binding"
+            self.execution_digest == execution.digest
+                && self.binding == r.offer.offered.offer.binding
+                && self.grant_id == execution.grant.grant_id
+                && self.logical_guardian_id == execution.guardian_id
+                && self.launch_id == execution.launch_id
+                && self.reservation_id == r.reservation_id,
+            "native host exact execution scope"
         );
-    }
-    if let Some(g) = &h.guardian {
         ensure!(
-            h.host_intent.as_ref() == Some(&g.intent)
-                && g.process.pid > 0
-                && g.process.start_ticks > 0
-                && !g.nonce.is_nil()
-                && g.nonce != i.logical_guardian_id
-                && g.pid_namespace == i.pid_namespace
-                && Uuid::parse_str(&g.machine_boot_id)? == execution.kernel_boot_id,
-            "physical guardian binding"
+            same(&self.runtime, &r.runtime)?
+                && self.terminal.session == self.binding.session
+                && self.terminal.epoch == 1,
+            "native host exact execution scope"
         );
+        Ok(())
     }
-    ensure!(
-        !h.start_intended || h.guardian.is_some(),
-        "start before guardian"
-    );
-    if let Some(c) = &h.closure {
+    fn validate_bounds(&self, execution: &PhaseScope<'_>, revision: u64) -> Result<()> {
+        ensure!(
+            !self.started_operation_id.is_nil()
+                && !self.stopped_operation_id.is_nil()
+                && self.started_operation_id != self.stopped_operation_id
+                && (execution.record_revision..revision).contains(&self.created_revision)
+                && (execution.observed_before_write_ns..self.deadline_ns)
+                    .contains(&self.created_ns)
+                && self.deadline_ns <= execution.deadline_ns
+                && (self.deadline_ns..=execution.hard_deadline_ns).contains(&self.hard_deadline_ns),
+            "native host bounds/clock"
+        );
+        self.validate_geometry()?;
+        for reference in [&self.executable, &self.helper, &self.tmux, &self.renderer] {
+            reference.id.validate()?;
+            reference.version.validate()?;
+        }
+        Ok(())
+    }
+    fn validate_geometry(&self) -> Result<()> {
+        ensure!(
+            self.root_inode > 0
+                && self.pid_namespace.len() <= 128
+                && self.pid_namespace.starts_with("pid:[")
+                && self.pid_namespace.ends_with(']')
+                && self.host_root.is_absolute()
+                && self.host_root.as_os_str().len() <= 2048,
+            "native host bounds/clock"
+        );
+        ensure!(
+            (1..=240).contains(&self.columns)
+                && (1..=120).contains(&self.rows)
+                && u32::from(self.columns) * u32::from(self.rows) <= 12000,
+            "native host bounds/clock"
+        );
+        Ok(())
+    }
+    fn contains_revision(&self, saved: u64, current: u64) -> bool {
+        saved > self.created_revision && saved <= current
+    }
+    fn report_ids(&self) -> [Uuid; 4] {
+        [
+            self.grant_id,
+            self.logical_guardian_id,
+            self.launch_id,
+            self.reservation_id,
+        ]
+    }
+    fn permits(&self, observation: &HostObservation) -> bool {
+        observation.permit_deadline_boot_ms
+            <= self.deadline_ns.min(self.hard_deadline_ns) / 1_000_000
+    }
+}
+impl NativeHostHistory {
+    fn validate_host(&self, boot: Uuid) -> Result<()> {
+        self.validate_configuration()?;
+        if let Some(g) = &self.guardian {
+            ensure!(
+                self.host_intent.as_ref() == Some(&g.intent)
+                    && g.process.pid > 0
+                    && g.process.start_ticks > 0
+                    && self.matches_guardian(g, boot)?,
+                "physical guardian binding"
+            );
+        }
+        ensure!(
+            !self.start_intended || self.guardian.is_some(),
+            "start before guardian"
+        );
+        Ok(())
+    }
+    fn validate_configuration(&self) -> Result<()> {
+        let i = &self.intent;
+        if let Some(host) = &self.host_intent {
+            ensure!(
+                host.launch_id == i.launch_id
+                    && host.session == i.binding.session
+                    && host.manifest_digest == i.binding.launch_manifest_digest,
+                "host configuration binding"
+            );
+        }
+        Ok(())
+    }
+    fn matches_guardian(&self, guardian: &GuardianIdentity, boot: Uuid) -> Result<bool> {
+        Ok(!guardian.nonce.is_nil()
+            && guardian.nonce != self.intent.logical_guardian_id
+            && guardian.pid_namespace == self.intent.pid_namespace
+            && Uuid::parse_str(&guardian.machine_boot_id)? == boot)
+    }
+    fn before_started(&self) -> bool {
+        self.running.is_none()
+            && self.started_receipt.is_none()
+            && self.terminal.is_none()
+            && self.refresh_terminal.is_none()
+    }
+    fn validate_closure(&self, revision: u64) -> Result<()> {
+        let Some(c) = &self.closure else {
+            return Ok(());
+        };
+        let i = &self.intent;
         let q = c.request.original();
         c.request.validate()?;
+        ensure!(self.before_started(), "launch closure scope");
         ensure!(
-            h.running.is_none()
-                && h.started_receipt.is_none()
-                && h.terminal.is_none()
-                && h.refresh_terminal.is_none()
-                && q.binding == i.binding
-                && q.grant_id == i.grant_id
-                && q.guardian_id == i.logical_guardian_id
-                && q.launch_id == i.launch_id
-                && q.reservation_id == i.reservation_id
-                && q.journal.revision == c.recorded_revision
-                && c.recorded_revision > i.created_revision
-                && c.recorded_revision <= revision,
+            q.binding == i.binding
+                && [q.grant_id, q.guardian_id, q.launch_id, q.reservation_id] == i.report_ids(),
+            "launch closure scope"
+        );
+        ensure!(
+            q.journal.revision == c.recorded_revision
+                && i.contains_revision(c.recorded_revision, revision),
             "launch closure scope"
         );
         if let Some(receipt) = &c.receipt {
             c.request.accepts(receipt)?;
         }
+        Ok(())
     }
-    if let Some(b) = &h.baseline {
+    fn validate_baseline(&self) -> Result<()> {
+        let Some(b) = &self.baseline else {
+            return Ok(());
+        };
+        let i = &self.intent;
         ensure!(
-            h.start_intended
-                && h.guardian.as_ref() == Some(&b.guardian)
+            self.start_intended
+                && self.guardian.as_ref() == Some(&b.guardian)
                 && b.terminal == i.terminal
                 && b.renderer == i.renderer
-                && b.columns == i.columns
-                && b.rows == i.rows
+                && (b.columns, b.rows) == (i.columns, i.rows)
                 && !b.baseline_id.is_nil(),
             "baseline release scope"
         );
+        Ok(())
     }
-    if let Some(v) = &h.running {
-        v.request.validate()?;
+    fn validate_running(&self, revision: u64) -> Result<()> {
+        if let Some(v) = &self.running {
+            v.request.validate()?;
+            ensure!(
+                self.baseline.is_some()
+                    && self.guardian.as_ref() == Some(&v.observation.guardian)
+                    && v.observation.phase == HostPhase::Running,
+                "actual Running/Started scope"
+            );
+            ensure!(
+                self.intent.contains_revision(v.recorded_revision, revision)
+                    && v.recorded_revision
+                        == v.request
+                            .journal_revision
+                            .checked_add(1)
+                            .context("Started revision overflow")?,
+                "actual Running/Started scope"
+            );
+            // A local non-interactive permit can be renewed only within the grant.
+            ensure!(
+                v.observation.permit_sequence == 1 && self.intent.permits(&v.observation),
+                "actual Running/Started scope"
+            );
+            v.validate_request(&self.intent)?;
+        }
+        if let Some(receipt) = &self.started_receipt {
+            receipt.validate_for(
+                &self
+                    .running
+                    .as_ref()
+                    .context("Started ACK without Running")?
+                    .request,
+            )?;
+        }
+        Ok(())
+    }
+    fn validate_stopped(&self, boot: Uuid, revision: u64) -> Result<()> {
+        let Some(s) = &self.stopped else {
+            return Ok(());
+        };
+        let o = &s.observation;
+        let i = &self.intent;
         ensure!(
-            h.baseline.is_some()
-                && h.guardian.as_ref() == Some(&v.observation.guardian)
-                && v.observation.phase == HostPhase::Running
-                && v.recorded_revision <= revision
-                && v.recorded_revision > i.created_revision
-                && v.recorded_revision
-                    == v.request
-                        .journal_revision
-                        .checked_add(1)
-                        .context("Started revision overflow")?
-                && v.observation.permit_sequence == 1
-                // A non-interactive host's local permit is capped below the
-                // grant (MAX_PERMIT_MS) and renewed locally; never beyond it.
-                && v.observation.permit_deadline_boot_ms
-                    <= i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
-                && v.request.binding == i.binding
-                && v.request.grant_id == i.grant_id
-                && v.request.guardian_id == i.logical_guardian_id
-                && v.request.launch_id == i.launch_id
-                && v.request.reservation_id == i.reservation_id
-                && v.request.runtime == i.runtime.runtime
-                && v.request.qualification == i.runtime.qualification
-                && v.request.operation_id == i.started_operation_id
-                && same(&v.request.observation, &v.observation)?,
-            "actual Running/Started scope"
-        );
-    }
-    if let Some(receipt) = &h.started_receipt {
-        receipt.validate_for(
-            &h.running
-                .as_ref()
-                .context("Started ACK without Running")?
-                .request,
-        )?;
-    }
-    if let Some(s) = &h.stopped {
-        ensure!(
-            s.observation.phase == HostPhase::Stopped
-                && s.observation.kernel_wait_echild
-                && s.observation.guardian.pid_namespace == i.pid_namespace
-                && Uuid::parse_str(&s.observation.guardian.machine_boot_id)?
-                    == execution.kernel_boot_id
-                && !s.observation.guardian.nonce.is_nil()
-                && s.observation.guardian.nonce != i.logical_guardian_id
-                && s.observation.permit_sequence >= 1
-                && s.observation.permit_deadline_boot_ms
-                    <= i.deadline_ns.min(i.hard_deadline_ns) / 1_000_000
-                && h.host_intent.as_ref() == Some(&s.observation.guardian.intent)
-                && s.recorded_revision <= revision
-                && s.recorded_revision > i.created_revision
-                && s.proof_digest
-                    == canonical_digest(&serde_json::json!({"observation":s.observation}))?,
+            o.phase == HostPhase::Stopped
+                && o.kernel_wait_echild
+                && self.matches_guardian(&o.guardian, boot)?,
             "actual stopped history"
         );
-        if let Some(g) = &h.guardian {
-            ensure!(*g == s.observation.guardian, "stopped foreign guardian");
+        ensure!(
+            o.permit_sequence >= 1
+                && i.permits(o)
+                && self.host_intent.as_ref() == Some(&o.guardian.intent)
+                && i.contains_revision(s.recorded_revision, revision)
+                && s.proof_digest == canonical_digest(&serde_json::json!({"observation":o}))?,
+            "actual stopped history"
+        );
+        self.validate_stop_links(o)
+    }
+    fn validate_stop_links(&self, o: &HostObservation) -> Result<()> {
+        if let Some(g) = &self.guardian {
+            ensure!(*g == o.guardian, "stopped foreign guardian");
         }
-        if let Some(running) = &h.running {
+        if let Some(running) = &self.running {
             ensure!(
-                s.observation.pane == running.observation.pane
-                    && s.observation.root_status.is_some()
-                    && s.observation.reaped_count > 0,
+                o.pane == running.observation.pane && o.root_status.is_some() && o.reaped_count > 0,
                 "stopped prior Running linkage"
             );
         }
+        Ok(())
     }
-    Ok(())
+}
+impl NativeRunning {
+    fn validate_request(&self, i: &NativeLaunchIntent) -> Result<()> {
+        let q = &self.request;
+        ensure!(
+            q.binding == i.binding
+                && [q.grant_id, q.guardian_id, q.launch_id, q.reservation_id] == i.report_ids(),
+            "actual Running/Started scope"
+        );
+        ensure!(
+            q.runtime == i.runtime.runtime
+                && q.qualification == i.runtime.qualification
+                && q.operation_id == i.started_operation_id
+                && same(&q.observation, &self.observation)?,
+            "actual Running/Started scope"
+        );
+        Ok(())
+    }
+}
+impl State {
+    fn native_host_mut(&mut self, id: Uuid) -> Option<&mut NativeHostHistory> {
+        self.attempts.get_mut(&id)?.native_host.as_mut()
+    }
 }
 impl Journal {
     pub(crate) fn begin_native_launch(
@@ -324,8 +409,7 @@ impl Journal {
         self.check_native_execution(
             id,
             &intent.execution_digest,
-            intent.deadline_ns,
-            intent.hard_deadline_ns,
+            (intent.deadline_ns, intent.hard_deadline_ns),
         )?;
         ensure!(
             self.state
@@ -359,13 +443,14 @@ impl Journal {
         self.live()?;
         let mut next = self.next()?;
         let revision = next.revision;
-        let h = next
-            .attempts
-            .get_mut(&id)
-            .and_then(|a| a.native_host.as_mut())
-            .context("native launch absent")?;
+        let h = next.native_host_mut(id).context("native launch absent")?;
         update(h, revision, &self.state)?;
         self.persist(next)
+    }
+    fn check_native_writer(&self) -> Result<()> {
+        self.storage.check_owner()?;
+        ensure!(!self.poisoned, "native writer poisoned");
+        Ok(())
     }
     pub(crate) fn native_started_receipt(
         &mut self,
@@ -393,13 +478,10 @@ impl Journal {
         })
     }
     pub(crate) fn native_uncertain(&mut self, id: Uuid, reason: LaunchFailure) -> Result<()> {
-        self.storage.check_owner()?;
-        ensure!(!self.poisoned, "native writer poisoned");
+        self.check_native_writer()?;
         let mut next = self.next()?;
         let h = next
-            .attempts
-            .get_mut(&id)
-            .and_then(|a| a.native_host.as_mut())
+            .native_host_mut(id)
             .context("native unknown launch absent")?;
         if h.uncertain.is_some() {
             return Ok(());
@@ -414,8 +496,7 @@ impl Journal {
     ) -> Result<()> {
         // Safety-only recovery writes never change invocation, grant caps or capacity.
         // An actual opaque host proof is required; serialized history cannot enter.
-        self.storage.check_owner()?;
-        ensure!(!self.poisoned, "native writer poisoned");
+        self.check_native_writer()?;
         let mut next = self.next()?;
         let revision = next.revision;
         let old = self
@@ -441,9 +522,7 @@ impl Journal {
             None
         };
         let h = next
-            .attempts
-            .get_mut(&id)
-            .and_then(|a| a.native_host.as_mut())
+            .native_host_mut(id)
             .context("native stopped launch absent")?;
         let stopped = NativeStopped {
             observation: proof.observation().clone(),
@@ -473,8 +552,7 @@ impl Journal {
         id: Uuid,
         build: impl FnOnce(&Attempt, u64, &State) -> Result<ClosureRequest>,
     ) -> Result<ClosureRequest> {
-        self.storage.check_owner()?;
-        ensure!(!self.poisoned, "native writer poisoned");
+        self.check_native_writer()?;
         let old = self
             .state
             .attempts
@@ -488,18 +566,13 @@ impl Journal {
             return Ok(c.request.clone());
         }
         ensure!(
-            h.running.is_none()
-                && h.started_receipt.is_none()
-                && h.terminal.is_none()
-                && h.refresh_terminal.is_none(),
+            h.before_started(),
             "a launch with Running history is never closed as unstarted"
         );
         let mut next = self.next()?;
         let revision = next.revision;
         let request = build(old, revision, &self.state)?;
-        next.attempts
-            .get_mut(&id)
-            .and_then(|a| a.native_host.as_mut())
+        next.native_host_mut(id)
             .context("native closure launch absent")?
             .closure = Some(NativeClosure {
             request: request.clone(),
@@ -514,13 +587,10 @@ impl Journal {
         id: Uuid,
         receipt: ClosureReceipt,
     ) -> Result<()> {
-        self.storage.check_owner()?;
-        ensure!(!self.poisoned, "native writer poisoned");
+        self.check_native_writer()?;
         let mut next = self.next()?;
         let c = next
-            .attempts
-            .get_mut(&id)
-            .and_then(|a| a.native_host.as_mut())
+            .native_host_mut(id)
             .and_then(|h| h.closure.as_mut())
             .context("native closure absent")?;
         c.request.accepts(&receipt)?;

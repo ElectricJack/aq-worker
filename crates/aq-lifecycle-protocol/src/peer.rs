@@ -43,15 +43,22 @@ impl Receipt {
             self.through_sequence == expected,
             "receipt cannot skip undelivered cursor",
         )?;
-        let disposition = match &packet.body.message {
+        ensure(
+            self.disposition == packet.body.message.disposition(),
+            "receipt disposition class",
+        )
+    }
+}
+impl Message {
+    fn disposition(&self) -> ReceiptDisposition {
+        match self {
             Message::Observation(_) | Message::Batch(_) => ReceiptDisposition::ObservationRecorded,
             Message::Checkpoint(_) => ReceiptDisposition::CheckpointRecorded,
             Message::Suspend(_) => ReceiptDisposition::SuspensionRecorded,
             Message::Parking(_) => ReceiptDisposition::ParkingRecorded,
             Message::Continuation(_) => ReceiptDisposition::ContinuationReceived,
             Message::BootstrapAck(_) => ReceiptDisposition::BootstrapAcknowledgmentRecorded,
-        };
-        ensure(self.disposition == disposition, "receipt disposition class")
+        }
     }
 }
 pub struct ConformancePeer {
@@ -94,125 +101,113 @@ impl ConformancePeer {
             };
         }
         ensure(self.seen.len() < 1024, "fake peer receipt capacity")?;
-        let mut new_events = Vec::new();
-        let mut through = None;
-        let mut attachment = None;
-        let mut ack = None;
-        let disposition =
-            match &packet.body.message {
-                Message::Observation(v) => {
-                    if v.binding != self.binding {
-                        return Err(ContractError::Stale);
-                    }
-                    let digest = canonical_digest(v)?;
-                    if let Some(old) = self.events.get(&packet.body.message_id) {
-                        if old != &digest {
-                            return Err(ContractError::Conflict);
-                        }
-                    } else {
-                        ensure(self.events.len() < 1024, "fake peer event capacity")?;
-                        new_events.push((packet.body.message_id, digest));
-                    }
-                    ReceiptDisposition::ObservationRecorded
-                }
-                Message::Batch(batch) => {
-                    if batch.first_sequence
-                        != self
-                            .last_sequence
-                            .checked_add(1)
-                            .ok_or(ContractError::Stale)?
-                    {
-                        return Err(ContractError::Stale);
-                    }
-                    for event in &batch.events {
-                        if event.body.binding != self.binding {
-                            return Err(ContractError::Stale);
-                        }
-                        if let Some(old) = self.events.get(&event.event_id) {
-                            if old != &event.body_digest {
-                                return Err(ContractError::Conflict);
-                            }
-                        } else {
-                            new_events.push((event.event_id, event.body_digest.clone()));
-                        }
-                    }
-                    ensure(
-                        self.events.len() + new_events.len() <= 1024,
-                        "fake peer event capacity",
-                    )?;
-                    through = Some(batch.last_sequence);
-                    ReceiptDisposition::ObservationRecorded
-                }
-                Message::Checkpoint(v) => {
-                    if v.binding != self.binding {
-                        return Err(ContractError::Stale);
-                    }
-                    ReceiptDisposition::CheckpointRecorded
-                }
-                Message::Suspend(v) => {
-                    if v.binding != self.binding {
-                        return Err(ContractError::Stale);
-                    }
-                    ReceiptDisposition::SuspensionRecorded
-                }
-                Message::Parking(v) => {
-                    if v.binding != self.binding {
-                        return Err(ContractError::Stale);
-                    }
-                    ReceiptDisposition::ParkingRecorded
-                }
-                Message::Continuation(v) => {
-                    if v.successor != self.binding {
-                        return Err(ContractError::Stale);
-                    }
-                    if self.continuation.as_ref().is_some_and(|(old, _)| {
-                        old.admission_id == v.admission_id && old != v.as_ref()
-                    }) {
-                        return Err(ContractError::Conflict);
-                    }
-                    if self.continuation.is_some() {
-                        return Err(ContractError::Stale);
-                    }
-                    attachment = Some((v.as_ref().clone(), canonical_digest(v.as_ref())?));
-                    ReceiptDisposition::ContinuationReceived
-                }
-                Message::BootstrapAck(v) => {
-                    let Some((expected, digest)) = &self.continuation else {
-                        return Err(ContractError::Stale);
-                    };
-                    if v.successor != self.binding
-                        || v.admission_id != expected.admission_id
-                        || v.continuation != expected.continuation
-                        || v.attachment_digest != *digest
-                        || v.outcome != expected.outcome
-                    {
-                        return Err(ContractError::Stale);
-                    }
-                    if self.acknowledged.is_some() {
-                        return Err(ContractError::Conflict);
-                    }
-                    ack = Some((packet.body.message_id, packet.body_digest.clone()));
-                    ReceiptDisposition::BootstrapAcknowledgmentRecorded
-                }
-            };
+        let through = self.record(packet)?;
         let receipt = Receipt {
             schema_version: SCHEMA_VERSION,
             message_id: packet.body.message_id,
             body_digest: packet.body_digest.clone(),
-            disposition,
+            disposition: packet.body.message.disposition(),
             through_sequence: through,
         };
-        self.events.extend(new_events);
-        if let Some(sequence) = through {
-            self.last_sequence = sequence;
-        }
-        if let Some(value) = attachment {
-            self.continuation = Some(value);
-        }
-        if let Some(value) = ack {
-            self.acknowledged = Some(value);
-        }
         self.seen.insert(receipt.message_id, receipt.clone());
         Ok(receipt)
+    }
+
+    fn record(&mut self, packet: &Packet) -> Result<Option<u64>, ContractError> {
+        match &packet.body.message {
+            Message::Observation(v) => {
+                self.check_binding(&v.binding)?;
+                let id = packet.body.message_id;
+                let digest = canonical_digest(v)?;
+                if self.new_event(id, &digest)? {
+                    ensure(self.events.len() < 1024, "fake peer event capacity")?;
+                    self.events.insert(id, digest);
+                }
+            }
+            Message::Batch(batch) => {
+                self.record_batch(batch)?;
+                return Ok(Some(batch.last_sequence));
+            }
+            Message::Checkpoint(v) => self.check_binding(&v.binding)?,
+            Message::Suspend(v) => self.check_binding(&v.binding)?,
+            Message::Parking(v) => self.check_binding(&v.binding)?,
+            Message::Continuation(v) => self.attach(v)?,
+            Message::BootstrapAck(v) => {
+                self.check_acknowledgment(v)?;
+                self.acknowledged = Some((packet.body.message_id, packet.body_digest.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    fn check_binding(&self, binding: &Binding) -> Result<(), ContractError> {
+        (binding == &self.binding)
+            .then_some(())
+            .ok_or(ContractError::Stale)
+    }
+
+    fn new_event(&self, id: Uuid, digest: &Digest) -> Result<bool, ContractError> {
+        match self.events.get(&id) {
+            Some(old) if old != digest => Err(ContractError::Conflict),
+            Some(_) => Ok(false),
+            None => Ok(true),
+        }
+    }
+
+    fn record_batch(&mut self, batch: &ObservationBatch) -> Result<(), ContractError> {
+        if self.last_sequence.checked_add(1) != Some(batch.first_sequence) {
+            return Err(ContractError::Stale);
+        }
+        let mut events = Vec::new();
+        for event in &batch.events {
+            self.check_binding(&event.body.binding)?;
+            if self.new_event(event.event_id, &event.body_digest)? {
+                events.push((event.event_id, event.body_digest.clone()));
+            }
+        }
+        ensure(
+            self.events.len() + events.len() <= 1024,
+            "fake peer event capacity",
+        )?;
+        self.events.extend(events);
+        self.last_sequence = batch.last_sequence;
+        Ok(())
+    }
+
+    fn attach(&mut self, value: &ContinuationAttachment) -> Result<(), ContractError> {
+        self.check_binding(&value.successor)?;
+        if let Some((old, _)) = &self.continuation {
+            return Err(if old.admission_id == value.admission_id && old != value {
+                ContractError::Conflict
+            } else {
+                ContractError::Stale
+            });
+        }
+        self.continuation = Some((value.clone(), canonical_digest(value)?));
+        Ok(())
+    }
+
+    fn check_acknowledgment(&self, ack: &BootstrapAck) -> Result<(), ContractError> {
+        let (expected, digest) = self.continuation.as_ref().ok_or(ContractError::Stale)?;
+        self.check_binding(&ack.successor)?;
+        let attachment = (
+            &expected.admission_id,
+            &expected.continuation,
+            digest,
+            &expected.outcome,
+        );
+        if (
+            &ack.admission_id,
+            &ack.continuation,
+            &ack.attachment_digest,
+            &ack.outcome,
+        ) != attachment
+        {
+            return Err(ContractError::Stale);
+        }
+        if self.acknowledged.is_some() {
+            return Err(ContractError::Conflict);
+        }
+        Ok(())
     }
 }

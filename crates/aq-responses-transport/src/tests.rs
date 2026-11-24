@@ -1,12 +1,19 @@
 use super::*;
 use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
 use std::sync::{Arc, Mutex};
-#[tokio::test]
-async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse() {
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let capture = seen.clone();
+async fn serve_local(app: Router) -> (String, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (origin, server)
+}
+
+type Recorded = Arc<Mutex<Vec<serde_json::Value>>>;
+async fn recording_peer() -> (String, tokio::task::JoinHandle<()>, Recorded) {
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let capture = seen.clone();
     let app = Router::new().route(
         "/v1/responses",
         post(move |headers: HeaderMap, body: Bytes| {
@@ -24,9 +31,13 @@ async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_prese
             }
         }),
     );
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let (origin, server) = serve_local(app).await;
+    (origin, server, seen)
+}
+
+#[tokio::test]
+async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse() {
+    let (origin, server, seen) = recording_peer().await;
     let scope = policy::tests::scope();
     let expected_scope = scope.owner_scope().clone();
     let owner = ScopedResponsesTransport::start_with_keys(
@@ -91,12 +102,13 @@ async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_prese
     owner.stop().await.unwrap();
     server.abort();
 }
-#[tokio::test]
-async fn stop_cancels_pending_upstream_and_ambiguous_http_never_forwards() {
+async fn pending_peer() -> (
+    String,
+    tokio::task::JoinHandle<()>,
+    Arc<tokio::sync::Notify>,
+) {
     let entered = Arc::new(tokio::sync::Notify::new());
     let notify = entered.clone();
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
     let app = Router::new().route(
         "/v1/responses",
         post(move || {
@@ -107,9 +119,13 @@ async fn stop_cancels_pending_upstream_and_ambiguous_http_never_forwards() {
             }
         }),
     );
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let (origin, server) = serve_local(app).await;
+    (origin, server, entered)
+}
+
+#[tokio::test]
+async fn stop_cancels_pending_upstream_and_ambiguous_http_never_forwards() {
+    let (origin, server, entered) = pending_peer().await;
     let owner = ScopedResponsesTransport::start_with_keys(
         policy::tests::scope(),
         UpstreamEndpoint::development_loopback(&origin).unwrap(),
@@ -299,9 +315,7 @@ async fn upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect(
                     async { ([("content-type", "text/event-stream")], "data: foreign\n\n") }
                 }),
             );
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let owner = ScopedResponsesTransport::start_with_keys(
             policy::tests::scope(),
             UpstreamEndpoint::development_loopback(&origin).unwrap(),
@@ -332,8 +346,6 @@ async fn upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect(
 #[tokio::test]
 async fn bounded_stream_preserves_exact_limit_and_aborts_surplus_without_second_status() {
     for surplus in [false, true] {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
         let bytes = vec![b'x'; MAX_STREAM + usize::from(surplus)];
         let expected = Digest::of(&bytes);
         let app = Router::new().route(
@@ -343,9 +355,7 @@ async fn bounded_stream_preserves_exact_limit_and_aborts_surplus_without_second_
                 async { ([("content-type", "text/event-stream")], bytes) }
             }),
         );
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
+        let (origin, server) = serve_local(app).await;
         let owner = ScopedResponsesTransport::start_with_keys(
             policy::tests::scope(),
             UpstreamEndpoint::development_loopback(&origin).unwrap(),

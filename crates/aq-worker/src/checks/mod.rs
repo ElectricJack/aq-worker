@@ -98,46 +98,15 @@ impl CheckClaim {
 /// sorted keys), excluding the per-attempt identities. Computed from the raw
 /// entry so even an unparseable claim gets a stable digest.
 pub fn inputs_digest(raw: &Value) -> String {
-    let inputs = serde_json::json!({
+    let mut inputs = serde_json::json!({
         "execution_profile": raw.get("execution_profile"),
         "source_operation_id": raw.get("source_operation_id"),
         "subject": raw.get("subject"),
         "check": raw.get("check"),
         "source": raw.get("source"),
     });
-    let mut text = String::new();
-    canonical(&inputs, &mut text);
-    format!("sha256:{:x}", Sha256::digest(text.as_bytes()))
-}
-
-fn canonical(value: &Value, out: &mut String) {
-    match value {
-        Value::Object(map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
-            out.push('{');
-            for (i, key) in keys.into_iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&Value::String(key.clone()).to_string());
-                out.push(':');
-                canonical(&map[key], out);
-            }
-            out.push('}');
-        }
-        Value::Array(items) => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                canonical(item, out);
-            }
-            out.push(']');
-        }
-        scalar => out.push_str(&scalar.to_string()),
-    }
+    inputs.sort_all_objects();
+    format!("sha256:{:x}", Sha256::digest(inputs.to_string().as_bytes()))
 }
 
 /// How the sandbox stopped the validator.

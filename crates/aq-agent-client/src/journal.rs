@@ -64,6 +64,63 @@ struct State {
     binding: Binding,
     operations: BTreeMap<Uuid, Operation>,
 }
+impl State {
+    fn restore(bytes: &[u8], binding: &Binding, policy: &Value) -> Result<Self> {
+        let aq_agent_api::StrictValue(value) = serde_json::from_slice(bytes)?;
+        let state: State = serde_json::from_value(value)?;
+        ensure!(
+            state.format_version == 1
+                && &state.binding == binding
+                && state.operations.len() <= MAX_OPERATIONS,
+            "client journal binding/version/bound refused"
+        );
+        for (id, operation) in &state.operations {
+            operation.validate(*id, binding, policy)?;
+        }
+        Ok(state)
+    }
+}
+
+impl Operation {
+    fn validate(&self, id: Uuid, binding: &Binding, policy: &Value) -> Result<()> {
+        ensure!(
+            valid("CommandRequest", &self.request)
+                && self.request["operation_id"] == id.to_string()
+                && self.request["binding"] == serde_json::to_value(binding)?
+                && digest(&self.request)? == self.payload_digest
+                && canonical(&self.request)?.len() <= aq_agent_api::MAX_DOCUMENT_BYTES
+                && self.has_retry_budget(policy),
+            "corrupt local intent"
+        );
+        self.check_retry_history()?;
+        if let Some(response) = &self.response {
+            check_operation_response(response, id, &self.payload_digest, binding)?;
+        }
+        Ok(())
+    }
+
+    fn check_retry_history(&self) -> Result<()> {
+        if let (Some(first), Some(last)) = (&self.first, &self.last) {
+            ensure!(
+                !first.boot_id.is_nil()
+                    && first.boot_id == last.boot_id
+                    && first.boottime_ms <= last.boottime_ms
+                    && first.unix_ms <= last.unix_ms,
+                "corrupt retry clock history"
+            );
+        }
+        Ok(())
+    }
+
+    fn has_retry_budget(&self, policy: &Value) -> bool {
+        Some(u64::from(self.max_attempts)) == policy["max_attempts"].as_u64()
+            && self.attempts <= self.max_attempts
+            && Some(self.max_elapsed_ms) == policy["max_elapsed_ms"].as_u64()
+            && (self.attempts == 0) == self.first.is_none()
+            && self.first.is_some() == self.last.is_some()
+    }
+}
+
 pub(crate) struct Journal {
     dir: PrivateDir,
     _owner: File,
@@ -77,51 +134,7 @@ impl Journal {
         let dir = PrivateDir::open(root)?;
         let owner = dir.lock()?;
         let state = match dir.optional("operations.json", MAX_JOURNAL_BYTES)? {
-            Some(bytes) => {
-                let aq_agent_api::StrictValue(value) = serde_json::from_slice(&bytes)?;
-                let state: State = serde_json::from_value(value)?;
-                ensure!(
-                    state.format_version == 1
-                        && state.binding == binding
-                        && state.operations.len() <= MAX_OPERATIONS,
-                    "client journal binding/version/bound refused"
-                );
-                for (id, operation) in &state.operations {
-                    ensure!(
-                        valid("CommandRequest", &operation.request)
-                            && operation.request["operation_id"] == id.to_string()
-                            && operation.request["binding"] == serde_json::to_value(&binding)?
-                            && digest(&operation.request)? == operation.payload_digest
-                            && canonical(&operation.request)?.len()
-                                <= aq_agent_api::MAX_DOCUMENT_BYTES
-                            && Some(u64::from(operation.max_attempts))
-                                == policy["max_attempts"].as_u64()
-                            && operation.attempts <= operation.max_attempts
-                            && Some(operation.max_elapsed_ms) == policy["max_elapsed_ms"].as_u64()
-                            && (operation.attempts == 0) == operation.first.is_none()
-                            && operation.first.is_some() == operation.last.is_some(),
-                        "corrupt local intent"
-                    );
-                    if let (Some(first), Some(last)) = (&operation.first, &operation.last) {
-                        ensure!(
-                            !first.boot_id.is_nil()
-                                && first.boot_id == last.boot_id
-                                && first.boottime_ms <= last.boottime_ms
-                                && first.unix_ms <= last.unix_ms,
-                            "corrupt retry clock history"
-                        );
-                    }
-                    if let Some(response) = &operation.response {
-                        check_operation_response(
-                            response,
-                            *id,
-                            &operation.payload_digest,
-                            &binding,
-                        )?;
-                    }
-                }
-                state
-            }
+            Some(bytes) => State::restore(&bytes, &binding, policy)?,
             None => State {
                 format_version: 1,
                 binding,

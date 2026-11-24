@@ -1,5 +1,7 @@
 //! Concrete closed runtime joining the installed image and native host owner.
 use super::*;
+mod preflight;
+mod running;
 use crate::native::{
     adapter::{
         ExpectedAdapter,
@@ -17,6 +19,7 @@ use aq_session_host::{
 };
 use aq_session_protocol::{ArtifactRef, Digest, HarnessSettings};
 use aq_terminal_bridge::http::{NodeCredential, RelayHttp};
+pub(crate) use running::{DriveOptions, RunningHost};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -80,21 +83,25 @@ impl CodexSettings {
             "unsupported closed Codex settings"
         );
         ensure!(
-            self.columns >= 80
-                && self.columns <= 240
-                && self.rows > 0
-                && self.rows <= 120
+            (80..=240).contains(&self.columns)
+                && (1..=120).contains(&self.rows)
                 && u32::from(self.columns) * u32::from(self.rows) <= 12000,
             "unsupported Codex geometry"
         );
         ensure!(
-            self.host_root.is_absolute()
-                && self.host_root.starts_with(&config.state_dir)
-                && self.host_root != config.state_dir
-                && self.host_root.canonicalize()? == self.host_root
-                && !self.host_root.starts_with(&config.git_root),
+            self.valid_host_root(config)?,
             "Codex host root must be a separate private state child"
         );
+        self.validate_capabilities(config)
+    }
+    fn valid_host_root(&self, config: &NativeConfig) -> Result<bool> {
+        Ok(self.host_root.is_absolute()
+            && self.host_root.starts_with(&config.state_dir)
+            && self.host_root != config.state_dir
+            && self.host_root.canonicalize()? == self.host_root
+            && !self.host_root.starts_with(&config.git_root))
+    }
+    fn validate_capabilities(&self, config: &NativeConfig) -> Result<()> {
         aq_session_protocol::require_capabilities(
             &self.harness.required_capabilities,
             &config.capabilities,
@@ -276,209 +283,7 @@ impl CodexExecutor {
 }
 impl NativeExecutor for CodexExecutor {
     fn preflight(&mut self, config: &NativeConfig) -> Result<()> {
-        ensure!(self.profile.is_none(), "Codex executor already preflighted");
-        let interactive_clock = match &config.executor {
-            Some(ExecutorConfig::ChatgptInteractiveResultLocal {
-                terminal_clock_skew_ms,
-                ..
-            }) => {
-                ensure!(
-                    *terminal_clock_skew_ms <= 1000,
-                    "interactive operator clock bound"
-                );
-                Some(*terminal_clock_skew_ms)
-            }
-            _ => None,
-        };
-        let (settings, environment, result) = match &config.executor {
-            Some(ExecutorConfig::TrustedNodeNamedReadonly {
-                settings,
-                environment,
-            }) => (settings, environment, None),
-            Some(ExecutorConfig::TrustedNodeNamedReadonlyResultLocal {
-                settings,
-                environment,
-                client_manifest,
-                client_manifest_digest,
-                composite_definition,
-            }) => (
-                settings,
-                environment,
-                Some((
-                    client_manifest,
-                    client_manifest_digest,
-                    composite_definition,
-                )),
-            ),
-            Some(ExecutorConfig::ChatgptInteractiveResultLocal {
-                settings,
-                environment,
-                client_manifest,
-                client_manifest_digest,
-                composite_definition,
-                ..
-            }) => (
-                settings,
-                environment,
-                Some((
-                    client_manifest,
-                    client_manifest_digest,
-                    composite_definition,
-                )),
-            ),
-            Some(ExecutorConfig::ClaudeDockerLocalResultLocal { .. }) => {
-                anyhow::bail!("Claude docker-local settings select the Claude executor")
-            }
-            Some(ExecutorConfig::Codex { .. }) => {
-                anyhow::bail!(
-                    "legacy sealed-memfd executor is not qualified for Codex tools; no admission attempted"
-                )
-            }
-            None => anyhow::bail!("closed Codex executor settings absent"),
-        };
-        settings.validate(config)?;
-        // Before any installation work: container needs the sandbox's proof.
-        let mode = crate::native::adapter::codex::selected_confinement(
-            &settings.harness,
-            self.confinement.as_ref(),
-            interactive_clock.is_some(),
-        )?;
-        ensure!(
-            result.is_none() || mode == ConfinementMode::Native,
-            "result-local Codex mapping is qualified for native confinement only"
-        );
-        ensure!(
-            config.adapter.id.as_str() != "aq.codex-result-local-adapter" || result.is_some(),
-            "known result adapter requires the result-enabled executor"
-        );
-        ensure!(
-            environment == &settings.harness.environment,
-            "trusted-node environment differs from selected harness"
-        );
-        ensure!(
-            result.is_none() || self.result_transfer.is_some(),
-            "native result source transport absent"
-        );
-        let definition = if let Some((_, client_digest, definition_path)) = result {
-            let definition =
-                ResultAdapterDefinition::decode(&config::private_file(definition_path, 16384)?)?;
-            ensure!(
-                definition.interactive() == interactive_clock.is_some(),
-                "executor and selected result mode differ"
-            );
-            ensure!(
-                !definition.is_claude_docker() && !definition.is_codex_docker(),
-                "docker-local result definitions select the docker-local executor"
-            );
-            definition.validate_selected(ExpectedResultAdapter {
-                adapter: &config.adapter,
-                runtime: &config.runtime,
-                environment,
-            })?;
-            ensure!(
-                definition.client_manifest.digest == *client_digest,
-                "result client installation differs from selected adapter"
-            );
-            Some(definition)
-        } else {
-            None
-        };
-        // An artifact reference is not a kernel observation. This retained owner
-        // checks cap/NNP and namespace premises; installation loading checks actual
-        // readonly mount/FD/path identities. External provisioning qualification
-        // remains independently pinned by the selected environment artifact.
-        let environment_owner = NamedReadonlyEnvironment::inspect(environment.clone())?;
-        let pool = NamedReadonlyExecPool::new(
-            CODEX_INSTALLATION_BUDGET_BYTES,
-            1,
-            environment_owner.clone(),
-        )?;
-        let manifest =
-            NamedExecManifest::decode(&config::private_file(&config.adapter_manifest, 16384)?)?;
-        let installed = NamedExecInstallation::open(
-            manifest,
-            ExpectedAdapter {
-                manifest_digest: &config.adapter_manifest_digest,
-                adapter: &config.adapter,
-                runtime: &config.runtime.runtime,
-                qualification: &config.runtime.qualification,
-                renderer: &config.renderer,
-            },
-            environment,
-            &pool,
-        )?;
-        ensure!(
-            installed.interactive() == interactive_clock.is_some(),
-            "executor and selected named image mode differ"
-        );
-        let mapper = CodexExecProfile {
-            harness: settings.harness.clone(),
-            permissions_digest: settings.permissions_digest.clone(),
-            renderer: config.renderer.clone(),
-            confinement: self.confinement.clone(),
-        };
-        let selected_client_manifest = definition.as_ref().map(|d| d.client_manifest.clone());
-        let profile = match (result, definition) {
-            (Some((client_path, _, _)), Some(definition)) => {
-                let manifest =
-                    ResultClientManifest::decode(&config::private_file(client_path, 16384)?)?;
-                let client = InstalledResultClient::open_selected(
-                    manifest,
-                    definition.expected_client()?,
-                    &definition.client_manifest,
-                    &environment_owner,
-                )?;
-                NativeCodexHostProfile::new_named_result(
-                    settings.host_root.clone(),
-                    installed,
-                    mapper,
-                    settings.columns,
-                    settings.rows,
-                    client,
-                    definition,
-                )?
-            }
-            (None, None) => NativeCodexHostProfile::new_named(
-                settings.host_root.clone(),
-                installed,
-                mapper,
-                settings.columns,
-                settings.rows,
-            )?,
-            _ => anyhow::bail!("native result factory selection differs"),
-        };
-        let profile = if let Some(skew) = interactive_clock {
-            profile.with_interactive_clock(skew)?
-        } else {
-            profile
-        };
-        #[cfg(feature = "test-support")]
-        let profile = if let Some(origin) = &self.development_provider {
-            profile.with_development_provider(origin)?
-        } else {
-            profile
-        };
-        let result_pins = profile.result_installation_pins();
-        ensure!(
-            result_pins
-                .as_ref()
-                .is_none_or(|pins| pins.adapter == config.adapter)
-                && result_pins.as_ref().map(|pins| &pins.client_manifest)
-                    == selected_client_manifest.as_ref(),
-            "native result installation differs from selected definition revisions"
-        );
-        self.installation_reserved_bytes = Some(
-            CODEX_INSTALLATION_BUDGET_BYTES
-                .checked_add(
-                    result_pins
-                        .as_ref()
-                        .map_or(0, |pins| pins.reserved_client_bytes),
-                )
-                .context("native installation image reservation overflow")?,
-        );
-        self.result_root = result_pins.map(|_| config.state_dir.join("result"));
-        self.profile = Some(Arc::new(profile));
-        Ok(())
+        self.initialize(config)
     }
     fn execute<'a>(
         &'a mut self,
@@ -533,18 +338,17 @@ impl NativeExecutor for CodexExecutor {
             let what =
                 "native host did not establish Running; retained closure requires reconciliation";
             let host = running_or_stopped(&pipeline, id, launched, what).await?;
-            drive_running_owned(
-                pipeline,
-                host,
-                grant.deadline_ns(),
-                self.relay.clone(),
-                shutdown,
-                transfer,
-                terminal_clock,
-                false,
-                None,
-            )
-            .await
+            RunningHost::new(pipeline, host, grant.deadline_ns())
+                .drive(
+                    self.relay.clone(),
+                    shutdown,
+                    DriveOptions {
+                        transfer,
+                        clock: terminal_clock,
+                        ..Default::default()
+                    },
+                )
+                .await
         })
     }
 }
@@ -569,50 +373,6 @@ pub(super) async fn running_or_stopped(
     };
     Ok(host)
 }
-#[cfg(all(test, feature = "test-support"))]
-pub(crate) async fn drive_running_with_pre_stop(
-    pipeline: Arc<InputPipeline>,
-    host: crate::native::launch::LocalPhaseHost,
-    deadline_ns: u64,
-    relay_client: RelayHttp,
-    shutdown: watch::Receiver<bool>,
-    pre_stop: PreStop,
-) -> Result<()> {
-    drive_running_owned(
-        pipeline,
-        host,
-        deadline_ns,
-        relay_client,
-        shutdown,
-        None,
-        None,
-        false,
-        Some(pre_stop),
-    )
-    .await
-}
-#[cfg(all(test, feature = "test-support"))]
-pub(crate) async fn drive_running(
-    pipeline: Arc<InputPipeline>,
-    host: crate::native::launch::LocalPhaseHost,
-    deadline_ns: u64,
-    relay_client: RelayHttp,
-    shutdown: watch::Receiver<bool>,
-) -> Result<()> {
-    drive_running_owned(
-        pipeline,
-        host,
-        deadline_ns,
-        relay_client,
-        shutdown,
-        None,
-        None,
-        false,
-        None,
-    )
-    .await
-}
-#[allow(clippy::too_many_arguments)]
 /// MS1 docker-local: the driver's exit record decides Success or Failure; a
 /// missing or unreadable record (None) leaves the natural end Unknown.
 pub(crate) fn driver_proven_cause(
@@ -675,220 +435,6 @@ mod driver_cause_tests {
 pub(crate) type PreStop = Box<
     dyn FnOnce() -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send>> + Send,
 >;
-#[allow(clippy::too_many_arguments)]
-pub(super) async fn drive_running_owned(
-    pipeline: Arc<InputPipeline>,
-    host: crate::native::launch::LocalPhaseHost,
-    deadline_ns: u64,
-    relay_client: RelayHttp,
-    mut shutdown: watch::Receiver<bool>,
-    transfer: Option<crate::transfer_client::TransferClient>,
-    terminal_clock: Option<aq_session_host::terminal_io::QualifiedClock>,
-    local_renewal: bool,
-    pre_stop: Option<PreStop>,
-) -> Result<()> {
-    use crate::native::result::ResultStopCause;
-    let id = host.attempt_id();
-    let mut cause = ResultStopCause::Failure;
-    let result_enabled = transfer.is_some();
-    // Install the independent reader before any network Started wait.
-    let mut control_receipts = None;
-    let mut operation = async {
-        let relay = pipeline.start_phase_output(&host, relay_client)?;
-        let state = pipeline.snapshot().await?;
-        let terminal_profile = super::profile::TerminalProfile::for_attempt(
-            state
-                .attempts
-                .get(&id)
-                .context("native Running attempt absent")?,
-        )?;
-        tokio::select! {
-            receipt = terminal_profile.report_started(&pipeline, id) => { receipt?; },
-            _ = stop_requested(&mut shutdown, deadline_ns) => {
-                anyhow::bail!("stop requested while Started publication outcome is unknown");
-            }
-        }
-        let control = if let Some(clock) = terminal_clock {
-            Some(pipeline.start_phase_control(&host, &relay, clock).await?)
-        } else {
-            None
-        };
-        control_receipts = control.clone();
-        let controller = control.map(super::publish_output::ControlPublisher::start);
-        let _publisher = super::publish_output::OutputPublisher::start(relay);
-        let mut renewal_sequence = 1u64;
-        let mut next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
-        let mut next_cancel_poll = std::time::Instant::now() + std::time::Duration::from_secs(3);
-        loop {
-            // Node-owned (sandboxed) hosts also observe owner cancellation
-            // through the node poll; the session host stops the harness.
-            if local_renewal && std::time::Instant::now() >= next_cancel_poll {
-                next_cancel_poll = std::time::Instant::now() + std::time::Duration::from_secs(5);
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(4),
-                    pipeline.poll_cancellation(id),
-                )
-                .await
-                {
-                    Ok(Ok(Some(cancellation))) => {
-                        tracing::warn!(attempt_id = %id, %cancellation, "owner cancellation observed; stopping the harness");
-                        cause = ResultStopCause::Cancelled;
-                        break;
-                    }
-                    Ok(Ok(None)) => {}
-                    _ => tracing::debug!(attempt_id = %id, "cancellation poll unavailable"),
-                }
-            }
-            if local_renewal && std::time::Instant::now() >= next_renewal {
-                renewal_sequence += 1;
-                if let Err(error) = host.renew_local(renewal_sequence, deadline_ns / 1_000_000) {
-                    tracing::warn!(attempt_id = %id, "local host permit renewal refused: {error:#}");
-                }
-                next_renewal = std::time::Instant::now() + std::time::Duration::from_secs(30);
-            }
-            if controller
-                .as_ref()
-                .is_some_and(|c| c.authentication_required())
-            {
-                anyhow::bail!("Codex interactive authentication required; session quarantined");
-            }
-            let cancelled = *shutdown.borrow();
-            if let Some(stop) = loop_stop_cause(
-                cancelled,
-                || Ok(super::super::http::boot_ns()? >= deadline_ns),
-                || Ok(host.observe()?.phase == HostPhase::Running),
-                result_enabled.then(|| pipeline.poll_result_claim(id)),
-            )
-            .await?
-            {
-                cause = stop;
-                break;
-            }
-            tokio::select! {
-                _=tokio::time::sleep(std::time::Duration::from_millis(250))=>{},
-                changed=shutdown.changed()=>{if changed.is_err(){break;}}
-            }
-        }
-        Ok::<(), anyhow::Error>(())
-    }
-    .await;
-    // MS1 docker-local: only the driver's proven harness exit decides
-    // success or failure; an unproven natural end stays Unknown.
-    if local_renewal
-        && matches!(
-            cause,
-            ResultStopCause::Natural | ResultStopCause::ResultRecorded
-        )
-    {
-        cause = driver_proven_cause(cause, host.claude_driver_succeeded());
-    }
-    // Stop what the host's proof does not cover (the sandbox) first, so the
-    // host's short stop grace cannot leave it running behind a Stopped report.
-    let outside_stopped = match pre_stop {
-        Some(stop) => stop().await,
-        None => Ok(()),
-    };
-    // Creating this future fences launch/current transport synchronously.
-    // Physical cleanup must not wait for a slow local projection fsync.
-    let stop = pipeline.stop_phase_host(id);
-    let (intake_closed, stopped_physical) = tokio::join!(pipeline.close_result_intake(id), stop);
-    // Neither a relay error nor an uncertain ACK can bypass real stop.
-    match stopped_physical? {
-        NativeStopOutcome::StoppedPendingJournal(_) => pipeline.persist_phase_host_stop(id).await?,
-        NativeStopOutcome::Unknown => {
-            pipeline.persist_phase_host_uncertain(id).await?;
-            anyhow::bail!("native stop uncertain; retained history requires reconciliation")
-        }
-    }
-    if let Err(error) = outside_stopped {
-        // The host is stopped, but a sandbox may still run: never report
-        // Stopped (the server then records no stop, so B4 cannot release the
-        // task). reconcile-native replays Stopped once the sandbox stop is
-        // confirmed.
-        pipeline.persist_phase_host_uncertain(id).await?;
-        return Err(error.context("sandbox stop uncertain; Stopped withheld for reconciliation"));
-    }
-    // Stop and its journal precede the bounded metadata-only final flush.
-    // A failed flush retains the execution error but does not gate B1 recording.
-    if let Some(control) = control_receipts
-        && let Err(error) = control.flush_control_receipts().await
-        && operation.is_ok()
-    {
-        operation = Err(error);
-    }
-    let stopped = async {
-        let state = pipeline.snapshot().await?;
-        let terminal_profile = super::profile::TerminalProfile::for_attempt(
-            state
-                .attempts
-                .get(&id)
-                .context("native stopped attempt absent")?,
-        )?;
-        terminal_profile.report_stopped(&pipeline, id).await
-    }
-    .await;
-    if let Some(transfer) = transfer {
-        if stopped.is_err() {
-            let _ = pipeline
-                .result_needs_reconciliation(id, aq_agent_result_local::RecoveryCode::StopUnknown)
-                .await;
-        }
-        stopped?;
-        intake_closed?;
-        let result = pipeline
-            .retain_stopped_result(id, cause)
-            .await?
-            .context("explicit local result claim absent; stopped attempt retained")?;
-        let source = async {
-            if pipeline.push_result_source(&result).await? {
-                return Ok(());
-            }
-            pipeline.capture_result_source(&result).await?;
-            // Original source limits also bound the number of chunks. Each
-            // finite request preserves the exact original operation on error.
-            let snapshot = pipeline.snapshot().await?;
-            let max_steps = crate::native::result::transfer_bound(
-                snapshot.attempts[&id]
-                    .result
-                    .as_ref()
-                    .context("result history absent")?,
-            )?;
-            for _ in 0..max_steps {
-                if pipeline
-                    .transfer_result_source_step(&result, &transfer)
-                    .await?
-                {
-                    return Ok::<(), anyhow::Error>(());
-                }
-            }
-            anyhow::bail!("native result source transfer step bound exhausted")
-        }
-        .await;
-        if source.is_err() {
-            let _ = pipeline
-                .result_needs_reconciliation(
-                    id,
-                    aq_agent_result_local::RecoveryCode::SourceRetentionUnknown,
-                )
-                .await;
-        }
-        source?;
-        let report = pipeline.record_result_report(&result).await;
-        if report.is_err() {
-            let _ = pipeline
-                .result_needs_reconciliation(id, aq_agent_result_local::RecoveryCode::ReportUnknown)
-                .await;
-        }
-        report?;
-        pipeline.end_result_source(&result).await;
-    } else {
-        intake_closed?;
-        stopped?;
-    }
-    operation?;
-    Ok(())
-}
-
 /// One run-loop decision. Cancellation, deadline expiry and natural pane exit
 /// keep their precedence and are observed before the result claim is polled, so
 /// an expired grant is never turned into a claim-recording error. A durably

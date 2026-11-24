@@ -110,12 +110,7 @@ pub(super) fn client(origin: &str, prep: bool) -> (tempfile::TempDir, RunnerHttp
     let http = RunnerHttp::from_file(origin, &files.root().join("permit.json"), handoff).unwrap();
     (dir, http, permit)
 }
-#[tokio::test]
-async fn runner_authenticates_with_delegated_permit_and_refuses_foreign_scope() {
-    let clock = crate::native::http::test_clock::TestClock::new();
-    let peer = peer().await;
-    let (_dir, http, permit) = client(&peer.origin, false);
-    let b = &permit.binding;
+async fn exercise_execution_routes(peer: &Peer, http: &RunnerHttp, b: &PermitBinding) {
     let body = json!({"binding":b});
     let routes = [
         (RunnerRoute::Material, "/v1/worker/profiled/material"),
@@ -157,6 +152,83 @@ async fn runner_authenticates_with_delegated_permit_and_refuses_foreign_scope() 
         peer.seen.lock().unwrap().last().unwrap().0,
         "/v1/worker/profiled/source/00000000-0000-0000-0000-000000000001/bundle?offset=0&limit=1024"
     );
+}
+async fn foreign_execution_scope_is_rejected(http: &RunnerHttp, b: &PermitBinding, body: &Value) {
+    let mut foreign = b.clone();
+    foreign.attempt_id = Uuid::new_v4();
+    assert!(
+        http.post(RunnerRoute::Started, &foreign, body)
+            .await
+            .is_err()
+    );
+    assert!(
+        http.source(&foreign, SourceMember::Bundle, 0, 1024)
+            .await
+            .is_err()
+    );
+    foreign = b.clone();
+    foreign.node.boot_id = Uuid::new_v4();
+    assert!(
+        http.post(RunnerRoute::Started, &foreign, body)
+            .await
+            .is_err()
+    );
+<<<<<<< HEAD
+    for body in [
+        json!({"nested":[{"attempt_id":Uuid::new_v4()}]}),
+        json!({"session":{"boot_id":Uuid::new_v4()}}),
+        json!({"nested":[{"channel_id":null}]}),
+        json!({"nested":[{"sandbox_id":"invalid"}]}),
+        json!({"nested":[{"node_id":42}]}),
+        json!({"nested":[{"grant_generation":b.grant_generation + 1}]}),
+        json!({"nested":[{"assignment_generation":b.grant_generation.to_string()}]}),
+    ] {
+        assert!(http.post(RunnerRoute::Started, b, &body).await.is_err());
+    }
+=======
+    assert!(
+        http.post(
+            RunnerRoute::Started,
+            b,
+            &json!({"nested":[{"attempt_id":Uuid::new_v4()}]})
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        http.post(
+            RunnerRoute::Started,
+            b,
+            &json!({"session":{"boot_id":Uuid::new_v4()}})
+        )
+        .await
+        .is_err()
+    );
+}
+fn check_delegated_headers(peer: &Peer) {
+    for (_, headers, _) in peer.seen.lock().unwrap().iter() {
+        let expected = if headers["authorization"]
+            == "Bearer fixture_only_not_a_real_secret_preparation_0000"
+        {
+            "Bearer fixture_only_not_a_real_secret_preparation_0000"
+        } else {
+            "Bearer fixture_only_not_a_real_secret_00000000"
+        };
+        assert_eq!(headers["authorization"], expected);
+        assert!(
+            !headers.contains_key("cf-access-client-id")
+                && !headers.contains_key("cf-access-client-secret")
+        );
+    }
+}
+#[tokio::test]
+async fn runner_authenticates_with_delegated_permit_and_refuses_foreign_scope() {
+    let clock = crate::native::http::test_clock::TestClock::new();
+    let peer = peer().await;
+    let (_dir, http, permit) = client(&peer.origin, false);
+    let b = &permit.binding;
+    let body = json!({"binding":b});
+    exercise_execution_routes(&peer, &http, b).await;
     let (_prep_dir, prep, prep_permit) = client(&peer.origin, true);
     for route in [
         RunnerRoute::Material,
@@ -174,20 +246,7 @@ async fn runner_authenticates_with_delegated_permit_and_refuses_foreign_scope() 
     prep.source(&prep_permit.binding, SourceMember::Manifest, 0, 1024)
         .await
         .unwrap();
-    for (_, headers, _) in peer.seen.lock().unwrap().iter() {
-        let expected = if headers["authorization"]
-            == "Bearer fixture_only_not_a_real_secret_preparation_0000"
-        {
-            "Bearer fixture_only_not_a_real_secret_preparation_0000"
-        } else {
-            "Bearer fixture_only_not_a_real_secret_00000000"
-        };
-        assert_eq!(headers["authorization"], expected);
-        assert!(
-            !headers.contains_key("cf-access-client-id")
-                && !headers.contains_key("cf-access-client-secret")
-        );
-    }
+    check_delegated_headers(&peer);
     let count = peer.seen.lock().unwrap().len();
     for route in [
         RunnerRoute::Started,
@@ -205,36 +264,8 @@ async fn runner_authenticates_with_delegated_permit_and_refuses_foreign_scope() 
                 .is_err()
         );
     }
-    let mut foreign = b.clone();
-    foreign.attempt_id = Uuid::new_v4();
-    assert!(
-        http.post(RunnerRoute::Started, &foreign, &body)
-            .await
-            .is_err()
-    );
-    assert!(
-        http.source(&foreign, SourceMember::Bundle, 0, 1024)
-            .await
-            .is_err()
-    );
-    foreign = b.clone();
-    foreign.node.boot_id = Uuid::new_v4();
-    assert!(
-        http.post(RunnerRoute::Started, &foreign, &body)
-            .await
-            .is_err()
-    );
-    for body in [
-        json!({"nested":[{"attempt_id":Uuid::new_v4()}]}),
-        json!({"session":{"boot_id":Uuid::new_v4()}}),
-        json!({"nested":[{"channel_id":null}]}),
-        json!({"nested":[{"sandbox_id":"invalid"}]}),
-        json!({"nested":[{"node_id":42}]}),
-        json!({"nested":[{"grant_generation":b.grant_generation + 1}]}),
-        json!({"nested":[{"assignment_generation":b.grant_generation.to_string()}]}),
-    ] {
-        assert!(http.post(RunnerRoute::Started, b, &body).await.is_err());
-    }
+    foreign_execution_scope_is_rejected(&http, b, &body).await;
+>>>>>>> refs/remotes/central/main
     clock.advance_to(super::boot_ns().unwrap() + 5_000_000_000);
     assert!(http.post(RunnerRoute::Started, b, &body).await.is_err());
     assert!(http.source(b, SourceMember::Bundle, 0, 1024).await.is_err());
@@ -395,45 +426,45 @@ async fn runner_readoption_replies_extend_nothing() {
     assert_eq!(peer.seen.lock().unwrap().len(), 3);
 }
 
+use super::{
+    FinishedReceipt, RenewalOutcome, RetainedAttempt, RetentionReceipts, RunnerTransport,
+    StoppedAttempt, TransportFuture,
+    permit_transport::{PermitTransport, RunnerExchange},
+};
+struct Exchange;
+impl RunnerExchange for Exchange {
+    fn preflight(&mut self, _: &RunnerHttp) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn renew<'a>(
+        &'a mut self,
+        http: &'a RunnerHttp,
+        request: &'a RunnerRenewalRequest,
+        _: Uuid,
+    ) -> TransportFuture<'a, RenewalOutcome> {
+        Box::pin(async move {
+            http.post(RunnerRoute::Renew, &request.permit.binding, request)
+                .await?;
+            Ok(RenewalOutcome::Unavailable)
+        })
+    }
+    fn retain<'a>(
+        &'a mut self,
+        _: &'a RunnerHttp,
+        _: &'a StoppedAttempt,
+    ) -> TransportFuture<'a, RetentionReceipts> {
+        Box::pin(async { unreachable!() })
+    }
+    fn finished<'a>(
+        &'a mut self,
+        _: &'a RunnerHttp,
+        _: &'a RetainedAttempt,
+    ) -> TransportFuture<'a, FinishedReceipt> {
+        Box::pin(async { unreachable!() })
+    }
+}
 #[tokio::test]
 async fn runner_exchange_refusal_and_unavailability_have_distinct_authority() {
-    use super::{
-        FinishedReceipt, RenewalOutcome, RetainedAttempt, RetentionReceipts, RunnerTransport,
-        StoppedAttempt, TransportFuture,
-        permit_transport::{PermitTransport, RunnerExchange},
-    };
-    struct Exchange;
-    impl RunnerExchange for Exchange {
-        fn preflight(&mut self, _: &RunnerHttp) -> anyhow::Result<()> {
-            Ok(())
-        }
-        fn renew<'a>(
-            &'a mut self,
-            http: &'a RunnerHttp,
-            request: &'a RunnerRenewalRequest,
-            _: Uuid,
-        ) -> TransportFuture<'a, RenewalOutcome> {
-            Box::pin(async move {
-                http.post(RunnerRoute::Renew, &request.permit.binding, request)
-                    .await?;
-                Ok(RenewalOutcome::Unavailable)
-            })
-        }
-        fn retain<'a>(
-            &'a mut self,
-            _: &'a RunnerHttp,
-            _: &'a StoppedAttempt,
-        ) -> TransportFuture<'a, RetentionReceipts> {
-            Box::pin(async { unreachable!() })
-        }
-        fn finished<'a>(
-            &'a mut self,
-            _: &'a RunnerHttp,
-            _: &'a RetainedAttempt,
-        ) -> TransportFuture<'a, FinishedReceipt> {
-            Box::pin(async { unreachable!() })
-        }
-    }
     let _clock = crate::native::http::test_clock::TestClock::new();
     let peer = peer().await;
     let (_dir, http, permit) = client(&peer.origin, false);

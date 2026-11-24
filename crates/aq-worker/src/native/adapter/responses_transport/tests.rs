@@ -4,29 +4,7 @@ use std::sync::{Arc, Mutex};
 #[tokio::test]
 async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_preserved_sse() {
     let seen = Arc::new(Mutex::new(Vec::new()));
-    let capture = seen.clone();
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    let app = Router::new().route(
-        "/v1/responses",
-        post(move |headers: HeaderMap, body: Bytes| {
-            let capture = capture.clone();
-            async move {
-                assert_eq!(headers["authorization"], "Bearer upstream-private-key");
-                capture
-                    .lock()
-                    .unwrap()
-                    .push(serde_json::from_slice::<serde_json::Value>(&body).unwrap());
-                (
-                    [("content-type", "text/event-stream")],
-                    "data: {\"type\":\"response.completed\"}\n\n",
-                )
-            }
-        }),
-    );
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let (origin, server) = recording_peer(seen.clone()).await;
     let scope = policy::tests::scope();
     let expected_binding = scope.binding().clone();
     let owner = ScopedResponsesTransport::start(
@@ -79,37 +57,14 @@ async fn exact_cap_reaches_allowlisted_peer_with_distinct_upstream_key_and_prese
         reply.text().await.unwrap(),
         "data: {\"type\":\"response.completed\"}\n\n"
     );
-    let mut request = seen.lock().unwrap()[0].clone();
-    assert_eq!(
-        request.as_object_mut().unwrap().remove("max_output_tokens"),
-        Some(100.into())
-    );
-    assert_eq!(
-        request,
-        serde_json::from_slice::<serde_json::Value>(&policy::tests::body()).unwrap()
-    );
+    assert_capped_request(seen.lock().unwrap()[0].clone());
     owner.stop().await.unwrap();
     server.abort();
 }
 #[tokio::test]
 async fn stop_cancels_pending_upstream_and_ambiguous_http_never_forwards() {
     let entered = Arc::new(tokio::sync::Notify::new());
-    let notify = entered.clone();
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    let app = Router::new().route(
-        "/v1/responses",
-        post(move || {
-            let notify = notify.clone();
-            async move {
-                notify.notify_one();
-                std::future::pending::<&'static str>().await
-            }
-        }),
-    );
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
-    });
+    let (origin, server) = pending_peer(entered.clone()).await;
     let owner = ScopedResponsesTransport::start(
         policy::tests::scope(),
         UpstreamEndpoint::development_loopback(&origin).unwrap(),
@@ -327,4 +282,61 @@ async fn upstream_redirect_or_non_sse_never_becomes_success_or_follows_redirect(
         owner.stop().await.unwrap();
         server.abort();
     }
+}
+
+async fn recording_peer(
+    capture: Arc<Mutex<Vec<serde_json::Value>>>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move |headers: HeaderMap, body: Bytes| {
+            let capture = capture.clone();
+            async move {
+                assert_eq!(headers["authorization"], "Bearer upstream-private-key");
+                capture
+                    .lock()
+                    .unwrap()
+                    .push(serde_json::from_slice::<serde_json::Value>(&body).unwrap());
+                (
+                    [("content-type", "text/event-stream")],
+                    "data: {\"type\":\"response.completed\"}\n\n",
+                )
+            }
+        }),
+    );
+    serve_peer(app).await
+}
+
+async fn pending_peer(notify: Arc<tokio::sync::Notify>) -> (String, tokio::task::JoinHandle<()>) {
+    let app = Router::new().route(
+        "/v1/responses",
+        post(move || {
+            let notify = notify.clone();
+            async move {
+                notify.notify_one();
+                std::future::pending::<&'static str>().await
+            }
+        }),
+    );
+    serve_peer(app).await
+}
+
+async fn serve_peer(app: Router) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (origin, server)
+}
+
+fn assert_capped_request(mut request: serde_json::Value) {
+    assert_eq!(
+        request.as_object_mut().unwrap().remove("max_output_tokens"),
+        Some(100.into())
+    );
+    assert_eq!(
+        request,
+        serde_json::from_slice::<serde_json::Value>(&policy::tests::body()).unwrap()
+    );
 }

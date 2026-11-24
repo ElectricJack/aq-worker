@@ -24,6 +24,17 @@ pub struct Preparation {
     deadline_ns: u64,
 }
 impl Preparation {
+    fn verify_request(&self, request: &Prepare, offer: &NativeOffer) -> Result<()> {
+        ensure!(
+            request.binding == self.plan().binding
+                && request.binding == offer.offered.offer.binding
+                && request.guardian_id == self.plan().guardian_id
+                && request.launch_id == self.plan().launch_id
+                && same(&request.reservation, &self.plan().reservation)?,
+            "preparation owner differs from accepted plan"
+        );
+        live(self.deadline_ns)
+    }
     pub fn sent_ns(&self) -> u64 {
         self.sent_ns
     }
@@ -53,6 +64,27 @@ pub struct Granted {
     journal_revision: u64,
 }
 impl Granted {
+    fn verify_initial_retry(
+        &self,
+        request: &Prepare,
+        plan: &Preparation,
+        offer: &NativeOffer,
+    ) -> Result<()> {
+        self.initial
+            .validate_for(request, plan.plan(), offer, self.initial.delivery.nonce)?;
+        ensure!(self.current.is_none(), "initial grant retry after renewal");
+        live(self.deadline_ns)
+    }
+    fn verify_initial_replay(&self, message: &wire::InitialGrantDelivery) -> Result<()> {
+        ensure!(
+            same(&message.original, &self.initial.original)?
+                && message.operation_id == self.initial.operation_id
+                && message.versions == self.initial.versions
+                && message.execution_deadline_ms == self.initial.execution_deadline_ms,
+            "initial grant replay changed"
+        );
+        Ok(())
+    }
     pub fn initial_prepare_digest(&self) -> &aq_admission::Digest {
         &self.initial_prepare_digest
     }
@@ -103,6 +135,17 @@ fn prepare_digest(request: &Prepare) -> Result<aq_admission::Digest> {
 fn same(a: &impl Serialize, b: &impl Serialize) -> Result<bool> {
     Ok(serde_json::to_value(a)? == serde_json::to_value(b)?)
 }
+fn hard_deadline(message: &wire::InitialGrantDelivery, sent: u64, received: u64) -> Result<u64> {
+    // Hard execution may outlast DeliveryClock's two-minute lease bound.
+    // Charge the same full network interval using checked arithmetic.
+    message
+        .execution_deadline_ms
+        .checked_sub(message.delivery.clock.server_time_ms)
+        .and_then(|ms| ms.checked_mul(1_000_000))
+        .and_then(|ns| sent.checked_add(ns))
+        .filter(|end| received >= sent && received < *end)
+        .ok_or_else(|| anyhow::anyhow!("invalid local hard execution deadline"))
+}
 fn live(deadline: u64) -> Result<()> {
     ensure!(boot_ns()? < deadline, "native local authority expired");
     Ok(())
@@ -139,10 +182,8 @@ impl NativeClient {
         let mut tries = 0;
         let (response, nonce, sent_ns) = loop {
             let (nonce, sent_ns) = (Uuid::new_v4(), boot_ns()?);
-            let request = client
-                .post(format!("{}/v1/worker/profiled/{path}", self.base))
-                .header(header::AUTHORIZATION, self.credential.clone())
-                .header(header::CONTENT_TYPE, "application/json")
+            let request = self
+                .profiled_post(client, path)
                 .header("aq-delivery-nonce", nonce.to_string())
                 .body(bytes.clone());
             let request = if path == "poll" && self.checkpoint_author {
@@ -150,7 +191,7 @@ impl NativeClient {
             } else {
                 request
             };
-            let sent = self.slot_headers(request, path).send().await;
+            let sent = request.send().await;
             let response = sent.map_err(|_| {
                 anyhow::anyhow!("native control transport failed; disposition unknown")
             })?;
@@ -264,32 +305,14 @@ impl NativeClient {
         TransportDocument::Prepare(request.clone()).validate()?;
         self.scope(&request.binding)?;
         offer.validate()?;
-        ensure!(
-            request.binding == plan.plan().binding
-                && request.binding == offer.offered.offer.binding
-                && request.guardian_id == plan.plan().guardian_id
-                && request.launch_id == plan.plan().launch_id
-                && same(&request.reservation, &plan.plan().reservation)?,
-            "preparation owner differs from accepted plan"
-        );
-        live(plan.deadline_ns)?;
+        plan.verify_request(request, offer)?;
         let request_digest = prepare_digest(request)?;
         if let Some(previous) = previous {
             ensure!(
                 previous.initial_prepare_digest == request_digest,
                 "initial grant retry request changed"
             );
-            previous.initial.validate_for(
-                request,
-                plan.plan(),
-                offer,
-                previous.initial.delivery.nonce,
-            )?;
-            ensure!(
-                previous.current.is_none(),
-                "initial grant retry after renewal"
-            );
-            live(previous.deadline_ns)?;
+            previous.verify_initial_retry(request, plan, offer)?;
         }
         let _slot = self.control_slots.try_acquire()?;
         let got = self
@@ -300,23 +323,9 @@ impl NativeClient {
         };
         message.validate_for(request, plan.plan(), offer, got.nonce)?;
         if let Some(previous) = previous {
-            ensure!(
-                same(&message.original, &previous.initial.original)?
-                    && message.operation_id == previous.initial.operation_id
-                    && message.versions == previous.initial.versions
-                    && message.execution_deadline_ms == previous.initial.execution_deadline_ms,
-                "initial grant replay changed"
-            );
+            previous.verify_initial_replay(&message)?;
         }
-        // Hard execution may outlast DeliveryClock's two-minute lease bound.
-        // Charge the same full network interval using checked arithmetic.
-        let mut hard_deadline_ns = message
-            .execution_deadline_ms
-            .checked_sub(message.delivery.clock.server_time_ms)
-            .and_then(|ms| ms.checked_mul(1_000_000))
-            .and_then(|ns| got.sent_ns.checked_add(ns))
-            .filter(|end| got.received_ns >= got.sent_ns && got.received_ns < *end)
-            .ok_or_else(|| anyhow::anyhow!("invalid local hard execution deadline"))?;
+        let mut hard_deadline_ns = hard_deadline(&message, got.sent_ns, got.received_ns)?;
         let mut cap = plan.deadline_ns;
         if let Some(previous) = previous {
             hard_deadline_ns = hard_deadline_ns.min(previous.hard_deadline_ns);

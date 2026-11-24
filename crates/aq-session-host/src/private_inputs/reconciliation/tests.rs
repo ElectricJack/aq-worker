@@ -38,14 +38,19 @@ impl Fixture {
             .create(&owner_path)
             .unwrap();
         let owner = open_directory(&owner_path).unwrap();
-        replace(&owner, c"auth.json", OWNER_NEXT, &original, true).unwrap();
+        replace(
+            &owner,
+            c"auth.json",
+            OWNER_NEXT,
+            Replacement::Credential(&original),
+        )
+        .unwrap();
         let home = private_home(&root, &pin).unwrap();
         replace(
             &home,
             c"auth.json",
             c"next",
-            &login("rotated-refresh"),
-            true,
+            Replacement::Credential(&login("rotated-refresh")),
         )
         .unwrap();
         Self {
@@ -57,7 +62,12 @@ impl Fixture {
         }
     }
     fn run(&self, writer: &mut impl LoginWriteBack) -> Result<LoginRefreshStatus> {
-        reconcile(&self.root, &self.pin, &self.owner, writer, |_| Ok(()))
+        CredentialHomes {
+            root: &self.root,
+            pin: &self.pin,
+            owner: &self.owner,
+        }
+        .reconcile(writer, |_| Ok(()))
     }
     fn state(&self) -> LoginRefreshStatus {
         load(&self.root, &self.pin).unwrap().unwrap().status
@@ -73,6 +83,40 @@ impl Fixture {
             std::fs::read(self.auth()).unwrap(),
             login("rotated-refresh")
         );
+    }
+    fn assert_owner_login(&self, expected: &str) {
+        assert_eq!(std::fs::read(self.owner_auth()).unwrap(), login(expected));
+    }
+    fn assert_phase(&self, expected: LoginRefreshPhase) {
+        assert_eq!(self.state().phase, expected);
+    }
+    fn assert_completes_once(&self, server: &mut Server) {
+        assert_eq!(self.run(server).unwrap().phase, LoginRefreshPhase::Complete);
+        assert_eq!(server.operations.len(), 1);
+    }
+    fn assert_atomic_owner_replacement(&self, old_inode: u64) {
+        let m = std::fs::metadata(self.owner_auth()).unwrap();
+        assert_eq!(m.mode() & 0o7777, 0o600);
+        assert_ne!(
+            m.ino(),
+            old_inode,
+            "must replace atomically, not write in place"
+        );
+    }
+    fn assert_completed_journal(&self) {
+        assert_eq!(
+            std::fs::read(self.temp.path().join("source/material.bin")).unwrap(),
+            login("original-refresh")
+        );
+        let raw =
+            std::fs::read_to_string(self.temp.path().join("launch/chatgpt-refresh.json")).unwrap();
+        assert!(!raw.contains("rotated-refresh") && !raw.contains("original-refresh"));
+        assert!(cleanup_guard(&self.root, &self.pin).is_ok());
+    }
+    fn assert_registration_refused(&self, owner: &File, server: &Server) {
+        assert!(server.operations.is_empty());
+        assert!(load(&self.root, &self.pin).unwrap().is_none());
+        assert!(!exists(owner, c".aq-auth.lock").unwrap());
     }
     fn handle(&self) -> (SessionHandle, StoppedProof) {
         // Synthetic sealed stopped host: no process launch or real credential.
@@ -183,33 +227,15 @@ fn durable_owner_and_ack_precede_cleanup_and_completed_replay_is_idempotent() {
     );
     assert_eq!(f.state(), status);
     assert!(!f.auth().parent().unwrap().exists());
-    assert_eq!(
-        std::fs::read(f.owner_auth()).unwrap(),
-        login("rotated-refresh")
-    );
-    let m = std::fs::metadata(f.owner_auth()).unwrap();
-    assert_eq!(m.mode() & 0o7777, 0o600);
-    assert_ne!(
-        m.ino(),
-        old_inode,
-        "must replace atomically, not write in place"
-    );
-    assert_eq!(
-        std::fs::read(f.temp.path().join("source/material.bin")).unwrap(),
-        login("original-refresh")
-    );
-    let raw = std::fs::read_to_string(f.temp.path().join("launch/chatgpt-refresh.json")).unwrap();
-    assert!(!raw.contains("rotated-refresh") && !raw.contains("original-refresh"));
-    assert!(cleanup_guard(&f.root, &f.pin).is_ok());
+    f.assert_owner_login("rotated-refresh");
+    f.assert_atomic_owner_replacement(old_inode);
+    f.assert_completed_journal();
     // Another successfully reconciled rotation must not prevent replay of this
     // completed transaction, or restore the older credential.
     std::fs::write(f.owner_auth(), login("later-refresh")).unwrap();
     assert_eq!(f.run(&mut server).unwrap(), status);
     assert_eq!(server.operations.len(), 1);
-    assert_eq!(
-        std::fs::read(f.owner_auth()).unwrap(),
-        login("later-refresh")
-    );
+    f.assert_owner_login("later-refresh");
 }
 
 #[test]
@@ -221,7 +247,7 @@ fn lost_ack_retains_rotated_copy_and_restarts_with_identical_operation() {
     };
     let error = f.run(&mut server).unwrap_err();
     assert!(!format!("{error:#}").contains("private-response-canary"));
-    assert_eq!(f.state().phase, LoginRefreshPhase::OwnerUpdated);
+    f.assert_phase(LoginRefreshPhase::OwnerUpdated);
     f.assert_retained();
     assert!(cleanup_guard(&f.root, &f.pin).is_err());
     server.lose_ack = false;
@@ -229,9 +255,14 @@ fn lost_ack_retains_rotated_copy_and_restarts_with_identical_operation() {
     let root = open_directory(&f.temp.path().join("launch")).unwrap();
     let owner = open_directory(&f.temp.path().join("owner")).unwrap();
     assert_eq!(
-        reconcile(&root, &f.pin, &owner, &mut server, |_| Ok(()))
-            .unwrap()
-            .phase,
+        CredentialHomes {
+            root: &root,
+            pin: &f.pin,
+            owner: &owner
+        }
+        .reconcile(&mut server, |_| Ok(()))
+        .unwrap()
+        .phase,
         LoginRefreshPhase::Complete
     );
     assert_eq!(server.operations.len(), 2);
@@ -243,7 +274,12 @@ fn owner_publication_crash_is_recovered_without_rollback_or_new_operation() {
     let f = Fixture::new();
     let mut server = Server::default();
     assert!(
-        reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+        CredentialHomes {
+            root: &f.root,
+            pin: &f.pin,
+            owner: &f.owner
+        }
+        .reconcile(&mut server, |point| {
             if point == Boundary::OwnerPublished {
                 bail!("simulated crash");
             }
@@ -251,12 +287,9 @@ fn owner_publication_crash_is_recovered_without_rollback_or_new_operation() {
         })
         .is_err()
     );
-    assert_eq!(f.state().phase, LoginRefreshPhase::PendingOwner);
+    f.assert_phase(LoginRefreshPhase::PendingOwner);
     let id = f.state().operation_id;
-    assert_eq!(
-        std::fs::read(f.owner_auth()).unwrap(),
-        login("rotated-refresh")
-    );
+    f.assert_owner_login("rotated-refresh");
     f.assert_retained();
     assert!(server.operations.is_empty());
     assert_eq!(f.run(&mut server).unwrap().operation_id, id);
@@ -272,7 +305,12 @@ fn durable_ack_and_unlink_failures_retry_cleanup_without_server_resubmission() {
         let f = Fixture::new();
         let mut server = Server::default();
         assert!(
-            reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+            CredentialHomes {
+                root: &f.root,
+                pin: &f.pin,
+                owner: &f.owner
+            }
+            .reconcile(&mut server, |point| {
                 if point == crash {
                     bail!("simulated cleanup failure");
                 }
@@ -280,16 +318,12 @@ fn durable_ack_and_unlink_failures_retry_cleanup_without_server_resubmission() {
             })
             .is_err()
         );
-        assert_eq!(f.state().phase, LoginRefreshPhase::Acknowledged);
+        f.assert_phase(LoginRefreshPhase::Acknowledged);
         if crash != Boundary::AuthUnlinked {
             f.assert_retained();
         }
         assert!(cleanup_guard(&f.root, &f.pin).is_err());
-        assert_eq!(
-            f.run(&mut server).unwrap().phase,
-            LoginRefreshPhase::Complete
-        );
-        assert_eq!(server.operations.len(), 1);
+        f.assert_completes_once(&mut server);
     }
 }
 
@@ -300,15 +334,11 @@ fn unknown_home_files_block_completion_and_are_never_recursively_deleted() {
     std::fs::write(&unknown, b"keep me").unwrap();
     let mut server = Server::default();
     assert!(f.run(&mut server).is_err());
-    assert_eq!(f.state().phase, LoginRefreshPhase::Acknowledged);
+    f.assert_phase(LoginRefreshPhase::Acknowledged);
     assert!(!f.auth().exists());
     assert_eq!(std::fs::read(&unknown).unwrap(), b"keep me");
     std::fs::remove_file(unknown).unwrap();
-    assert_eq!(
-        f.run(&mut server).unwrap().phase,
-        LoginRefreshPhase::Complete
-    );
-    assert_eq!(server.operations.len(), 1);
+    f.assert_completes_once(&mut server);
 }
 
 #[test]
@@ -325,12 +355,9 @@ fn concurrent_owner_rotation_is_preserved_before_write_and_on_retry() {
         std::fs::write(f.owner_auth(), login("operator-new-login")).unwrap();
         let before_calls = server.operations.len();
         assert!(f.run(&mut server).is_err());
-        assert_eq!(f.state().phase, LoginRefreshPhase::Conflict);
+        f.assert_phase(LoginRefreshPhase::Conflict);
         assert_eq!(server.operations.len(), before_calls);
-        assert_eq!(
-            std::fs::read(f.owner_auth()).unwrap(),
-            login("operator-new-login")
-        );
+        f.assert_owner_login("operator-new-login");
         f.assert_retained();
         assert!(f.run(&mut server).is_err(), "conflict must remain held");
     }
@@ -344,10 +371,7 @@ fn competing_desktop_and_session_locks_refuse_without_touching_auth() {
         let mut server = Server::default();
         assert!(f.run(&mut server).is_err());
         assert!(server.operations.is_empty());
-        assert_eq!(
-            std::fs::read(f.owner_auth()).unwrap(),
-            login("original-refresh")
-        );
+        f.assert_owner_login("original-refresh");
         f.assert_retained();
         drop(guard);
     }
@@ -366,7 +390,7 @@ fn foreign_acknowledgement_cannot_authorize_cleanup() {
     }
     let f = Fixture::new();
     assert!(f.run(&mut Foreign).is_err());
-    assert_eq!(f.state().phase, LoginRefreshPhase::OwnerUpdated);
+    f.assert_phase(LoginRefreshPhase::OwnerUpdated);
     f.assert_retained();
 }
 
@@ -388,13 +412,10 @@ fn mutation_during_server_exchange_preserves_both_copies() {
         })
         .is_err()
     );
-    assert_eq!(f.state().phase, LoginRefreshPhase::Conflict);
+    f.assert_phase(LoginRefreshPhase::Conflict);
     assert_eq!(f.state().server_revision.as_deref(), Some("refresh:2"));
     f.assert_retained();
-    assert_eq!(
-        std::fs::read(f.owner_auth()).unwrap(),
-        login("operator-during-exchange")
-    );
+    f.assert_owner_login("operator-during-exchange");
 }
 
 #[test]
@@ -402,7 +423,12 @@ fn changed_rotated_file_after_ack_is_preserved() {
     let f = Fixture::new();
     let mut server = Server::default();
     assert!(
-        reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+        CredentialHomes {
+            root: &f.root,
+            pin: &f.pin,
+            owner: &f.owner
+        }
+        .reconcile(&mut server, |point| {
             if point == Boundary::AckPersisted {
                 std::fs::write(f.auth(), login("unexpected-local-change"))?;
             }
@@ -410,7 +436,7 @@ fn changed_rotated_file_after_ack_is_preserved() {
         })
         .is_err()
     );
-    assert_eq!(f.state().phase, LoginRefreshPhase::Acknowledged);
+    f.assert_phase(LoginRefreshPhase::Acknowledged);
     assert_eq!(
         std::fs::read(f.auth()).unwrap(),
         login("unexpected-local-change")
@@ -466,11 +492,18 @@ fn replay_refuses_retargeted_owner_and_changed_journal_binding() {
         &other,
         c"auth.json",
         OWNER_NEXT,
-        &login("rotated-refresh"),
-        true,
+        Replacement::Credential(&login("rotated-refresh")),
     )
     .unwrap();
-    assert!(reconcile(&f.root, &f.pin, &other, &mut server, |_| Ok(())).is_err());
+    assert!(
+        CredentialHomes {
+            root: &f.root,
+            pin: &f.pin,
+            owner: &other
+        }
+        .reconcile(&mut server, |_| Ok(()))
+        .is_err()
+    );
     let mut record = load(&f.root, &f.pin).unwrap().unwrap();
     record.original_record_digest = Digest::of(b"foreign installation");
     save(&f.root, &record).unwrap();
@@ -492,10 +525,7 @@ fn directory_symlink_components_and_pending_foreign_secrets_are_not_followed() {
         std::fs::read(next).unwrap(),
         login("previous-retained-refresh")
     );
-    assert_eq!(
-        std::fs::read(f.owner_auth()).unwrap(),
-        login("original-refresh")
-    );
+    f.assert_owner_login("original-refresh");
     f.assert_retained();
 }
 
@@ -555,7 +585,7 @@ fn ordinary_cleanup_cannot_bypass_pending_reconciliation_even_for_unchanged_byte
             .reconcile_chatgpt_login(&proof, &f.temp.path().join("owner"), &mut Unavailable)
             .is_err()
     );
-    assert_eq!(f.state().phase, LoginRefreshPhase::OwnerUpdated);
+    f.assert_phase(LoginRefreshPhase::OwnerUpdated);
     assert!(handle.cleanup_private_inputs(&proof).is_err());
     assert!(f.auth().exists());
 }
@@ -565,7 +595,12 @@ fn actual_rotated_file_unlink_failure_keeps_ack_and_private_bytes_for_recovery()
     let f = Fixture::new();
     let held = f.auth().with_file_name("auth-held.json");
     let mut server = Server::default();
-    let error = reconcile(&f.root, &f.pin, &f.owner, &mut server, |point| {
+    let error = CredentialHomes {
+        root: &f.root,
+        pin: &f.pin,
+        owner: &f.owner,
+    }
+    .reconcile(&mut server, |point| {
         if point == Boundary::BeforeUnlink {
             // Force unlinkat(..., 0) to fail with EISDIR, independently of uid.
             // Keep the original inode and bytes to model corrective recovery.
@@ -576,19 +611,12 @@ fn actual_rotated_file_unlink_failure_keeps_ack_and_private_bytes_for_recovery()
     })
     .unwrap_err();
     assert!(error.to_string().contains("cleanup failed"));
-    assert_eq!(f.state().phase, LoginRefreshPhase::Acknowledged);
+    f.assert_phase(LoginRefreshPhase::Acknowledged);
     assert_eq!(std::fs::read(&held).unwrap(), login("rotated-refresh"));
-    assert_eq!(
-        std::fs::read(f.owner_auth()).unwrap(),
-        login("rotated-refresh")
-    );
+    f.assert_owner_login("rotated-refresh");
     std::fs::remove_dir(f.auth()).unwrap();
     std::fs::rename(held, f.auth()).unwrap();
-    assert_eq!(
-        f.run(&mut server).unwrap().phase,
-        LoginRefreshPhase::Complete
-    );
-    assert_eq!(server.operations.len(), 1);
+    f.assert_completes_once(&mut server);
 }
 
 #[test]
@@ -597,10 +625,16 @@ fn disposable_private_home_cannot_be_selected_as_the_desktop_owner() {
     let home = private_home(&f.root, &f.pin).unwrap();
     let mut server = Server::default();
     for owner in [&home, &f.root] {
-        assert!(reconcile(&f.root, &f.pin, owner, &mut server, |_| Ok(())).is_err());
-        assert!(server.operations.is_empty());
-        assert!(load(&f.root, &f.pin).unwrap().is_none());
-        assert!(!exists(owner, c".aq-auth.lock").unwrap());
+        assert!(
+            CredentialHomes {
+                root: &f.root,
+                pin: &f.pin,
+                owner
+            }
+            .reconcile(&mut server, |_| Ok(()))
+            .is_err()
+        );
+        f.assert_registration_refused(owner, &server);
         f.assert_retained();
     }
 }
