@@ -52,7 +52,7 @@ enum Checkpoint {
 impl Workspaces {
     pub fn validate(&self) -> Result<()> {
         ensure!(
-            self.workspaces.len() <= 8 && self.services.len() <= 1,
+            self.workspaces.len() <= 16 && self.services.len() <= 1,
             "workspace grant bound"
         );
         let mut projects = BTreeSet::new();

@@ -120,7 +120,7 @@ pub(super) fn note(primary: &Path) -> Result<String> {
             "Related project {}: {} ({access}, revision {}).",
             entry.project_id,
             workspaces::sandbox_path(entry.project_id),
-            entry.git.base,
+            entry.checkout_head,
         )?;
     }
     if !note.is_empty() {

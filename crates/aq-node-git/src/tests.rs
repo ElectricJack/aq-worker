@@ -685,3 +685,36 @@ fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
         assert_eq!(workspaces::load(&primary).unwrap(), Workspaces::default());
     });
 }
+
+#[test]
+fn old_git_wildcard_400_is_absence_but_other_400s_are_refused() {
+    use axum::{Router, extract::Path, http::StatusCode, routing::get};
+    let old = Router::new().route(
+        "/v1/git/grants/{attempt}/workspaces",
+        get(|| async {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid URL: Cannot parse `repository` with value `grants`: UUID parsing failed: invalid character",
+            )
+        }),
+    );
+    let new = Router::new().route(
+        "/v1/git/grants/{attempt}/workspaces",
+        get(|Path(_): Path<Uuid>| async { (StatusCode::BAD_REQUEST, "invalid sealed grant") }),
+    );
+    let old = Central::start_with(old);
+    let new = Central::start_with(new);
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let attempt = Uuid::from_u128(90);
+            let timeout = Duration::from_secs(10);
+            assert_eq!(
+                remote(&old).workspaces(attempt, timeout).await.unwrap(),
+                workspaces::Workspaces::default()
+            );
+            assert!(remote(&new).workspaces(attempt, timeout).await.is_err());
+        });
+}
