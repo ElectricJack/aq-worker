@@ -173,24 +173,17 @@ async fn foreign_execution_scope_is_rejected(http: &RunnerHttp, b: &PermitBindin
             .await
             .is_err()
     );
-    assert!(
-        http.post(
-            RunnerRoute::Started,
-            b,
-            &json!({"nested":[{"attempt_id":Uuid::new_v4()}]})
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        http.post(
-            RunnerRoute::Started,
-            b,
-            &json!({"session":{"boot_id":Uuid::new_v4()}})
-        )
-        .await
-        .is_err()
-    );
+    for body in [
+        json!({"nested":[{"attempt_id":Uuid::new_v4()}]}),
+        json!({"session":{"boot_id":Uuid::new_v4()}}),
+        json!({"nested":[{"channel_id":null}]}),
+        json!({"nested":[{"sandbox_id":"invalid"}]}),
+        json!({"nested":[{"node_id":42}]}),
+        json!({"nested":[{"grant_generation":b.grant_generation + 1}]}),
+        json!({"nested":[{"assignment_generation":b.grant_generation.to_string()}]}),
+    ] {
+        assert!(http.post(RunnerRoute::Started, b, &body).await.is_err());
+    }
 }
 fn check_delegated_headers(peer: &Peer) {
     for (_, headers, _) in peer.seen.lock().unwrap().iter() {
@@ -465,15 +458,17 @@ async fn runner_exchange_refusal_and_unavailability_have_distinct_authority() {
     transport.preflight(&worker).unwrap();
     let f = fixture("phase_v2_renewal");
     let request = serde_json::from_value(f["request"].clone()).unwrap();
-    peer.status.store(503, Ordering::SeqCst);
-    assert!(matches!(
-        transport
-            .renew(&worker, &request, Uuid::new_v4())
-            .await
-            .unwrap(),
-        RenewalOutcome::Unavailable
-    ));
-    assert!(!http.authority_lost());
+    for status in [408, 429, 500, 503] {
+        peer.status.store(status, Ordering::SeqCst);
+        assert!(matches!(
+            transport
+                .renew(&worker, &request, Uuid::new_v4())
+                .await
+                .unwrap(),
+            RenewalOutcome::Unavailable
+        ));
+        assert!(!http.authority_lost());
+    }
     peer.status.store(403, Ordering::SeqCst);
     assert!(matches!(
         transport
