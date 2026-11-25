@@ -22,6 +22,11 @@ fn credential_scan_fails_build_with_auth_json() {
 }
 
 #[test]
+fn postgres_capability_requires_toolchain_evidence() {
+    python_case("test_postgres_capability_adds_an_unconditional_toolchain_check");
+}
+
+#[test]
 fn template_cli_build_and_scan_use_embedded_tools() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let status = Command::new("python3")

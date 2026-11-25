@@ -27,7 +27,9 @@ pub fn command(runner: &str) -> Vec<String> {
 
 pub fn startup_failure(code: i32) -> Option<&'static str> {
     match code {
-        95 => Some("Required PostgreSQL capability is missing or the template runs as root."),
+        95 => {
+            Some("Required PostgreSQL tools or the unprivileged database account are unavailable.")
+        }
         96 => Some("Required task PostgreSQL did not become ready before launch."),
         _ => None,
     }
