@@ -610,8 +610,8 @@ async fn salvage_never_reads_unstaged_source_even_with_a_pending_submission() {
         driver::staging::Phase::PrepareFailed,
     )
     .unwrap();
-    for _ in 0..2 {
-        let replay = salvage_claim(&h, restart, (sandboxes, Some(CONTAINER_ID)), never)
+    for id in [Some(CONTAINER_ID), None] {
+        let replay = salvage_claim(&h, restart, (sandboxes, id), never)
             .await
             .unwrap()
             .unwrap();

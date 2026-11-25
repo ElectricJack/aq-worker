@@ -15,6 +15,7 @@ use tokio::sync::watch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
+    Pass,
     FailBefore(u16),
     StallBeforeApply,
     DropReplyAfterApply,
@@ -276,7 +277,7 @@ impl DockerTransport for ScriptedDocker {
                 self.handle(&request);
                 return Err(TransportError::io("connection reset after apply"));
             }
-            None => self.handle(&request),
+            Some(Effect::Pass) | None => self.handle(&request),
         };
         if response.body.len() > request.max_response_bytes {
             return Err(TransportError {

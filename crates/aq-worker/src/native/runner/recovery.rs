@@ -201,23 +201,7 @@ pub async fn salvage_interrupted(
         || h.claim
             .as_ref()
             .is_some_and(|claim| preserved(&claim.bytes));
-    let claim = if h.claim.is_some() {
-        if needs_staging_evidence {
-            let mut backend =
-                DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
-            let candidates = stopped_sandboxes(&mut backend, worker.node_id, attempt).await?;
-            let [sandbox] = candidates.as_slice() else {
-                return Ok(SalvageDisposition::Unsalvageable(
-                    "sandbox_staging_unproven",
-                ));
-            };
-            let id = backend.container_id(sandbox).await?;
-            if driver::staging::phase(&h.scope.workspace.path, sandbox, id.as_deref()).is_err() {
-                return Ok(SalvageDisposition::Unsalvageable(
-                    "sandbox_staging_unproven",
-                ));
-            }
-        }
+    let claim = if h.claim.is_some() && !needs_staging_evidence {
         None
     } else {
         let mut backend =
@@ -227,23 +211,25 @@ pub async fn salvage_interrupted(
             [sandbox] => backend.container_id(sandbox).await?,
             _ => None,
         };
+        if h.claim.is_some()
+            && let Err(reason) = driver::staging::recoverable(
+                &h.scope.workspace.path,
+                &sandboxes,
+                container_id.as_deref(),
+            )
+        {
+            return Ok(SalvageDisposition::Unsalvageable(reason));
+        }
         let max = settings.host.max_workspace_bytes;
         let archive = async |s: &SandboxIdentity| {
             let entries = backend.stopped_work_tree(s, max).await?;
             let siblings = driver::projects::returned_trees(
-                &mut backend,
-                s,
                 &h.scope.workspace.path,
                 driver::projects::after_tree(max, &entries)?,
+                async |project, limit| Ok(backend.stopped_project_tree(s, project, limit).await?),
             )
             .await?;
-            anyhow::ensure!(
-                !aq_sandbox_archive::workspace::credential_shaped(&entries)
-                    && siblings.iter().all(|tree| {
-                        !aq_sandbox_archive::workspace::credential_shaped(&tree.entries)
-                    }),
-                "credential in stopped workspace",
-            );
+            driver::projects::refuse_credentials(&entries, &siblings)?;
             ensure!(
                 container_id.is_some() && backend.container_id(s).await? == container_id,
                 "sandbox container changed during salvage"
@@ -252,16 +238,20 @@ pub async fn salvage_interrupted(
             Ok(entries)
         };
         let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
-        match Box::pin(salvage_claim(
-            &h,
-            (reason, proof),
-            (&sandboxes, container_id.as_deref()),
-            archive,
-        ))
-        .await?
-        {
-            Ok(claim) => Some(claim),
-            Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
+        if h.claim.is_some() {
+            None
+        } else {
+            match Box::pin(salvage_claim(
+                &h,
+                (reason, proof),
+                (&sandboxes, container_id.as_deref()),
+                archive,
+            ))
+            .await?
+            {
+                Ok(claim) => Some(claim),
+                Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
+            }
         }
     };
     let git = config.git_client(worker)?;
@@ -304,25 +294,19 @@ async fn salvage_claim(
     (sandboxes, container_id): (&[SandboxIdentity], Option<&str>),
     archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<TreeEntry>>,
 ) -> Result<Result<local::Submission, &'static str>> {
-    let [sandbox] = sandboxes else {
-        return Ok(Err(if sandboxes.is_empty() {
-            "sandbox_absent"
-        } else {
-            "sandbox_ambiguous"
-        }));
-    };
-    let changed = match driver::staging::phase(&h.scope.workspace.path, sandbox, container_id) {
-        Ok(driver::staging::Phase::PrepareFailed) => Vec::new(),
-        Ok(driver::staging::Phase::Started) => {
+    let (sandbox, phase) =
+        match driver::staging::recoverable(&h.scope.workspace.path, sandboxes, container_id) {
+            Ok(proven) => proven,
+            Err(reason) => return Ok(Err(reason)),
+        };
+    let changed = match phase {
+        driver::staging::Phase::PrepareFailed => Vec::new(),
+        driver::staging::Phase::Started => {
             let entries = archive(sandbox).await?;
             if aq_sandbox_archive::workspace::credential_shaped(&entries) {
                 return Ok(Err("credential_in_workspace"));
             }
             driver::sync_tree(&h.scope.workspace.path, &entries)?
-        }
-        Err(error) => {
-            tracing::warn!(attempt_id = %sandbox.owner.attempt_id, %error, "sandbox copy-back withheld without staging evidence");
-            return Ok(Err("sandbox_staging_unproven"));
         }
     };
     if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope) {
