@@ -590,9 +590,15 @@ async fn live_gemini_subscription_edit_check_publish_cycle_with_write_back() {
         .login_after
         .clone()
         .expect("login file present after the run");
-    let refreshed: Value = serde_json::from_slice(&after).expect("refreshed oauth_creds.json");
+    write_back_login(&path, &login, &after);
+    assert_cycle(&run, &refresh, evidence.as_deref());
+}
+
+// Preserve refreshed credentials before assertions about the live cycle.
+fn write_back_login(path: &Path, login: &[u8], after: &[u8]) {
+    let refreshed: Value = serde_json::from_slice(after).expect("refreshed oauth_creds.json");
     assert!(refreshed["refresh_token"].is_string());
-    if after.trim_ascii() != login.as_slice() {
+    if after.trim_ascii() != login {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
         let staged = path.with_extension("aq-write-back");
         let mut file = std::fs::OpenOptions::new()
@@ -601,11 +607,43 @@ async fn live_gemini_subscription_edit_check_publish_cycle_with_write_back() {
             .mode(0o600)
             .open(&staged)
             .unwrap();
-        file.write_all(&after).unwrap();
+        file.write_all(after).unwrap();
         file.sync_all().unwrap();
-        std::fs::rename(&staged, &path).unwrap();
+        std::fs::rename(&staged, path).unwrap();
     }
-    assert_cycle(&run, &refresh, evidence.as_deref());
+}
+
+#[test]
+fn refreshed_login_replaces_the_private_file_only_when_changed() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("oauth_creds.json");
+    let login = serde_json::to_vec(&serde_json::json!({
+        "refresh_token": (["fixture", "original"].join("-"))
+    }))
+    .unwrap();
+    std::fs::write(&path, &login).unwrap();
+    // An existing staging file must not affect an unchanged login.
+    let staged = path.with_extension("aq-write-back");
+    std::fs::write(&staged, b"occupied").unwrap();
+    let mut unchanged = login.clone();
+    unchanged.push(b'\n');
+    write_back_login(&path, &login, &unchanged);
+    assert_eq!(std::fs::read(&path).unwrap(), login);
+    assert_eq!(std::fs::read(&staged).unwrap(), b"occupied");
+    std::fs::remove_file(&staged).unwrap();
+
+    let refreshed = serde_json::to_vec(&serde_json::json!({
+        "refresh_token": (["fixture", "refreshed"].join("-"))
+    }))
+    .unwrap();
+    write_back_login(&path, &login, &refreshed);
+    assert_eq!(std::fs::read(&path).unwrap(), refreshed);
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(!staged.exists());
 }
 
 #[test]
