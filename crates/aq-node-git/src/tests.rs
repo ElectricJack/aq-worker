@@ -683,6 +683,21 @@ fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
         assert_eq!(*receipts.lock().unwrap(), [payload.clone(), payload]);
         node.end_siblings(&primary).await.unwrap();
         assert_eq!(workspaces::load(&primary).unwrap(), Workspaces::default());
+        let head = central.head("refs/heads/aq/output").unwrap();
+        let mut resumed_grant = project(write, Access::Write, "output");
+        resumed_grant.git.lease = Some(head.clone());
+        resumed_grant.checkout_head = head.clone();
+        plan.lock().unwrap().workspaces = vec![resumed_grant];
+        let successor = Uuid::from_u128(78);
+        node.start_siblings(successor, &primary, Duration::from_secs(10)).await.unwrap();
+        let resumed = checkout_path(&primary, write);
+        assert_eq!(git(&resumed, &["rev-parse", "HEAD"]), head);
+        assert_eq!(std::fs::read(resumed.join("a.txt")).unwrap(), b"write-only update");
+        node.finish_siblings(successor, &primary, None).await.unwrap();
+        assert_eq!(receipts.lock().unwrap().last().unwrap(), &json!({"workspaces":[{
+            "project_id":write,"repository_id":write,"result":{"status":"unchanged","head":head}
+        }]}));
+        node.end_siblings(&primary).await.unwrap();
     });
 }
 
