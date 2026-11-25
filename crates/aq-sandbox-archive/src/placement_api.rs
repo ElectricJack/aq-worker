@@ -470,3 +470,17 @@ impl From<crate::docker_engine::CallError> for BackendError {
         })
     }
 }
+
+impl From<crate::docker_engine::ApiError> for BackendError {
+    fn from(error: crate::docker_engine::ApiError) -> Self {
+        match error {
+            crate::docker_engine::ApiError::Transport(error) => error.into(),
+            crate::docker_engine::ApiError::UnexpectedStatus => {
+                Self::Uncertain(UnconfirmedReason::BackendFailure)
+            }
+            crate::docker_engine::ApiError::InvalidBody => {
+                Self::Uncertain(UnconfirmedReason::UnknownState)
+            }
+        }
+    }
+}

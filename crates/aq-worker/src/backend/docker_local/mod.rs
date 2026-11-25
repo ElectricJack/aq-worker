@@ -32,7 +32,7 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use transport::{Api, ApiError, CallError, MAX_JSON_BYTES, image_path};
+use transport::{Api, CallError, MAX_JSON_BYTES, image_path};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -137,16 +137,6 @@ pub use transport::storage_shares_root;
 
 pub fn require_enforced_limits(info: &Value) -> Result<(), BackendError> {
     transport::require_enforced_limits(info).map_err(BackendError::InvalidRequest)
-}
-
-impl From<ApiError> for BackendError {
-    fn from(error: ApiError) -> Self {
-        match error {
-            ApiError::Transport(error) => error.into(),
-            ApiError::UnexpectedStatus => Self::Uncertain(UnconfirmedReason::BackendFailure),
-            ApiError::InvalidBody => Self::Uncertain(UnconfirmedReason::UnknownState),
-        }
-    }
 }
 
 /// Maps an observation failure to the reason a confirmation was withheld.
