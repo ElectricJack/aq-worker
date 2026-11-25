@@ -29,7 +29,7 @@ use crate::backend::docker_local::{
 };
 use crate::backend::{
     BackendError, CreateRequest, Ownership, PlacementBackend, PrivateMaterial, ResourceLimits,
-    RunnerExit, SandboxIdentity, TemplateDigest,
+    RunnerExit, SandboxIdentity, SandboxState, TemplateDigest,
 };
 use anyhow::{Context, Result, bail, ensure};
 use aq_handoff_note::Secrets;
@@ -129,6 +129,7 @@ impl DriverConfig {
 mod drive;
 mod outcome;
 pub(crate) mod projects;
+pub(crate) mod staging;
 use aq_sandbox_archive::workspace::tree_bytes;
 pub use aq_sandbox_archive::workspace::{collect_tree, sync_tree, token_leak};
 
@@ -246,11 +247,20 @@ where
         Err(e) => return Err(e).context("create sandbox"),
     };
     println!("aq-sandbox-harness: sandbox {} created", sandbox.backend_id);
+    ensure!(
+        backend.inspect(&sandbox).await?.state == SandboxState::Created,
+        "sandbox was already started"
+    );
+    let container_id = backend
+        .container_id(&sandbox)
+        .await?
+        .context("sandbox container absent")?;
     let handoff = config_path.with_file_name(HANDOFF_MARKER);
     let mut drive = drive::Drive {
         backend: &mut backend,
         config: &config,
         sandbox: &sandbox,
+        container_id: &container_id,
         login: &login,
         handoff: &handoff,
         runner_may_have_started: false,

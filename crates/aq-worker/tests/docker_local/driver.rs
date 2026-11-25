@@ -27,6 +27,18 @@ struct CodexDriverRun {
 async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> CodexDriverRun {
     run_codex_driver_on(final_message, extra, b"codex tui\r\n", b"").await
 }
+
+#[tokio::test]
+async fn bound_failure_preserves_primary_source_and_never_starts_or_reads_work() {
+    let result = run_driver("must never run", &[], (b"", b""), |config| {
+        config.max_workspace_bytes = 1;
+    }).await;
+    assert_eq!(result.code, 3);
+    assert_eq!(std::fs::read(result.dir.path().join("work/README.md")).unwrap(), b"# scratch\n");
+    let requests = result.docker.requests();
+    assert!(requests.iter().all(|(_, path)| !path.ends_with("/start")));
+    assert!(requests.iter().all(|(method, path)| *method != DockerMethod::Get || !path.contains("%2Faq%2Fwork")));
+}
 async fn run_codex_driver_on(
     final_message: &str,
     extra: &[(&str, Vec<u8>)],

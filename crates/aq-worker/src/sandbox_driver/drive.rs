@@ -3,6 +3,7 @@ pub(super) struct Drive<'a, T: DockerTransport> {
     pub(super) backend: &'a mut DockerLocalBackend<T>,
     pub(super) config: &'a DriverConfig,
     pub(super) sandbox: &'a SandboxIdentity,
+    pub(super) container_id: &'a str,
     pub(super) login: &'a Login,
     pub(super) handoff: &'a Path,
     pub(super) runner_may_have_started: bool,
@@ -65,7 +66,16 @@ impl<T: DockerTransport> Drive<'_, T> {
             self.sandbox.backend_id,
             stopped.is_confirmed()
         );
-        save_conversation(self.backend, self.config, self.sandbox, &self.login.token).await;
+        if self.runner_may_have_started {
+            save_conversation(self.backend, self.config, self.sandbox, &self.login.token).await;
+        } else if let Err(error) = staging::record(
+            &self.config.workspace,
+            self.sandbox,
+            self.container_id,
+            staging::Phase::PrepareFailed,
+        ) {
+            tracing::warn!(%error, "sandbox preparation failure receipt unavailable");
+        }
         let backend_unavailable = matches!(
             error.downcast_ref::<BackendError>(),
             Some(BackendError::Unavailable(_) | BackendError::Uncertain(_))
@@ -136,6 +146,17 @@ impl<T: DockerTransport> Drive<'_, T> {
             .start_runner(self.sandbox)
             .await
             .context("sandbox runner start")?;
+        ensure!(
+            self.backend.container_id(self.sandbox).await?.as_deref() == Some(self.container_id),
+            "sandbox container changed during staging"
+        );
+        staging::record(
+            &self.config.workspace,
+            self.sandbox,
+            self.container_id,
+            staging::Phase::Started,
+        )
+        .context("record staged sandbox start")?;
         if self.config.postgres {
             self.backend
                 .start_task_postgres(self.sandbox)
@@ -204,6 +225,13 @@ impl<T: DockerTransport> Drive<'_, T> {
         secrets: &Secrets<'_>,
         pane_leak: bool,
     ) -> Result<Drove> {
+        let container_id = self
+            .backend
+            .container_id(self.sandbox)
+            .await?
+            .context("sandbox container absent")?;
+        staging::require_started(&self.config.workspace, self.sandbox, &container_id)
+            .context("verify staged sandbox start")?;
         let Ended {
             exit,
             stream,
@@ -233,6 +261,11 @@ impl<T: DockerTransport> Drive<'_, T> {
             projects::after_tree(self.workspace_budget, &entries)?,
         )
         .await?;
+        ensure!(
+            self.backend.container_id(self.sandbox).await?.as_deref()
+                == Some(container_id.as_str()),
+            "sandbox container changed during copy-back"
+        );
         let leak = token_leak(&entries, &stream, secrets)
             .or_else(|| {
                 siblings
