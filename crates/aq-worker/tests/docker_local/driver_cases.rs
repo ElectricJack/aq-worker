@@ -477,6 +477,7 @@ async fn sandbox_driver_isolates_related_projects_and_copies_only_writable_outpu
         &[(&read_target, b"ignore this".to_vec()), (&write_target, b"returned write".to_vec())],
         (b"", b""),
         |config| {
+            config.postgres = true;
             let root = config.workspace.parent().unwrap().to_path_buf();
             config.docker_local.workspace_bind_paths = Some(
                 aq_sandbox_archive::docker_engine::WorkspaceBindPaths {
@@ -505,10 +506,33 @@ async fn sandbox_driver_isolates_related_projects_and_copies_only_writable_outpu
     let work = run.dir.path().join("work");
     let names = run.docker.container_names();
     let container = run.docker.container(&names[0]).unwrap();
-    let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
-    assert!(mounts.iter().any(|mount| mount["Target"] == sandbox_path(read) && mount["ReadOnly"] == true));
-    assert_eq!(std::fs::read(checkout_path(&work, read).join("a.txt")).unwrap(), b"starting source");
+    let host = &container.body["HostConfig"];
+    assert_eq!(
+        host["Tmpfs"]["/run/aq-postgres"],
+        aq_sandbox_archive::task_postgres::TMPFS
+    );
+    assert_eq!(host["PortBindings"], json!({}));
+    assert_eq!(host["CapDrop"], json!(["ALL"]));
+    let postgres_gate = aq_sandbox_archive::task_postgres::command("");
+    assert_eq!(container.body["Cmd"][2], postgres_gate[2].as_str());
+    let mounts = host["Mounts"].as_array().unwrap();
+    assert!(
+        mounts
+            .iter()
+            .any(|mount| mount["Target"] == sandbox_path(read) && mount["ReadOnly"] == true)
+    );
+    assert_eq!(
+        std::fs::read(checkout_path(&work, read).join("a.txt")).unwrap(),
+        b"starting source"
+    );
     assert!(!readonly_path(&work, read).join(".git").exists());
-    assert_eq!(std::fs::read(checkout_path(&work, write).join("a.txt")).unwrap(), b"returned write");
-    assert!(!container.layer.contains_key(&format!("{}/.git", sandbox_path(write))));
+    assert_eq!(
+        std::fs::read(checkout_path(&work, write).join("a.txt")).unwrap(),
+        b"returned write"
+    );
+    assert!(
+        !container
+            .layer
+            .contains_key(&format!("{}/.git", sandbox_path(write)))
+    );
 }
