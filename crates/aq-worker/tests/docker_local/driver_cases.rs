@@ -419,3 +419,45 @@ async fn sandbox_driver_names_the_claude_session_after_the_attempt() {
     assert_eq!(mounts[1]["Target"], "/aq/home/projects/-aq-work");
     assert_eq!(mounts.len(), 2);
 }
+
+#[tokio::test]
+async fn sandbox_driver_isolates_related_projects_and_copies_only_writable_outputs() {
+    use aq_node_git::workspaces::{checkout_path, readonly_path, sandbox_path};
+    let read = Uuid::from_u128(41);
+    let write = Uuid::from_u128(42);
+    let target = |project| format!("{}/a.txt", sandbox_path(project));
+    let read_target = target(read);
+    let write_target = target(write);
+    let run = run_driver(
+        DONE,
+        &[(&read_target, b"ignore this".to_vec()), (&write_target, b"returned write".to_vec())],
+        (b"", b""),
+        |config| {
+            let grant = |project: Uuid, access: &str| json!({
+                "project_id": project, "project_revision": 4, "binding_generation": 2,
+                "repository_id": project, "endpoint": format!("/v1/git/workspaces/{project}/{project}"),
+                "access": access, "base": "a".repeat(40), "checkout_head":"a".repeat(40),
+                "task_ref":"refs/heads/aq/fixture",
+                "lease":null, "update_from_main":false,
+            });
+            let plan = json!({"workspaces":[grant(read, "read"), grant(write, "write")]});
+            std::fs::write(config.workspace.with_extension("workspaces.json"), serde_json::to_vec(&plan).unwrap()).unwrap();
+            for project in [read, write] {
+                let worktree = checkout_path(&config.workspace, project);
+                std::fs::create_dir_all(&worktree).unwrap();
+                std::fs::write(worktree.join("a.txt"), "starting source").unwrap();
+                std::fs::write(worktree.join(".git"), "gitdir: node-private").unwrap();
+            }
+        },
+    ).await;
+    assert_eq!(run.code, 0);
+    let work = run.dir.path().join("work");
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
+    assert!(mounts.iter().any(|mount| mount["Target"] == sandbox_path(read) && mount["ReadOnly"] == true));
+    assert_eq!(std::fs::read(checkout_path(&work, read).join("a.txt")).unwrap(), b"starting source");
+    assert!(!readonly_path(&work, read).join(".git").exists());
+    assert_eq!(std::fs::read(checkout_path(&work, write).join("a.txt")).unwrap(), b"returned write");
+    assert!(!container.layer.contains_key(&format!("{}/.git", sandbox_path(write))));
+}

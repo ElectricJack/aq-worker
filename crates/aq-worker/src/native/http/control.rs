@@ -191,6 +191,11 @@ impl NativeClient {
             } else {
                 request
             };
+            let request = if path == "poll" && self.workspace_expansion {
+                request.header("aq-workspace-expansion", "1")
+            } else {
+                request
+            };
             let sent = request.send().await;
             let response = sent.map_err(|_| {
                 anyhow::anyhow!("native control transport failed; disposition unknown")

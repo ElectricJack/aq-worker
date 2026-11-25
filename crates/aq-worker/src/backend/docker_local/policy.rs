@@ -138,6 +138,14 @@ pub fn create_body(
     if let Some((host, target)) = &config.transcript {
         mounts.push(json!({ "Type": "bind", "Source": host, "Target": target, "ReadOnly": false }));
     }
+    for (project, path) in &config.readonly_projects {
+        mounts.push(json!({
+            "Type": "bind",
+            "Source": path,
+            "Target": aq_node_git::workspaces::sandbox_path(*project),
+            "ReadOnly": true,
+        }));
+    }
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),

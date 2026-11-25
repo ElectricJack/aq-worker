@@ -183,6 +183,15 @@ impl SourceHydration<'_> {
             .await?;
         if let (Some(node), Some(grant)) = (&self.git.node, grant) {
             let workspace = self.checkout((node, grant), &plan, &manifest).await?;
+            let remaining = deadline
+                .checked_sub(boot_ns()?)
+                .context("sibling workspace preparation expired")?;
+            node.start_siblings(
+                id,
+                &workspace.path,
+                std::time::Duration::from_nanos(remaining),
+            )
+            .await?;
             let observed_ns = boot_ns()?;
             ensure!(observed_ns < deadline, "native source proof expired");
             return Ok(HydratedWorkspace {

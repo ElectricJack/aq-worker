@@ -203,7 +203,25 @@ pub async fn salvage_interrupted(
             DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
         let sandboxes = stopped_sandboxes(&mut backend, worker.node_id, attempt).await?;
         let max = settings.host.max_workspace_bytes;
-        let archive = async |s: &SandboxIdentity| Ok(backend.stopped_work_tree(s, max).await?);
+        let archive = async |s: &SandboxIdentity| {
+            let entries = backend.stopped_work_tree(s, max).await?;
+            let siblings = driver::projects::returned_trees(
+                &mut backend,
+                s,
+                &h.scope.workspace.path,
+                driver::projects::after_tree(max, &entries)?,
+            )
+            .await?;
+            anyhow::ensure!(
+                !aq_sandbox_archive::workspace::credential_shaped(&entries)
+                    && siblings.iter().all(|tree| {
+                        !aq_sandbox_archive::workspace::credential_shaped(&tree.entries)
+                    }),
+                "credential in stopped workspace",
+            );
+            driver::projects::apply(&siblings)?;
+            Ok(entries)
+        };
         let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
         match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, archive)).await? {
             Ok(claim) => Some(claim),

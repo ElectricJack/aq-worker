@@ -51,6 +51,9 @@ impl InputPipeline {
         let (Some(node), Ok(h)) = (o.git().node.clone(), snapshot(&o).await) else {
             return;
         };
+        if let Err(error) = node.end_siblings(&h.scope.workspace.path).await {
+            tracing::warn!(attempt_id=%id, %error, "sibling worktrees not removed");
+        }
         if let Err(error) = node.end(h.scope.workspace.path).await {
             tracing::warn!(attempt_id=%id, %error, "attempt worktree not removed");
         }
@@ -72,6 +75,8 @@ pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
     }
     let node = o.git().node.clone().context("node git is not configured")?;
     o.roots().verify()?;
+    node.finish_siblings(id, &path, expected.scope.git_author.clone())
+        .await?;
     // A moved task ref is recorded as push_conflict and reported; never forced.
     let (_, pushed) = node
         .finish_as(

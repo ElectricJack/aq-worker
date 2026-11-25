@@ -124,6 +124,7 @@ impl DriverConfig {
 
 mod drive;
 mod outcome;
+pub(crate) mod projects;
 use aq_sandbox_archive::workspace::tree_bytes;
 pub use aq_sandbox_archive::workspace::{collect_tree, sync_tree, token_leak};
 
@@ -146,6 +147,7 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
             .unwrap_or_default()
             .bytes(),
     );
+    prompt.extend_from_slice(projects::note(&config.workspace)?.as_bytes());
     prompt.extend_from_slice(RUNNER_NOTE.as_bytes());
     if config.agent_channel {
         prompt.extend_from_slice(CHANNEL_NOTE.as_bytes());
@@ -215,7 +217,7 @@ where
     let term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut signals = drive::Signals { term, hup };
-    let (docker, request, cache) = config.sandbox_request()?;
+    let (docker, request, cache, workspace_budget) = config.sandbox_request()?;
     let mut backend = connect(docker).await.context("connect sandbox daemon")?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
@@ -238,6 +240,7 @@ where
         handoff: &handoff,
         runner_may_have_started: false,
         cache: cache.as_ref(),
+        workspace_budget,
     };
     let drove = match drive.run(&prompt, terminal, &mut signals).await {
         Ok(v) => v,
@@ -437,8 +440,14 @@ impl DriverConfig {
         DockerLocalConfig,
         CreateRequest,
         Option<aq_sandbox_archive::build_cache::Opened>,
+        u64,
     )> {
         let mut docker = self.docker_local.clone();
+        let workspace_budget = projects::stage_readonly(
+            &self.workspace,
+            self.max_workspace_bytes,
+            &mut docker.readonly_projects,
+        )?;
         docker.runner_tty = true;
         docker.runner_command = Some(vec![
             "/bin/bash".into(),
@@ -458,6 +467,6 @@ impl DriverConfig {
         }
         let cache = (self.build_cache.as_ref()).and_then(|c| c.open(&self.workspace));
         docker.cache_binds = cache.iter().flat_map(|c| c.binds()).collect();
-        Ok((docker, request, cache))
+        Ok((docker, request, cache, workspace_budget))
     }
 }

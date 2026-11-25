@@ -93,6 +93,9 @@ pub struct DockerLocalConfig {
     /// The attempt's build-cache binds; set by the driver, never read from a file.
     #[serde(skip)]
     pub cache_binds: Vec<String>,
+    /// Runtime-only, source-only snapshots of approved read-only projects.
+    #[serde(skip)]
+    pub(crate) readonly_projects: BTreeMap<uuid::Uuid, PathBuf>,
     /// Spec 0017: the admitted environments this node pulled; set by the service.
     #[cfg(feature = "project_environments")]
     #[serde(skip)]
@@ -142,6 +145,7 @@ impl DockerLocalConfig {
             channel_root: None,
             transcript: None,
             cache_binds: Vec::new(),
+            readonly_projects: BTreeMap::new(),
             #[cfg(feature = "project_environments")]
             environments: Default::default(),
         }

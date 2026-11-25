@@ -521,6 +521,40 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             .ok_or(BackendError::NotFound)
     }
 
+    pub(crate) async fn stopped_project_tree(
+        &self,
+        sandbox: &SandboxIdentity,
+        project: uuid::Uuid,
+        max: u64,
+    ) -> Result<Vec<tar::TreeEntry>, BackendError> {
+        let observed = self.observe(sandbox).await?;
+        if observed.entry.state != SandboxState::Stopped || !observed.container {
+            return Err(BackendError::InvalidState);
+        }
+        let target = aq_node_git::workspaces::sandbox_path(project);
+        let path = format!(
+            "{API_VERSION}/containers/{}/archive?path={}",
+            sandbox.backend_id,
+            encode(&target)
+        );
+        let raw = self
+            .download_archive(
+                path,
+                max.saturating_mul(2)
+                    .saturating_add(65_536)
+                    .try_into()
+                    .unwrap_or(usize::MAX),
+            )
+            .await?
+            .ok_or(BackendError::NotFound)?;
+        let after = self.observe(sandbox).await?;
+        if after.entry.state != SandboxState::Stopped || !after.container {
+            return Err(BackendError::InvalidState);
+        }
+        aq_sandbox_archive::tar::read_named_tree(&raw, max, &project.to_string())
+            .map_err(|error| BackendError::InvalidRequest(error.0))
+    }
+
     pub async fn stopped_work_tree(
         &self,
         sandbox: &SandboxIdentity,

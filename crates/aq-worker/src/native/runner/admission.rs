@@ -76,7 +76,14 @@ impl Admission {
             "native Git reservation exceeds configured capacity"
         );
         let mut client = NativeClient::from_config(worker)?
-            .with_git_author_support(git.supports_checkpoint_author());
+            .with_git_author_support(git.supports_checkpoint_author())
+            .with_workspace_expansion(
+                git.node.is_some()
+                    && matches!(
+                        config.executor.as_ref(),
+                        Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { .. })
+                    ),
+            );
         if let Some((node, slot)) = &node {
             client = client.for_node_slot(*slot, node.registered_slots());
         }
