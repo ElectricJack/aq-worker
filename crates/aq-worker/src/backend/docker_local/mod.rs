@@ -152,6 +152,7 @@ fn unconfirmed(error: BackendError) -> UnconfirmedReason {
 struct Observed {
     entry: InventoryEntry,
     container: bool,
+    container_id: Option<String>,
     exit: Option<RunnerExit>,
 }
 
@@ -223,8 +224,26 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         Ok(Observed {
             entry,
             container: container.is_some(),
+            container_id: container
+                .as_ref()
+                .and_then(|value| value["Id"].as_str().map(str::to_owned)),
             exit,
         })
+    }
+
+    pub(crate) async fn container_id(
+        &self,
+        sandbox: &SandboxIdentity,
+    ) -> Result<Option<String>, BackendError> {
+        let observed = self.observe(sandbox).await?;
+        if !observed.container {
+            return Ok(None);
+        }
+        observed
+            .container_id
+            .filter(|id| id.len() == 64 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+            .map(Some)
+            .ok_or(BackendError::Uncertain(UnconfirmedReason::UnknownState))
     }
 
     /// Uses the existing work volume when its labels are identical; creates it

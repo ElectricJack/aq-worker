@@ -1,11 +1,20 @@
 //! The sandbox receives source trees. Git and its authority stay on the node.
-use super::*;
+use crate::{
+    docker_engine::WorkspaceBindPaths,
+    tar::TreeEntry,
+    workspace::{collect_tree, sync_tree},
+};
+use anyhow::{Context, Result};
 use aq_node_git::workspaces::{self, Access};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
-pub(super) fn stage_readonly(
+pub fn stage_readonly(
     primary: &Path,
     limit: u64,
-    mapping: Option<&aq_sandbox_archive::docker_engine::WorkspaceBindPaths>,
+    mapping: Option<&WorkspaceBindPaths>,
     mounts: &mut BTreeMap<uuid::Uuid, PathBuf>,
 ) -> Result<u64> {
     let plan = workspaces::load(primary)?;
@@ -28,13 +37,13 @@ pub(super) fn stage_readonly(
     Ok(remaining)
 }
 
-pub(crate) struct ProjectTree {
-    pub(crate) project: uuid::Uuid,
-    pub(crate) path: PathBuf,
-    pub(crate) entries: Vec<TreeEntry>,
+pub struct ProjectTree {
+    pub project: uuid::Uuid,
+    pub path: PathBuf,
+    pub entries: Vec<TreeEntry>,
 }
 
-pub(crate) fn after_tree(mut remaining: u64, entries: &[TreeEntry]) -> Result<u64> {
+pub fn after_tree(mut remaining: u64, entries: &[TreeEntry]) -> Result<u64> {
     for entry in entries {
         if let TreeEntry::File { data, .. } = entry {
             remaining = remaining
@@ -45,7 +54,7 @@ pub(crate) fn after_tree(mut remaining: u64, entries: &[TreeEntry]) -> Result<u6
     Ok(remaining)
 }
 
-pub(super) fn writable_trees(primary: &Path, limit: u64) -> Result<Vec<ProjectTree>> {
+pub fn writable_trees(primary: &Path, limit: u64) -> Result<Vec<ProjectTree>> {
     let plan = workspaces::load(primary)?;
     let mut remaining = limit;
     let mut trees = Vec::new();
@@ -66,12 +75,14 @@ pub(super) fn writable_trees(primary: &Path, limit: u64) -> Result<Vec<ProjectTr
     Ok(trees)
 }
 
-pub(crate) async fn returned_trees<T: DockerTransport>(
-    backend: &mut DockerLocalBackend<T>,
-    sandbox: &SandboxIdentity,
+pub async fn returned_trees<F>(
     primary: &Path,
     mut remaining: u64,
-) -> Result<Vec<ProjectTree>> {
+    mut read: impl FnMut(uuid::Uuid, u64) -> F,
+) -> Result<Vec<ProjectTree>>
+where
+    F: Future<Output = Result<Vec<TreeEntry>>> + Send,
+{
     let plan = workspaces::load(primary)?;
     let mut trees = Vec::new();
     for entry in plan
@@ -80,8 +91,7 @@ pub(crate) async fn returned_trees<T: DockerTransport>(
         .filter(|entry| entry.access == Access::Write)
     {
         let project = entry.project_id;
-        let entries = backend
-            .stopped_project_tree(sandbox, project, remaining)
+        let entries = read(project, remaining)
             .await
             .with_context(|| format!("copy-back of project {project}"))?;
         remaining = after_tree(remaining, &entries)?;
@@ -94,7 +104,7 @@ pub(crate) async fn returned_trees<T: DockerTransport>(
     Ok(trees)
 }
 
-pub(crate) fn apply(trees: &[ProjectTree]) -> Result<Vec<String>> {
+pub fn apply(trees: &[ProjectTree]) -> Result<Vec<String>> {
     let mut changed = Vec::new();
     for tree in trees {
         changed.extend(
@@ -106,7 +116,7 @@ pub(crate) fn apply(trees: &[ProjectTree]) -> Result<Vec<String>> {
     Ok(changed)
 }
 
-pub(super) fn note(primary: &Path) -> Result<String> {
+pub fn note(primary: &Path) -> Result<String> {
     let mut note = String::new();
     for entry in workspaces::load(primary)?.workspaces {
         use std::fmt::Write as _;
@@ -127,4 +137,17 @@ pub(super) fn note(primary: &Path) -> Result<String> {
         note.insert(0, '\n');
     }
     Ok(note)
+}
+
+/// Verify every recovered tree before a checkout is modified.
+pub fn refuse_credentials(primary: &[TreeEntry], siblings: &[ProjectTree]) -> Result<()> {
+    use crate::workspace::credential_shaped;
+    anyhow::ensure!(
+        !credential_shaped(primary)
+            && siblings
+                .iter()
+                .all(|tree| !credential_shaped(&tree.entries)),
+        "credential in stopped workspace",
+    );
+    Ok(())
 }
