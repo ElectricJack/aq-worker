@@ -613,7 +613,10 @@ fn test_git_prefers_the_pinned_sandbox_git_then_the_native_runtime() {
         Some("/opt/aq-git-runtime/bin/git")
     );
     let system_only = |p: &Path| p == Path::new("/usr/bin/git");
-    assert_eq!(select_git(&GIT_CANDIDATES, system_only), Some("/usr/bin/git"));
+    assert_eq!(
+        select_git(&GIT_CANDIDATES, system_only),
+        Some("/usr/bin/git")
+    );
     assert_eq!(select_git(&GIT_CANDIDATES, |_| false), None);
 }
 
