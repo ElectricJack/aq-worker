@@ -124,7 +124,7 @@ pub(super) fn note(primary: &Path) -> Result<String> {
         )?;
     }
     if !note.is_empty() {
-        note.insert_str(0, "\n");
+        note.insert(0, '\n');
     }
     Ok(note)
 }
