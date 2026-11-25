@@ -18,7 +18,7 @@ pub(super) fn now() -> Option<u64> {
     clocks().lock().unwrap().get(&runtime).copied()
 }
 
-pub(crate) struct TestClock {
+pub struct TestClock {
     runtime: Id,
 }
 
@@ -32,11 +32,17 @@ impl TestClock {
         Self { runtime }
     }
 
-    pub(crate) fn advance_to(&self, target: u64) {
+    pub fn advance_to(&self, target: u64) {
         let mut clocks = clocks().lock().unwrap();
         let now = clocks.get_mut(&self.runtime).unwrap();
         assert!(target >= *now, "test boot clock cannot move backwards");
         *now = target;
+    }
+}
+
+impl Default for TestClock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -47,6 +53,7 @@ impl Drop for TestClock {
 }
 
 /// Cross an existing cap, or wait for the real kernel cap in unmodified tests.
+#[cfg(test)]
 pub(crate) async fn expire(deadline: u64) {
     let runtime = Handle::current().id();
     {
