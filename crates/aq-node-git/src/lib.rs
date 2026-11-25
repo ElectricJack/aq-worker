@@ -13,6 +13,7 @@
 //! take the repository's lock; work inside one worktree needs none.
 //! [`NodeGit`] blocks (it runs git); [`Node`] is its async face.
 pub mod transport;
+pub mod workspaces;
 
 use aq_worker_protocol::git_author::GitAuthor;
 
@@ -60,7 +61,8 @@ impl Grant {
             .strip_prefix("refs/heads/aq/")
             .unwrap_or_default();
         ensure!(
-            self.endpoint == endpoint(self.repository_id)
+            (self.endpoint == endpoint(self.repository_id)
+                || workspaces::scoped_endpoint(&self.endpoint, self.repository_id))
                 && oid(&self.base)
                 && self.lease.as_deref().is_none_or(oid)
                 && !task.is_empty()
@@ -408,7 +410,7 @@ impl NodeGit {
     fn sync(
         &self,
         remote: &Remote,
-        (repository, scope): (Uuid, Scope),
+        (endpoint, scope): (&str, Scope),
         commits: &[&str],
         repo: &Path,
     ) -> Result<Synced> {
@@ -421,7 +423,7 @@ impl NodeGit {
             self.ok(repo, &["init", "--bare", "--quiet"], None)?;
             Synced::Cloned
         };
-        let url = remote.url(repository);
+        let url = remote.url(endpoint);
         let refspec = format!("+refs/heads/*:{TRACKING}*");
         let fetch = [
             "fetch",
@@ -469,7 +471,7 @@ impl NodeGit {
             .chain(&grant.lease)
             .map(String::as_str)
             .collect();
-        let scope = (grant.repository_id, Scope::Attempt(attempt));
+        let scope = (grant.endpoint.as_str(), Scope::Attempt(attempt));
         let synced = self.sync(remote, scope, &commits, &repo)?;
         let from = grant.lease.clone().unwrap_or_else(|| grant.base.clone());
         // A worktree an earlier boot left behind for this attempt is replaced.
@@ -604,7 +606,7 @@ impl NodeGit {
         target: &str,
         commit: String,
     ) -> Result<Pushed> {
-        let url = remote.url(worktree.grant.repository_id);
+        let url = remote.url(&worktree.grant.endpoint);
         let refspec = format!("{commit}:{target}");
         let args = ["push", "--porcelain", "--no-verify", force, &url, &refspec];
         let mut last = String::new();
@@ -707,7 +709,8 @@ impl NodeGit {
         ensure!(path.is_absolute(), "worktree path must be absolute");
         let repo = self.repository(repository);
         let _lock = self.lock(repository)?;
-        let scope = (repository, Scope::EnvironmentJob(job));
+        let endpoint = endpoint(repository);
+        let scope = (endpoint.as_str(), Scope::EnvironmentJob(job));
         let synced = self.sync(remote, scope, &[commit], &repo)?;
         self.remove_worktree(&repo, path)?;
         std::fs::create_dir_all(path.parent().context("worktree parent")?)?;

@@ -2,7 +2,10 @@
 //! `/v1/git/<repository>` smart-HTTP proxy (aq-server spec 0016 §5.2), both
 //! authenticated with the node's own worker credential. Everything that
 //! depends on the server's exact contract is in this module.
-use crate::Grant;
+use crate::{
+    Grant,
+    workspaces::{Output, Workspaces},
+};
 use anyhow::{Context as _, Result, ensure};
 use std::{process::Command, time::Duration};
 use uuid::Uuid;
@@ -70,8 +73,8 @@ impl Remote {
     }
 
     /// The git URL of a repository (a valid grant's `endpoint`).
-    pub(crate) fn url(&self, repository: Uuid) -> String {
-        format!("{}{}", self.origin, crate::endpoint(repository))
+    pub(crate) fn url(&self, endpoint: &str) -> String {
+        format!("{}{endpoint}", self.origin)
     }
 
     /// `GET /v1/git/grants/<attempt>`: only a 404 means no grant.
@@ -98,7 +101,93 @@ impl Remote {
         );
         let grant: Grant = response.json().await.context("git grant shape")?;
         grant.validate()?;
+        ensure!(
+            grant.endpoint == crate::endpoint(grant.repository_id),
+            "home git grant endpoint"
+        );
         Ok(Some(grant))
+    }
+
+    pub(crate) async fn workspaces(&self, attempt: Uuid, timeout: Duration) -> Result<Workspaces> {
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(timeout)
+            .build()?;
+        let mut request = http.get(format!(
+            "{}/v1/git/grants/{attempt}/workspaces",
+            self.origin
+        ));
+        for (name, value) in &self.headers {
+            request = request.header(name, value);
+        }
+        let mut response = request
+            .send()
+            .await
+            .map_err(|_| anyhow::anyhow!("workspace grant request failed"))?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(Workspaces::default());
+        }
+        let status = response.status();
+        ensure!(
+            matches!(
+                status,
+                reqwest::StatusCode::OK | reqwest::StatusCode::BAD_REQUEST
+            ),
+            "workspace grant refused ({status})",
+        );
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            ensure!(
+                bytes.len().saturating_add(chunk.len()) <= 32_768,
+                "workspace grant size"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        if status == reqwest::StatusCode::BAD_REQUEST {
+            // Before this route existed, the generic Git wildcard parsed
+            // "grants" as a repository UUID and rejected it before auth.
+            let old_route = std::str::from_utf8(&bytes).is_ok_and(|body| {
+                body.starts_with("Invalid URL: Cannot parse")
+                    && body.contains("`grants`")
+                    && body.contains("UUID parsing failed:")
+            });
+            ensure!(old_route, "workspace grant refused ({status})");
+            return Ok(Workspaces::default());
+        }
+        let plan: Workspaces = serde_json::from_slice(&bytes)?;
+        plan.validate()?;
+        Ok(plan)
+    }
+
+    pub(crate) async fn workspace_result(
+        &self,
+        attempt: Uuid,
+        outputs: &[Output],
+        timeout: Duration,
+    ) -> Result<()> {
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(timeout)
+            .build()?;
+        let mut request = http
+            .put(format!(
+                "{}/v1/git/grants/{attempt}/workspaces/result",
+                self.origin
+            ))
+            .json(&serde_json::json!({"workspaces": outputs}));
+        for (name, value) in &self.headers {
+            request = request.header(name, value);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|_| anyhow::anyhow!("workspace result request failed"))?;
+        ensure!(
+            response.status().is_success(),
+            "workspace result refused ({})",
+            response.status()
+        );
+        Ok(())
     }
 
     /// Adds the authentication and scope headers to a git command's environment.

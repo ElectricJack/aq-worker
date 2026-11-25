@@ -598,3 +598,90 @@ fn the_final_result_push_still_succeeds_after_a_checkpoint() {
     assert_eq!(tree(&commit), tree(&second));
     node.end(&wt).unwrap();
 }
+
+#[test]
+fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
+    use axum::{
+        Json, Router,
+        http::HeaderMap,
+        routing::{get, put},
+    };
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+    use workspaces::{Access, Project, Workspaces, checkout_path, project_endpoint};
+
+    let plan = Arc::new(Mutex::new(Workspaces::default()));
+    let receipts = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let grants = plan.clone();
+    let received = receipts.clone();
+    let router = Router::new()
+        .route(
+            "/v1/git/grants/{id}/workspaces",
+            get(move |headers: HeaderMap| async move {
+                assert_eq!(headers["authorization"], "Bearer node-secret");
+                Json(grants.lock().unwrap().clone())
+            }),
+        )
+        .route(
+            "/v1/git/grants/{id}/workspaces/result",
+            put(
+                move |headers: HeaderMap, Json(value): Json<Value>| async move {
+                    assert_eq!(headers["authorization"], "Bearer node-secret");
+                    received.lock().unwrap().push(value);
+                    axum::http::StatusCode::NO_CONTENT
+                },
+            ),
+        );
+    let central = Central::start_with(router);
+    let base = central.head("refs/heads/main").unwrap();
+    let (read, write, unchanged) = (
+        Uuid::from_u128(12),
+        Uuid::from_u128(13),
+        Uuid::from_u128(14),
+    );
+    let project = |id, access, name| {
+        let mut grant = central.grant(name, None);
+        grant.repository_id = id;
+        grant.endpoint = project_endpoint(id, id);
+        Project {
+            project_id: id,
+            project_revision: 5,
+            binding_generation: 2,
+            access,
+            checkout_head: grant.base.clone(),
+            git: grant,
+        }
+    };
+    plan.lock().unwrap().workspaces = vec![
+        project(read, Access::Read, "source"),
+        project(write, Access::Write, "output"),
+        project(unchanged, Access::Write, "unchanged"),
+    ];
+    let state = tempfile::tempdir().unwrap();
+    let node = config(state.path()).node(remote(&central));
+    let primary = state.path().join("primary");
+    let attempt = Uuid::from_u128(77);
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        node.start_siblings(attempt, &primary, Duration::from_secs(10)).await.unwrap();
+        for id in [read, write, unchanged] {
+            let path = checkout_path(&primary, id);
+            assert_eq!(git(&path, &["rev-parse", "HEAD"]), base);
+        }
+        std::fs::write(checkout_path(&primary, read).join("a.txt"), "cannot publish").unwrap();
+        std::fs::write(checkout_path(&primary, write).join("a.txt"), "write-only update").unwrap();
+        node.finish_siblings(attempt, &primary, None).await.unwrap();
+        let head = central.head("refs/heads/aq/output").unwrap();
+        assert!(central.head("refs/heads/aq/source").is_none());
+        assert!(central.head("refs/heads/aq/unchanged").is_none());
+        std::fs::write(checkout_path(&primary, write).join("a.txt"), "late edit").unwrap();
+        node.finish_siblings(attempt, &primary, None).await.unwrap();
+        assert_eq!(central.head("refs/heads/aq/output"), Some(head.clone()));
+        let payload = json!({"workspaces":[
+            {"project_id":write,"repository_id":write,"result":{"status":"pushed","head":head}},
+            {"project_id":unchanged,"repository_id":unchanged,"result":{"status":"unchanged","head":base}}
+        ]});
+        assert_eq!(*receipts.lock().unwrap(), [payload.clone(), payload]);
+        node.end_siblings(&primary).await.unwrap();
+        assert_eq!(workspaces::load(&primary).unwrap(), Workspaces::default());
+    });
+}
