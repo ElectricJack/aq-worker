@@ -168,6 +168,7 @@ fn fixture_driver_config(
         result_dir: None,
         max_workspace_bytes: 1 << 20,
         agent_channel: false,
+        postgres: false,
         conversation_outbox: None,
         transcript_bound: None,
         harness: DriverHarness::Codex,

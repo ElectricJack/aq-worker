@@ -9,6 +9,7 @@ pub mod placement_api;
 pub mod query_replies;
 pub mod redact;
 pub mod tar;
+pub mod task_postgres;
 pub mod workspace;
 
 use anyhow::{Result, ensure};

@@ -172,6 +172,7 @@ impl Launch<'_> {
             result_dir,
             max_workspace_bytes: self.profile.config.max_workspace_bytes,
             agent_channel: admission.agent_channel,
+            postgres: false,
             conversation_outbox: self.profile.conversation_outbox.clone(),
             transcript_bound: self.profile.transcript_bound,
             harness: launch.harness,

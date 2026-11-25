@@ -395,6 +395,19 @@ class TemplateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tool.validate_recipe(r, cfg)
 
+    def test_postgres_capability_adds_an_unconditional_toolchain_check(self):
+        tool = load('template_tool')
+        env = {'provides': ['postgres'], 'checks': ['git --version']}
+        self.assertEqual(tool.environment_checks(env), [tool.POSTGRES_CHECK, 'git --version'])
+        self.assertEqual(tool.environment_checks({'provides': [], 'checks': []}), [])
+        with tempfile.TemporaryDirectory() as paths:
+            Path(paths, '0.exit').write_text('1')
+            Path(paths, '0.out').write_text('initdb missing')
+            with self.assertRaises(tool.BuildFailed) as failure:
+                tool.check_results({**env, 'checks': []}, paths, 2048)
+            self.assertEqual(failure.exception.step, 'check')
+            self.assertIn('initdb missing', failure.exception.log)
+
     def test_dockerfile_sets_single_use_cargo_environment_after_installs(self):
         tool = load('template_tool')
         cfg = config()

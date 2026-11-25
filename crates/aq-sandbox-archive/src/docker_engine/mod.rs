@@ -2,11 +2,13 @@
 //! Minimal Docker Engine API transport. The backend owns timeouts; transports
 //! only move bytes and never put request bodies in errors.
 
+mod api;
 mod info;
 mod socket;
 mod workspace_path;
 pub use workspace_path::WorkspaceBindPaths;
 mod storage;
+pub use api::*;
 pub use info::*;
 pub use socket::*;
 pub use storage::*;

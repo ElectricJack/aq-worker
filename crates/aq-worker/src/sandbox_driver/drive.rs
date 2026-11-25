@@ -136,6 +136,12 @@ impl<T: DockerTransport> Drive<'_, T> {
             .start_runner(self.sandbox)
             .await
             .context("sandbox runner start")?;
+        if self.config.postgres {
+            self.backend
+                .start_task_postgres(self.sandbox)
+                .await
+                .context("start required task PostgreSQL")?;
+        }
         println!("aq-sandbox-harness: runner started");
         Ok(())
     }

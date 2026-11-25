@@ -167,9 +167,53 @@ async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     assert_private_material(&run, &container);
 }
 
+#[tokio::test]
+async fn task_postgres_is_started_only_for_the_declared_sandbox() {
+    let run = run_driver(
+        "Done.\nChanges: fixture-output; Checks: none; Limits: none",
+        &[],
+        (b"codex tui\r\n", b""),
+        |config| config.postgres = true,
+    )
+    .await;
+    assert_eq!(run.code, 0);
+    let name = run.docker.container_names().remove(0);
+    let container = run.docker.container(&name).unwrap();
+    let config = &container.body["HostConfig"];
+    assert_eq!(
+        config["Tmpfs"]["/run/aq-postgres"],
+        aq_sandbox_archive::task_postgres::TMPFS
+    );
+    assert_eq!(config["CapDrop"], json!(["ALL"]));
+    assert_eq!(config["PortBindings"], json!({}));
+    assert!(
+        container.body["Cmd"][2]
+            .as_str()
+            .unwrap()
+            .contains("/run/aq-postgres/status")
+    );
+    let args = std::str::from_utf8(&container.layer["/aq/in/args"].data).unwrap();
+    assert!(args.contains("shell_environment_policy.set.PGHOST="));
+    let requests = run.docker.requests();
+    let order = |suffix: &str| {
+        requests
+            .iter()
+            .position(|(method, path)| *method == DockerMethod::Post && path.ends_with(suffix))
+            .unwrap()
+    };
+    assert!(
+        order(&format!("/containers/{name}/start")) < order(&format!("/containers/{name}/exec"))
+    );
+    assert!(
+        order(&format!("/containers/{name}/exec"))
+            < order(&format!("/exec/{}/start", "1".repeat(64)))
+    );
+}
+
 fn assert_workspace_evidence(container: &Container, work: &std::path::Path) {
     // Of Codex's home only `sessions` is mounted; the transcript written there is not
     // part of the workspace that is copied back.
+    assert!(container.body["HostConfig"]["Tmpfs"].is_null());
     let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
     let targets: Vec<_> = mounts
         .iter()

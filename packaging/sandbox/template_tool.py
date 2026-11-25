@@ -154,6 +154,19 @@ def captured(command, directory, number):
     return 'RUN ' + json.dumps(['sh', '-c', script])
 
 
+# An admitted PostgreSQL capability must contain real server and client tools.
+POSTGRES_CHECK = (
+    'set -eu; bindir=$(pg_config --bindir); '
+    'for tool in initdb pg_ctl postgres psql; do test -x "$bindir/$tool"; done; '
+    '"$bindir/postgres" --version; "$bindir/psql" --version'
+)
+
+
+def environment_checks(env):
+    required = [POSTGRES_CHECK] if 'postgres' in env.get('provides', []) else []
+    return [*required, *env['checks']]
+
+
 def environment_dockerfile(env, base, config, run=None):
     """The template stage, then a checks stage whose results a scratch stage exposes for export.
 
@@ -162,7 +175,7 @@ def environment_dockerfile(env, base, config, run=None):
     """
     lines = [dockerfile(env, base, config, stage='template').rstrip('\n'),
              'FROM template AS checks', 'RUN mkdir /aq-checks']
-    lines += [captured(command, '/aq-checks', number) for number, command in enumerate(env['checks'])]
+    lines += [captured(command, '/aq-checks', number) for number, command in enumerate(environment_checks(env))]
     lines += ['FROM scratch AS check-output', 'COPY --from=checks /aq-checks /']
     if run is not None:
         lines += ['FROM template AS run', 'COPY . /workspace', 'RUN mkdir /aq-run', captured(run, '/aq-run', 0),
@@ -249,7 +262,7 @@ def build_environment(env, config, output):
 
         buildx('install', 'template', f'type=oci,dest={archive},compression=gzip,force-compression=true')
         results = []
-        if env['checks']:
+        if environment_checks(env):
             buildx('check', 'check-output', f'type=local,dest={checked}')
             results = check_results(env, checked, limit)
     try:
@@ -267,7 +280,7 @@ def build_environment(env, config, output):
 
 def check_results(env, directory, limit):
     """(command, (exit, output)) per check; raises BuildFailed('check') naming the failing checks."""
-    results = [(command, read_check(directory, number, limit)) for number, command in enumerate(env['checks'])]
+    results = [(command, read_check(directory, number, limit)) for number, command in enumerate(environment_checks(env))]
     failed = [(command, code, out) for command, (code, out) in results if code != 0]
     if failed:
         report = ''.join(f'$ {command}\n(exit {code})\n{out}\n' for command, code, out in failed)

@@ -32,14 +32,12 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use transport::CallError;
+use transport::{Api, ApiError, CallError, MAX_JSON_BYTES, image_path};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
 /// Docker Engine API version; Podman's compat API and Docker 25+ both serve it.
 pub const API_VERSION: &str = "/v1.44";
-/// Cap for JSON responses (inspect, lists, info).
-const MAX_JSON_BYTES: usize = 8 * 1024 * 1024;
 /// Allowance for tar headers and padding around a capped file read.
 const READ_ARCHIVE_SLACK: usize = 64 * 1024;
 /// Image pulls stream progress and may take minutes on a cold cache.
@@ -61,7 +59,7 @@ pub fn require_confinement(mode: ConfinementMode) -> Result<(), BackendError> {
 
 pub struct DockerLocalBackend<T: DockerTransport = UnixSocketTransport> {
     config: DockerLocalConfig,
-    transport: T,
+    api: Api<T>,
     /// SBX20: admitted by operator override onto a shared root filesystem.
     shared_root_fs: bool,
     statvfs: Arc<dyn Statvfs>,
@@ -78,13 +76,18 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     /// Validates the configuration and proves the daemon is a rootless one.
     pub async fn connect(config: DockerLocalConfig, transport: T) -> Result<Self, BackendError> {
         config.validate()?;
+        let api = Api::new(
+            transport,
+            API_VERSION,
+            Duration::from_millis(config.api_timeout_ms),
+        );
         let mut backend = Self {
             config,
-            transport,
+            api,
             shared_root_fs: false,
             statvfs: Arc::new(HostStatvfs),
         };
-        let info = backend.get_json("/info").await?;
+        let info = backend.api.get_json("/info").await?;
         if !transport::daemon_is_rootless(&info) {
             return Err(BackendError::InvalidRequest(
                 "sandbox daemon must be rootless",
@@ -119,48 +122,14 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         Duration::from_millis(self.config.api_timeout_ms)
     }
 
-    async fn call(
+    pub(crate) async fn start_task_postgres(
         &self,
-        method: DockerMethod,
-        path: &str,
-        content_type: Option<&'static str>,
-        body: Zeroizing<Vec<u8>>,
-        max_response_bytes: usize,
-        timeout: Duration,
-    ) -> Result<DockerResponse, CallError> {
-        let request = DockerRequest {
-            method,
-            path: format!("{API_VERSION}{path}"),
-            content_type,
-            body,
-            max_response_bytes,
-        };
-        let result = transport::call(&self.transport, request, timeout).await;
-        if matches!(result, Err(CallError::Timeout)) {
-            let operation = path
-                .split_once('?')
-                .map_or(path, |(operation, _)| operation);
-            tracing::warn!(?method, operation, "sandbox daemon operation timed out");
+        sandbox: &SandboxIdentity,
+    ) -> Result<(), BackendError> {
+        if self.observe(sandbox).await?.entry.state != SandboxState::Running {
+            return Err(BackendError::InvalidState);
         }
-        result
-    }
-
-    /// GET returning parsed JSON; anything but 200 is uncertainty.
-    async fn get_json(&self, path: &str) -> Result<serde_json::Value, BackendError> {
-        let response = self
-            .call(
-                DockerMethod::Get,
-                path,
-                None,
-                Zeroizing::default(),
-                MAX_JSON_BYTES,
-                self.api_timeout(),
-            )
-            .await?;
-        if response.status != 200 {
-            return Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure));
-        }
-        parse_json(&response.body)
+        Ok(self.api.start_task_postgres(&sandbox.backend_id).await?)
     }
 }
 
@@ -170,9 +139,14 @@ pub fn require_enforced_limits(info: &Value) -> Result<(), BackendError> {
     transport::require_enforced_limits(info).map_err(BackendError::InvalidRequest)
 }
 
-fn parse_json(body: &[u8]) -> Result<serde_json::Value, BackendError> {
-    serde_json::from_slice(body)
-        .map_err(|_| BackendError::Uncertain(UnconfirmedReason::UnknownState))
+impl From<ApiError> for BackendError {
+    fn from(error: ApiError) -> Self {
+        match error {
+            ApiError::Transport(error) => error.into(),
+            ApiError::UnexpectedStatus => Self::Uncertain(UnconfirmedReason::BackendFailure),
+            ApiError::InvalidBody => Self::Uncertain(UnconfirmedReason::UnknownState),
+        }
+    }
 }
 
 /// Maps an observation failure to the reason a confirmation was withheld.
@@ -191,57 +165,7 @@ struct Observed {
     exit: Option<RunnerExit>,
 }
 
-/// `/images/<reference>`: a reference's `/`, `:` and `@` stay as the daemon's
-/// route expects; anything else outside the unreserved set is percent-encoded.
-fn image_path(image: &str) -> String {
-    let keep = |c: u8| c.is_ascii_alphanumeric() || b"-._~/:@".contains(&c);
-    let encoded = image.bytes().map(|c| match keep(c) {
-        true => (c as char).to_string(),
-        false => format!("%{c:02X}"),
-    });
-    format!("/images/{}", encoded.collect::<String>())
-}
-
 impl<T: DockerTransport> DockerLocalBackend<T> {
-    /// Sends a JSON (or empty) request under the API timeout.
-    async fn send(
-        &self,
-        method: DockerMethod,
-        path: &str,
-        body: Option<&Value>,
-    ) -> Result<DockerResponse, BackendError> {
-        self.send_with(method, path, body, self.api_timeout()).await
-    }
-
-    async fn send_with(
-        &self,
-        method: DockerMethod,
-        path: &str,
-        body: Option<&Value>,
-        timeout: Duration,
-    ) -> Result<DockerResponse, BackendError> {
-        let (content_type, bytes) = match body {
-            Some(value) => (
-                Some("application/json"),
-                Zeroizing::new(serde_json::to_vec(value).expect("JSON value serializes")),
-            ),
-            None => (None, Zeroizing::default()),
-        };
-        Ok(self
-            .call(method, path, content_type, bytes, MAX_JSON_BYTES, timeout)
-            .await?)
-    }
-
-    /// GET returning `None` only on an authoritative 404.
-    async fn get_optional(&self, path: &str) -> Result<Option<Value>, BackendError> {
-        let response = self.send(DockerMethod::Get, path, None).await?;
-        match response.status {
-            200 => parse_json(&response.body).map(Some),
-            404 => Ok(None),
-            _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
-        }
-    }
-
     /// Inspects the container and volume by deterministic name and verifies
     /// that every label present names exactly this sandbox.
     async fn observe(&self, sandbox: &SandboxIdentity) -> Result<Observed, BackendError> {
@@ -253,9 +177,11 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         let name = &sandbox.backend_id;
         let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
         let container = self
+            .api
             .get_optional(&format!("/containers/{name}/json"))
             .await?;
         let volume = self
+            .api
             .get_optional(&format!("/volumes/{}", volume_name(name)))
             .await?;
         let volume_entry = match &volume {
@@ -324,15 +250,16 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             Some(found) if labels_match(&found["Labels"], labels) => Ok(()),
             _ => Err(BackendError::Conflict),
         };
-        if let Some(found) = self.get_optional(&path).await? {
+        if let Some(found) = self.api.get_optional(&path).await? {
             return check(Some(found));
         }
         let body = volume_body(&self.config, request, labels);
         let response = self
+            .api
             .send(DockerMethod::Post, "/volumes/create", Some(&body))
             .await?;
         match response.status {
-            200 | 201 | 409 => check(self.get_optional(&path).await?),
+            200 | 201 | 409 => check(self.api.get_optional(&path).await?),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
     }
@@ -348,9 +275,11 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             ))?
             .to_string();
         let path = format!("/images/create?fromImage={}", encode(&image));
-        self.send_with(DockerMethod::Post, &path, None, PULL_TIMEOUT)
+        self.api
+            .send_with(DockerMethod::Post, &path, None, PULL_TIMEOUT)
             .await?;
         match self
+            .api
             .get_optional(&format!("{}/json", image_path(&image)))
             .await?
         {
@@ -378,10 +307,10 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             ));
         }
         let path = image_path(image);
-        let Some(found) = self.get_optional(&format!("{path}/json")).await? else {
+        let Some(found) = self.api.get_optional(&format!("{path}/json")).await? else {
             return Ok(Removal::Removed);
         };
-        let containers = self.get_json("/containers/json?all=true").await?;
+        let containers = self.api.get_json("/containers/json?all=true").await?;
         let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
         let uses = |c: &Value| {
             [&c["Image"], &c["ImageID"]]
@@ -391,7 +320,12 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         if containers.as_array().ok_or(unknown)?.iter().any(uses) {
             return Ok(Removal::InUse);
         }
-        match self.send(DockerMethod::Delete, &path, None).await?.status {
+        match self
+            .api
+            .send(DockerMethod::Delete, &path, None)
+            .await?
+            .status
+        {
             200 | 404 => Ok(Removal::Removed),
             409 => Ok(Removal::InUse),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
@@ -418,6 +352,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             encode(path)
         );
         let response = match self
+            .api
             .call(
                 DockerMethod::Get,
                 &request,
@@ -476,6 +411,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         }
         let path = format!("/containers/{}/archive?path=%2F", sandbox.backend_id);
         let response = self
+            .api
             .call(
                 DockerMethod::Put,
                 &path,
@@ -579,7 +515,8 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         path: String,
         max: usize,
     ) -> Result<Option<Vec<u8>>, BackendError> {
-        transport::archive(&self.transport, path, max, self.api_timeout())
+        self.api
+            .archive(path, max)
             .await
             .map_err(|error| match error {
                 CallError::TooLarge => BackendError::InvalidRequest("archive exceeds read cap"),
@@ -595,7 +532,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     ) -> Result<(), BackendError> {
         let id = &sandbox.backend_id;
         let path = format!("/containers/{id}/resize?h={rows}&w={columns}");
-        match self.send(DockerMethod::Post, &path, None).await?.status {
+        match self.api.send(DockerMethod::Post, &path, None).await?.status {
             200 | 201 => Ok(()),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
@@ -604,7 +541,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     /// statvfs of the daemon's storage root (`DockerRootDir`; Podman's
     /// libpod `store.graphRoot`). It must be an absolute host path.
     async fn graph_root_stats(&self) -> Option<crate::backend::FsStats> {
-        let info = self.get_json("/info").await.ok()?;
+        let info = self.api.get_json("/info").await.ok()?;
         let root = transport::graph_root(&info)?;
         self.statvfs.statvfs(root).ok()
     }
@@ -616,7 +553,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             return Ok(0);
         }
         let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
-        let df = self.get_json("/system/df?type=volume").await?;
+        let df = self.api.get_json("/system/df?type=volume").await?;
         let mut volumes = BTreeMap::new();
         for volume in df["Volumes"].as_array().ok_or(unknown.clone())? {
             let name = volume["Name"].as_str().ok_or(unknown.clone())?;
@@ -631,6 +568,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
             }
             let name = &sandbox.backend_id;
             if let Some(container) = self
+                .api
                 .get_optional(&format!("/containers/{name}/json?size=true"))
                 .await?
             {
@@ -646,7 +584,7 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
     }
 
     async fn confirm_absent(&self, path: &str) -> bool {
-        matches!(self.get_optional(path).await, Ok(None))
+        matches!(self.api.get_optional(path).await, Ok(None))
     }
 }
 
@@ -724,16 +662,19 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             }
             _ => Err(BackendError::Conflict),
         };
-        if let Some(found) = self.get_optional(&inspect).await? {
+        if let Some(found) = self.api.get_optional(&inspect).await? {
             return same(Some(found));
         }
         self.ensure_volume(request, &labels).await?;
         let body = create_body(&self.config, request, &image, resources);
         let path = format!("/containers/create?name={}", encode(name));
-        let response = self.send(DockerMethod::Post, &path, Some(&body)).await?;
+        let response = self
+            .api
+            .send(DockerMethod::Post, &path, Some(&body))
+            .await?;
         match response.status {
             201 => Ok(identity),
-            409 => same(self.get_optional(&inspect).await?),
+            409 => same(self.api.get_optional(&inspect).await?),
             404 => Err(MISSING_TEMPLATE),
             _ => Err(BackendError::Uncertain(UnconfirmedReason::BackendFailure)),
         }
@@ -763,10 +704,10 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             _ => return Err(BackendError::InvalidState),
         }
         let path = format!("/containers/{}/start", sandbox.backend_id);
-        let response = match self.send(DockerMethod::Post, &path, None).await {
+        let response = match self.api.send(DockerMethod::Post, &path, None).await {
             // The start may have applied. A read can confirm it without risking
             // starting a second runner after a first runner exits.
-            Err(BackendError::Uncertain(_))
+            Err(_)
                 if self
                     .observe_preparation(sandbox)
                     .await
@@ -802,9 +743,13 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
         let filter = node_filter(node_id);
         let containers = self
+            .api
             .get_json(&format!("/containers/json?all=true&filters={filter}"))
             .await?;
-        let volumes = self.get_json(&format!("/volumes?filters={filter}")).await?;
+        let volumes = self
+            .api
+            .get_json(&format!("/volumes?filters={filter}"))
+            .await?;
         let containers = containers.as_array().ok_or(unknown.clone())?;
         let volumes = match &volumes["Volumes"] {
             Value::Null => &Vec::new(),
@@ -865,6 +810,7 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         let unknown = BackendError::Uncertain(UnconfirmedReason::UnknownState);
         let filter = node_filter(node_id);
         let containers = self
+            .api
             .get_json(&format!(
                 "/containers/json?all=true&size=true&filters={filter}"
             ))
@@ -873,7 +819,7 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         if !containers.iter().any(|c| c["State"] == "running") {
             return Ok(Vec::new());
         }
-        let df = self.get_json("/system/df?type=volume").await?;
+        let df = self.api.get_json("/system/df?type=volume").await?;
         let mut volumes = BTreeMap::new();
         match &df["Volumes"] {
             Value::Null => {}
@@ -924,17 +870,19 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
             let response = if observed.entry.state == SandboxState::Created {
                 // Never started: remove the container without starting it.
                 // The work volume is a separate object and stays.
-                self.send(DockerMethod::Delete, &format!("/containers/{name}"), None)
+                self.api
+                    .send(DockerMethod::Delete, &format!("/containers/{name}"), None)
                     .await
             } else {
                 let grace = self.config.stop_grace_secs;
                 let timeout = self.api_timeout() + Duration::from_secs(grace.into());
                 let path = format!("/containers/{name}/stop?t={grace}");
-                self.send_with(DockerMethod::Post, &path, None, timeout)
+                self.api
+                    .send_with(DockerMethod::Post, &path, None, timeout)
                     .await
             };
             match response {
-                Err(error) => return Confirmation::Unconfirmed(unconfirmed(error)),
+                Err(error) => return Confirmation::Unconfirmed(unconfirmed(error.into())),
                 Ok(response) if matches!(response.status, 204 | 304 | 404) => {}
                 Ok(response) if response.status == 409 => {
                     return Confirmation::Unconfirmed(UnconfirmedReason::StillRunning);
@@ -965,8 +913,8 @@ impl<T: DockerTransport> PlacementBackend for DockerLocalBackend<T> {
         let container = format!("/containers/{}", sandbox.backend_id);
         let volume = format!("/volumes/{}", volume_name(&sandbox.backend_id));
         for path in [&container, &volume] {
-            match self.send(DockerMethod::Delete, path, None).await {
-                Err(error) => return Confirmation::Unconfirmed(unconfirmed(error)),
+            match self.api.send(DockerMethod::Delete, path, None).await {
+                Err(error) => return Confirmation::Unconfirmed(unconfirmed(error.into())),
                 Ok(response) if matches!(response.status, 204 | 404) => {}
                 Ok(_) => return Confirmation::Unconfirmed(UnconfirmedReason::BackendFailure),
             }

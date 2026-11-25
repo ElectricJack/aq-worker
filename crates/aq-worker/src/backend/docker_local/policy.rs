@@ -176,6 +176,10 @@ pub fn create_body(
             "AutoRemove": false,
         },
     });
+    if request.postgres {
+        use aq_sandbox_archive::task_postgres as postgres;
+        body["HostConfig"]["Tmpfs"] = json!({ (postgres::ROOT): postgres::TMPFS });
+    }
     if config.hard_disk_limit {
         body["HostConfig"]["StorageOpt"] =
             json!({ "size": disk_limit_bytes(config, request).to_string() });

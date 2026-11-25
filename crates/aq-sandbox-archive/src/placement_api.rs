@@ -91,6 +91,9 @@ pub struct CreateRequest {
     /// §5.1). The source is fixed by the node, never named by the request.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_channel: bool,
+    /// A disposable task-local PostgreSQL cluster in DockerLocal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub postgres: bool,
 }
 impl CreateRequest {
     pub fn new(
@@ -108,6 +111,7 @@ impl CreateRequest {
             resources: None,
             mount_aliases: Vec::new(),
             agent_channel: false,
+            postgres: false,
         }
     }
     pub fn with_agent_channel(mut self) -> Self {
