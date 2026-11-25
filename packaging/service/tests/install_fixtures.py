@@ -128,7 +128,9 @@ def downloadable_bundle(host, monkeypatch):
     native = {
         "adapter_manifest": str(manifest), "inventory_definition": str(manifest),
         "executor": {"composite_definition": str(manifest), "settings": {
-            "host": {**refs, "docker_local": {"templates": [{
+            "host": {**refs, "docker_local": {"workspace_bind_paths": {
+                "worker_root": "/builder-state", "daemon_root": "/builder-state",
+            }, "templates": [{
                 "image": "127.0.0.1:5000/aq/sandbox", "digest": "sha256:" + "a" * 64,
             }]}},
             "codex": {"composite_definition": str(codex_composite), "runtime_bundle": str(codex_helpers)},

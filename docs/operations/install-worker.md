@@ -317,12 +317,17 @@ has a state-path mapping. The home repository can use either source archive
 hydration or a node-Git grant. The Docker daemon mounts read-only projects from source-only
 snapshots. Git metadata and worker credentials stay on the node.
 
-The managed launcher supplies `AQ_WORKER_DAEMON_STATE_ROOT` from the host
+The hosted systemd installer records a same-host mapping for the profile's
+private service state directory when node Git is configured. It derives the
+path from the existing profile on update, or from `XDG_STATE_HOME` on first
+install. The container launcher supplies `AQ_WORKER_DAEMON_STATE_ROOT` from the host
 directory bound at `/state`. A Compose worker should set that variable to
-the host side of its existing `/state` bind, for example
+a path the dedicated sandbox daemon can read that refers to exactly the same
+directory as `/state` in the worker, for example
 `/home/worker/.local/state/agent-q/workers/local`. Set it on the worker
 container so the launch driver can resolve its private files. The mapping
-stays in the worker process. Configure an explicit mapping under the native
+stays in the worker process. Check the path through both daemon and worker
+views before setting it. Configure an explicit mapping under the native
 executor's `settings.host.docker_local` when running the worker directly:
 
 ```json
