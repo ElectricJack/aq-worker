@@ -366,10 +366,10 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
         (Post, ["containers", name, "start"]) => state.start_container(name),
         (Post, ["containers", name, "exec"]) => {
             let body: Value = serde_json::from_slice(&request.body).unwrap();
-            if !state
+            if state
                 .containers
                 .get(*name)
-                .is_some_and(|c| c.status == "running")
+                .is_none_or(|c| c.status != "running")
                 || body["User"] != "agent"
                 || body["Privileged"] != false
                 || body["Cmd"][2] != aq_sandbox_archive::task_postgres::BOOTSTRAP
