@@ -59,7 +59,7 @@ struct Admission {
     producer: ScopedPresenceProducer,
     held: std::fs::File,
 }
-type Found = (AttemptOffer, u64, InFlight);
+type Found = (AttemptOffer, bool, u64, InFlight);
 impl Admission {
     async fn open(
         worker: &WorkerConfig,
@@ -76,7 +76,15 @@ impl Admission {
             "native Git reservation exceeds configured capacity"
         );
         let mut client = NativeClient::from_config(worker)?
-            .with_git_author_support(git.supports_checkpoint_author());
+            .with_git_author_support(git.supports_checkpoint_author())
+            .with_workspace_expansion(
+                git.node.is_some()
+                    && matches!(
+                        config.executor.as_ref(),
+                        Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. })
+                        if settings.host.docker_local.project_bind_paths().is_some_and(|paths| paths.on_daemon(git.root()).is_ok())
+                    ),
+            );
         if let Some((node, slot)) = &node {
             client = client.for_node_slot(*slot, node.registered_slots());
         }
@@ -147,7 +155,7 @@ impl Admission {
             heartbeat,
             ..
         } = self;
-        let (offer, offer_deadline, in_flight) = found;
+        let (offer, workspace_required, offer_deadline, in_flight) = found;
         check_root(&config, &held)?;
         if *shutdown.borrow() {
             return Ok(RunDisposition::ShutdownBeforeAdmission);
@@ -165,7 +173,13 @@ impl Admission {
         let deadline = maximum.min(offer_deadline);
         let original = offer.offer.clone();
         let id = pipeline
-            .reserve(offer, config.runtime.clone(), deadline, disk)
+            .reserve_with_workspaces(
+                offer,
+                config.runtime.clone(),
+                deadline,
+                disk,
+                workspace_required,
+            )
             .await?;
         let grant = prepare::Preparation {
             pipeline: &pipeline,

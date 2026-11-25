@@ -90,11 +90,12 @@ fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
         git_author: Some(author.clone()),
     };
     let id = journal
-        .reserve(
+        .reserve_with_workspaces(
             offered,
             qualification(),
             boot_ns().unwrap() + 300_000_000,
             1024,
+            true,
         )
         .unwrap();
     assert_eq!(journal.available().unwrap().slots, 1);
@@ -115,6 +116,11 @@ fn reservation_acceptance_survive_restart_without_restoring_live_authority() {
     assert_eq!(
         recovered.state().attempts[&id].reservation.git_author,
         Some(author)
+    );
+    assert!(
+        recovered.state().attempts[&id]
+            .reservation
+            .workspace_required
     );
     assert_eq!(
         recovered.state().attempts[&id].reservation.runtime.runtime,

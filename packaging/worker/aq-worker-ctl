@@ -45,6 +45,7 @@ container_args() {
     --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
     --add-host host.docker.internal:host-gateway \
     -v "$(cfg_dir "$p"):/config" \
+    -e "AQ_WORKER_DAEMON_STATE_ROOT=$(state_dir "$p")" \
     -v "$(state_dir "$p"):/state" \
     -v "$SANDBOX_DIR:/run/aq-sandbox"
   if grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null && [[ -d /mnt/c/ProgramData/agent-q ]]; then printf '%s\n' -v "/mnt/c/ProgramData/agent-q:/run/aq-host-load:ro"; fi

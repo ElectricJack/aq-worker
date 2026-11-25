@@ -266,6 +266,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
  "uuid",
@@ -377,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "aq-protocol"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "serde",
@@ -408,6 +409,7 @@ dependencies = [
  "anyhow",
  "aq-agent-channel",
  "aq-handoff-note",
+ "aq-lifecycle-protocol",
  "bytes",
  "http-body-util",
  "hyper",
@@ -419,6 +421,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tokio",
+ "tracing",
  "uuid",
  "zeroize",
 ]
@@ -589,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "aq-worker-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "aq-admission 0.1.13",

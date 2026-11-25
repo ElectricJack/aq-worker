@@ -167,6 +167,7 @@ async fn container_calls_whoami_through_the_agent_channel() {
         result_dir: None,
         max_workspace_bytes: 64 * 1024 * 1024,
         agent_channel: true,
+        postgres: false,
         conversation_outbox: None,
         transcript_bound: None,
         harness: Default::default(),

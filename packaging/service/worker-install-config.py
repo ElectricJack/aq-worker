@@ -57,11 +57,26 @@ def is_package_update(config, origin, digest):
     return update
 
 
+def workspace_bind_paths(config):
+    """The host worker and its managed sandbox daemon use the same private state directory."""
+    enrolled = config / "service.toml"
+    configured = read_toml(enrolled).get("state_root") if enrolled.is_file() else None
+    default = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+    state = Path(configured) if configured is not None else default / "agent-q/service" / config.name
+    if not state.is_absolute() or state == Path("/") or ".." in state.parts:
+        return None
+    return {"worker_root": str(state), "daemon_root": str(state)}
+
+
 def prepared_template(package, config, origin, socket):
     template = json.loads((package / "native.json").read_text())
     host = template["executor"]["settings"]["host"]
     host["root"] = str(config / "host")
-    host["docker_local"]["socket"] = str(socket)
+    docker = host["docker_local"]
+    docker["socket"] = str(socket)
+    docker.pop("workspace_bind_paths", None)
+    if "node_git" in template and (mapping := workspace_bind_paths(config)):
+        docker["workspace_bind_paths"] = mapping
     entry, = host["docker_local"]["templates"]
     repo = entry["image"].split("/", 1)[1]
     entry["image"] = urlsplit(origin).netloc + "/" + repo

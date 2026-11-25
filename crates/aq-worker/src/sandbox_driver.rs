@@ -42,6 +42,7 @@ pub use aq_handoff_note::{
 };
 use aq_handoff_note::{final_message, now_ms, preserved_claim, read_private, write_exit};
 pub use aq_sandbox_archive::pane::{self, Pane};
+use aq_sandbox_archive::task_postgres as postgres;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -85,6 +86,9 @@ pub struct DriverConfig {
     /// Mount the node's channel for this attempt; launch fails without it.
     #[serde(default)]
     pub agent_channel: bool,
+    /// This task's admitted PostgreSQL service, frozen by the launch owner.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub postgres: bool,
     /// Worker-private outbox. The sandbox can write only its own provider file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation_outbox: Option<PathBuf>,
@@ -124,12 +128,21 @@ impl DriverConfig {
 
 mod drive;
 mod outcome;
+pub(crate) mod projects;
 use aq_sandbox_archive::workspace::tree_bytes;
 pub use aq_sandbox_archive::workspace::{collect_tree, sync_tree, token_leak};
 
 /// The non-secret runner inputs under `/aq/in`.
 pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEntry>> {
-    for a in &config.arguments {
+    let mut args = config.arguments.clone();
+    if config.postgres && !config.harness.is_claude() {
+        aq_codex_mapper::apply_tool_environment(
+            &mut args,
+            &mut BTreeMap::new(),
+            postgres::ENV.into_iter(),
+        )?;
+    }
+    for a in &args {
         ensure!(!a.contains('\n') && !a.contains('\0'), "argument shape");
     }
     let env = input_environment(config)?;
@@ -146,7 +159,11 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
             .unwrap_or_default()
             .bytes(),
     );
+    prompt.extend_from_slice(projects::note(&config.workspace)?.as_bytes());
     prompt.extend_from_slice(RUNNER_NOTE.as_bytes());
+    if config.postgres {
+        prompt.extend_from_slice(postgres::NOTE.as_bytes());
+    }
     if config.agent_channel {
         prompt.extend_from_slice(CHANNEL_NOTE.as_bytes());
     }
@@ -157,7 +174,7 @@ pub fn input_entries(config: &DriverConfig, prompt: &[u8]) -> Result<Vec<TreeEnt
         .unwrap_or_default();
     entries.extend([
         file("prompt", prompt),
-        file("args", (config.arguments.join("\n") + "\n").into_bytes()),
+        file("args", (args.join("\n") + "\n").into_bytes()),
         file("env", env.into_bytes()),
         file("settings.json", config.settings_json.clone().into_bytes()),
         file("executable", config.executable.clone().into_bytes()),
@@ -215,7 +232,7 @@ where
     let term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let hup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
     let mut signals = drive::Signals { term, hup };
-    let (docker, request, cache) = config.sandbox_request()?;
+    let (docker, request, cache, workspace_budget) = config.sandbox_request()?;
     let mut backend = connect(docker).await.context("connect sandbox daemon")?;
     let sandbox = match backend.create(&request).await {
         Ok(s) => s,
@@ -238,6 +255,7 @@ where
         handoff: &handoff,
         runner_may_have_started: false,
         cache: cache.as_ref(),
+        workspace_budget,
     };
     let drove = match drive.run(&prompt, terminal, &mut signals).await {
         Ok(v) => v,
@@ -374,6 +392,11 @@ fn input_environment(config: &DriverConfig) -> Result<String> {
     for (name, target) in config.build_cache.iter().flat_map(|c| c.environment()) {
         env.push_str(&format!("{name}={target}\n"));
     }
+    if config.postgres {
+        for (name, value) in postgres::ENV {
+            env.push_str(&format!("{name}={value}\n"));
+        }
+    }
     Ok(env)
 }
 
@@ -437,14 +460,22 @@ impl DriverConfig {
         DockerLocalConfig,
         CreateRequest,
         Option<aq_sandbox_archive::build_cache::Opened>,
+        u64,
     )> {
         let mut docker = self.docker_local.clone();
+        let workspace_budget = projects::stage_readonly(
+            &self.workspace,
+            self.max_workspace_bytes,
+            docker.workspace_bind_paths.as_ref(),
+            &mut docker.readonly_projects,
+        )?;
         docker.runner_tty = true;
-        docker.runner_command = Some(vec![
-            "/bin/bash".into(),
-            "-c".into(),
-            runner(self.harness).into(),
-        ]);
+        let harness = runner(self.harness);
+        docker.runner_command = Some(if self.postgres {
+            postgres::command(harness)
+        } else {
+            vec!["/bin/bash".into(), "-c".into(), harness.into()]
+        });
         let mut request = CreateRequest::new(
             self.owner.clone(),
             self.template.clone(),
@@ -452,12 +483,13 @@ impl DriverConfig {
             vec![],
         )
         .with_resources(self.resources);
+        request.postgres = self.postgres;
         if self.agent_channel {
             channel_ready(self)?;
             request = request.with_agent_channel();
         }
         let cache = (self.build_cache.as_ref()).and_then(|c| c.open(&self.workspace));
         docker.cache_binds = cache.iter().flat_map(|c| c.binds()).collect();
-        Ok((docker, request, cache))
+        Ok((docker, request, cache, workspace_budget))
     }
 }

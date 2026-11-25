@@ -34,6 +34,14 @@ impl Drove {
             ..
         } = self;
         let (rc, leak) = (*rc, *leak);
+        if let Some(reason) = rc
+            .filter(|_| config.postgres)
+            .and_then(postgres::startup_failure)
+        {
+            aq_handoff_note::write_platform_failure(config_path);
+            submit_claim(config, format!("Changes: none\nLimits: {reason}"));
+            return 1;
+        }
         if let Some(note) = note {
             // The work is in the node worktree; the executor sees a recorded
             // failure and the pipeline checkpoints, retains and reports it.

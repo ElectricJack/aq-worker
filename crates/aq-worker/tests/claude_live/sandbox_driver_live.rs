@@ -118,6 +118,7 @@ async fn driver_runs_claude_in_docker_local_and_copies_the_edit_back() {
         result_dir: None,
         max_workspace_bytes: 64 * 1024 * 1024,
         agent_channel: false,
+        postgres: false,
         conversation_outbox: None,
         transcript_bound: None,
         harness: Default::default(),

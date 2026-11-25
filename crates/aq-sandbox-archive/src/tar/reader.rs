@@ -106,15 +106,17 @@ fn field(header: &[u8]) -> String {
     String::from_utf8_lossy(&header[..end]).into_owned()
 }
 
-struct TreeReader {
+struct TreeReader<'a> {
     entries: Vec<TreeEntry>,
     long_name: Option<String>,
     remaining: u64,
     /// Container archives carry a directory prefix; volume exports are root-relative.
     container_root: bool,
+    expected_directory: Option<&'a str>,
+    saw_directory: bool,
 }
 
-impl TreeReader {
+impl TreeReader<'_> {
     fn charge(&mut self, size: usize) -> Result<(), InvalidArchive> {
         self.remaining = self.remaining.checked_sub(size as u64).ok_or(READ_CAP)?;
         Ok(())
@@ -129,9 +131,21 @@ impl TreeReader {
         let name = self.long_name.take().unwrap_or_else(|| header.name());
         let name = name.trim_start_matches("./").trim_end_matches('/');
         let rel = if self.container_root {
-            let Some((_, rel)) = name.split_once('/') else {
-                return Ok(()); // the archived directory itself
+            let Some((root, rel)) = name.split_once('/') else {
+                if let Some(expected) = self.expected_directory {
+                    if expected != name || header.kind() != b'5' || self.saw_directory {
+                        return Err(MALFORMED);
+                    }
+                    self.saw_directory = true;
+                }
+                return Ok(());
             };
+            if self
+                .expected_directory
+                .is_some_and(|expected| expected != root || !self.saw_directory)
+            {
+                return Err(MALFORMED);
+            }
             rel
         } else {
             if (name == "." || name.is_empty()) && header.kind() == b'5' {
@@ -226,11 +240,32 @@ pub fn read_workspace_tree(
     max_total: u64,
     container_root: bool,
 ) -> Result<Vec<TreeEntry>, InvalidArchive> {
+    read_entries(archive, max_total, container_root, None)
+}
+
+/// Requires the exact directory and a complete archive, including for an
+/// empty tree. A file, symlink, truncated response or another root is refused.
+pub fn read_named_tree(
+    archive: &[u8],
+    max_total: u64,
+    directory: &str,
+) -> Result<Vec<TreeEntry>, InvalidArchive> {
+    read_entries(archive, max_total, true, Some(directory))
+}
+
+fn read_entries(
+    archive: &[u8],
+    max_total: u64,
+    container_root: bool,
+    expected_directory: Option<&str>,
+) -> Result<Vec<TreeEntry>, InvalidArchive> {
     let mut reader = TreeReader {
         entries: Vec::new(),
         long_name: None,
         remaining: max_total,
         container_root,
+        expected_directory,
+        saw_directory: false,
     };
     let mut offset = 0;
     let mut complete = false;
@@ -248,7 +283,9 @@ pub fn read_workspace_tree(
         reader.read_entry(&header, data)?;
         offset = start + padded(size);
     }
-    if !container_root && !complete {
+    if (!container_root && !complete)
+        || (expected_directory.is_some() && (!complete || !reader.saw_directory))
+    {
         return Err(MALFORMED);
     }
     Ok(reader.entries)

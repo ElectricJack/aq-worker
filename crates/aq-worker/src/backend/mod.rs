@@ -1,8 +1,7 @@
 //! Placement adapters and pure lifecycle policy. No controller persistence or
 //! execution authority lives here. Backend confirmations cover only writers
 //! inside the named sandbox; external writers need their own proof.
-mod types;
-pub use types::*;
+pub use aq_sandbox_archive::placement_api::*;
 mod lifecycle;
 pub use lifecycle::*;
 mod disk;
