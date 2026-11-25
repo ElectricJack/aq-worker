@@ -266,6 +266,15 @@ PUBLIC_FILE_CONSTANTS = {
 }
 
 
+# PGDG bookworm amd64 postgresql-17 17.12-1.pgdg12+1. The signed package
+# contains this generated schema with public rolpassword and prstoken type
+# declarations. Review applies to the exact original OCI member only.
+OCI_PUBLIC_FILE_CONSTANTS = {
+    'usr/share/postgresql/17/postgres.bki': (
+        'cca00d600b22f06bf190b8b7e060da4937bde84c909904b9a8c38206203117eb', 953550),
+}
+
+
 def secret_shaped(value):
     data = value.encode() if isinstance(value, str) else value
     return bool(TOKEN_PATTERN.search(data) or any(
@@ -349,17 +358,19 @@ def append_manifest(buffer, data):
     buffer.extend(data)
 
 
-def check_reviewed_content(digest, size, capture):
+def check_reviewed_content(digest, size, capture, oci_path):
     # A public constant is established only after hashing every original byte.
     # Any edit, appended credential, truncation or unknown package version
     # refuses. Sensitive paths/links/config/history are checked separately;
     # captured bundle metadata always uses the strict content policy.
-    reviewed = PUBLIC_FILE_CONSTANTS.get(digest.hexdigest()) == size
+    fingerprint = digest.hexdigest()
+    reviewed = (PUBLIC_FILE_CONSTANTS.get(fingerprint) == size
+                or OCI_PUBLIC_FILE_CONSTANTS.get(oci_path) == (fingerprint, size))
     if capture or not reviewed:
         raise ValueError('credential content detected')
 
 
-def scan_content(stream, capture=False):
+def scan_content(stream, capture=False, *, oci_path=None):
     tail = b''
     collected = bytearray() if capture else None
     digest = hashlib.sha256()
@@ -373,7 +384,7 @@ def scan_content(stream, capture=False):
         if capture:
             append_manifest(collected, data)
     if credential_found:
-        check_reviewed_content(digest, size, capture)
+        check_reviewed_content(digest, size, capture, oci_path)
     return bytes(collected) if capture else None
 
 
@@ -448,7 +459,7 @@ def check_layer_path(name, item):
 def scan_layer_member(archive, name, item):
     check_layer_path(name, item)
     if item.isfile():
-        data = scan_content(archive.extractfile(item), name == 'opt/aq/manifest.json')
+        data = scan_content(archive.extractfile(item), name == 'opt/aq/manifest.json', oci_path=name)
         if data is not None:
             return validate_bundle(json_bytes(data))
     return None
