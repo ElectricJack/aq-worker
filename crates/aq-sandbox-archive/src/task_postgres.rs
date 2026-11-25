@@ -11,7 +11,7 @@ pub const ENV: [(&str, &str); 5] = [
         "postgresql://postgres@localhost/postgres?host=/run/aq-postgres/socket&port=5432",
     ),
 ];
-pub const NOTE: &str = "\nTask PostgreSQL is ready before the harness starts. Use DATABASE_URL or the PGHOST, PGPORT, PGUSER and PGDATABASE variables. Its data is local to this attempt and is discarded when the sandbox stops.\n";
+pub const NOTE: &str = "\nTask PostgreSQL is ready before the harness starts. Connect with `psql \"$DATABASE_URL\"` or use the PGHOST, PGPORT, PGUSER and PGDATABASE variables. Its data is local to this attempt and is discarded when the sandbox stops.\n";
 
 pub fn command(runner: &str) -> Vec<String> {
     [

@@ -89,7 +89,7 @@ fn channel_is_required_named_in_env_and_its_credential_guarded() {
 
 /// Spec 0016 §3 (W3): conflicts that merging main left go into the agent's task context.
 #[test]
-fn a_returned_tasks_merge_conflicts_are_named_in_the_prompt() {
+fn workspace_startup_names_checkout_provenance_and_resources_for_both_harnesses() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("worktree");
     let repository = uuid::Uuid::from_u128(7);
@@ -130,9 +130,50 @@ fn a_returned_tasks_merge_conflicts_are_named_in_the_prompt() {
         _ => panic!("prompt"),
     };
     assert!(!prompt(&config).contains("conflict markers"));
-    config.workspace = path;
-    assert!(prompt(&config).contains("conflict markers in: src/a.rs"));
+    config.workspace = path.clone();
+    assert!(prompt(&config).contains("conflict markers in these paths:\n- \"src/a.rs\""));
     worktree.conflicts.clear();
-    std::fs::write(record, serde_json::to_vec(&worktree).unwrap()).unwrap();
+    std::fs::write(&record, serde_json::to_vec(&worktree).unwrap()).unwrap();
     assert!(prompt(&config).contains("The merge was clean"));
+
+    worktree.grant.update_from_main = false;
+    std::fs::write(record, serde_json::to_vec(&worktree).unwrap()).unwrap();
+    let sibling = uuid::Uuid::from_u128(8);
+    let sibling_repo = uuid::Uuid::from_u128(9);
+    let sibling_commit = "c".repeat(40);
+    std::fs::write(
+        path.with_extension("workspaces.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "workspaces": [{
+                "project_id": sibling, "project_revision": 1, "binding_generation": 1,
+                "access": "write", "checkout_head": sibling_commit,
+                "endpoint": format!("/v1/git/workspaces/{sibling}/{sibling_repo}"),
+                "repository_id": sibling_repo, "base": sibling_commit, "lease": null,
+                "task_ref": "refs/heads/aq/t", "update_from_main": false,
+            }],
+            "services": [{"service": "postgres"}],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    config.postgres = true;
+    config.arguments = vec!["--".into()];
+    for harness in [
+        aq_worker::sandbox_driver::DriverHarness::Claude,
+        aq_worker::sandbox_driver::DriverHarness::Codex,
+    ] {
+        config.harness = harness;
+        let text = prompt(&config);
+        assert!(text.contains(&format!(
+            "Home checkout /aq/work starts from retained task commit {}",
+            "b".repeat(40)
+        )));
+        assert!(text.contains("did not integrate current main"));
+        assert!(text.contains(&format!(
+            "/aq/projects/{sibling} (writable, revision {sibling_commit})"
+        )));
+        assert!(text.contains("psql \"$DATABASE_URL\""));
+        assert!(!text.contains("/v1/git/"));
+        assert!(!text.contains(dir.path().to_str().unwrap()));
+    }
 }

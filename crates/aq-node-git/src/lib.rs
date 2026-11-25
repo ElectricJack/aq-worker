@@ -182,22 +182,37 @@ fn checkpoint_tree(path: &Path) -> PathBuf {
     path.with_extension("try")
 }
 
-/// Tell the agent what happened when the node prepared a returned task's tree.
-pub fn conflict_note(path: &Path) -> Option<String> {
+/// Describe the retained task checkout from its frozen node Git grant.
+pub fn checkout_note(path: &Path) -> Option<String> {
+    use std::fmt::Write as _;
+
     let tree = NodeGit::open(path).ok()?;
-    if !tree.grant.update_from_main || tree.grant.lease.is_none() {
-        return None;
-    }
-    let mut note = String::from(
-        "\n\nAQ integrated the main revision fetched at startup into the retained task branch before preparing this source-only workspace. Verify the supplied tree and report the checks you ran. AQ handles Git publication after handoff.",
+    let retained = tree.grant.lease.as_deref()?;
+    let mut note = format!(
+        "\n\nHome checkout /aq/work starts from retained task commit {retained}. It can contain unpublished changes from earlier attempts. AQ handles Git publication after handoff.\n",
     );
-    if tree.conflicts.is_empty() {
-        note.push_str(" The merge was clean. Report any further edits truthfully, including when none were needed.\n");
+    if !tree.grant.update_from_main {
+        note.push_str("AQ did not integrate current main when it prepared this checkout. Verify the supplied tree and report the checks you ran.\n");
+    } else if tree.conflicts.is_empty() {
+        note.push_str("AQ integrated the main revision fetched at startup. The merge was clean. Verify the supplied tree and report the checks you ran.\n");
     } else {
-        note.push_str(&format!(
-            " Resolve the conflict markers in: {}.\n",
-            tree.conflicts.join(", ")
-        ));
+        note.push_str("AQ integrated the main revision fetched at startup with conflicts. Resolve conflict markers in these paths:\n");
+        let mut bytes_left = 4096;
+        for (index, path) in tree.conflicts.iter().enumerate() {
+            let quoted = serde_json::to_string(path).ok()?;
+            let line_bytes = quoted.len() + 3;
+            if line_bytes > bytes_left {
+                writeln!(
+                    note,
+                    "- {} additional conflicted paths omitted.",
+                    tree.conflicts.len() - index
+                )
+                .ok()?;
+                break;
+            }
+            writeln!(note, "- {quoted}").ok()?;
+            bytes_left -= line_bytes;
+        }
     }
     Some(note)
 }
