@@ -221,12 +221,15 @@ pub async fn salvage_interrupted(
             return Ok(SalvageDisposition::Unsalvageable(reason));
         }
         let max = settings.host.max_workspace_bytes;
+        let backend = &backend;
         let archive = async |s: &SandboxIdentity| {
             let entries = backend.stopped_work_tree(s, max).await?;
             let siblings = driver::projects::returned_trees(
                 &h.scope.workspace.path,
                 driver::projects::after_tree(max, &entries)?,
-                async |project, limit| Ok(backend.stopped_project_tree(s, project, limit).await?),
+                |project, limit| async move {
+                    Ok(backend.stopped_project_tree(s, project, limit).await?)
+                },
             )
             .await?;
             driver::projects::refuse_credentials(&entries, &siblings)?;

@@ -75,11 +75,14 @@ pub fn writable_trees(primary: &Path, limit: u64) -> Result<Vec<ProjectTree>> {
     Ok(trees)
 }
 
-pub async fn returned_trees(
+pub async fn returned_trees<F>(
     primary: &Path,
     mut remaining: u64,
-    mut read: impl AsyncFnMut(uuid::Uuid, u64) -> Result<Vec<TreeEntry>>,
-) -> Result<Vec<ProjectTree>> {
+    mut read: impl FnMut(uuid::Uuid, u64) -> F,
+) -> Result<Vec<ProjectTree>>
+where
+    F: Future<Output = Result<Vec<TreeEntry>>> + Send,
+{
     let plan = workspaces::load(primary)?;
     let mut trees = Vec::new();
     for entry in plan

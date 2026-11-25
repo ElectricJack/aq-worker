@@ -30,7 +30,7 @@ async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> Cod
 
 #[tokio::test]
 async fn bound_failure_preserves_primary_source_and_never_starts_or_reads_work() {
-    let result = run_driver("must never run", &[], (b"", b""), |config, _| {
+    let result = run_driver("must never run", &[], (b"", b""), |config| {
         config.max_workspace_bytes = 1;
     }).await;
     assert_eq!(result.code, 3);
@@ -46,7 +46,7 @@ async fn sibling_upload_failure_after_home_staging_cannot_start_or_copy_back() {
     use uuid::Uuid;
     let project_id = Uuid::new_v4();
     let repository_id = Uuid::new_v4();
-    let result = run_driver("must never run", &[], (b"", b""), |config, docker| {
+    let result = run_driver_with_docker("must never run", &[], (b"", b""), |config, docker| {
         let sibling = checkout_path(&config.workspace, project_id);
         std::fs::create_dir_all(&sibling).unwrap();
         std::fs::write(sibling.join("sibling.txt"), b"sibling base").unwrap();
@@ -83,10 +83,19 @@ async fn run_codex_driver_on(
     tui: &[u8],
     keys: &[u8],
 ) -> CodexDriverRun {
-    run_driver(final_message, extra, (tui, keys), |_, _| {}).await
+    run_driver(final_message, extra, (tui, keys), |_| {}).await
 }
 /// `prepare` edits the driver configuration (and the files it names) before the run.
 async fn run_driver(
+    final_message: &str,
+    extra: &[(&str, Vec<u8>)],
+    streams: (&[u8], &[u8]),
+    prepare: impl FnOnce(&mut aq_worker::sandbox_driver::DriverConfig),
+) -> CodexDriverRun {
+    run_driver_with_docker(final_message, extra, streams, |config, _| prepare(config)).await
+}
+
+async fn run_driver_with_docker(
     final_message: &str,
     extra: &[(&str, Vec<u8>)],
     streams: (&[u8], &[u8]),

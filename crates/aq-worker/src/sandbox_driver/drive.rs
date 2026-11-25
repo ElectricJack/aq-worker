@@ -254,13 +254,13 @@ impl<T: DockerTransport> Drive<'_, T> {
             .await
             .context("workspace copy-back")?;
         let entries = read_tree(&archive, self.workspace_budget)?;
+        let (backend, sandbox) = (&*self.backend, self.sandbox);
         let siblings = projects::returned_trees(
             &config.workspace,
             projects::after_tree(self.workspace_budget, &entries)?,
-            async |project, limit| {
-                Ok(self
-                    .backend
-                    .stopped_project_tree(self.sandbox, project, limit)
+            |project, limit| async move {
+                Ok(backend
+                    .stopped_project_tree(sandbox, project, limit)
                     .await?)
             },
         )
