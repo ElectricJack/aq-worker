@@ -243,9 +243,26 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
 
 impl Node {
     pub async fn grant(&self, attempt: Uuid, remaining: Duration) -> Result<Option<Grant>> {
-        self.remote
-            .grant(attempt, remaining.min(self.git.limits.command_timeout))
-            .await
+        let started = Instant::now();
+        let command_limit = self.git.limits.command_timeout;
+        let home = self
+            .remote
+            .grant(attempt, remaining.min(command_limit))
+            .await?;
+        if home.is_none() {
+            let remaining = remaining
+                .checked_sub(started.elapsed())
+                .context("task workspace grant deadline exhausted")?;
+            let supplemental = self
+                .remote
+                .workspaces(attempt, remaining.min(command_limit))
+                .await?;
+            ensure!(
+                supplemental == workspaces::Workspaces::default(),
+                "task_workspaces_home_grant_required: approved projects or services require the home node-Git grant",
+            );
+        }
+        Ok(home)
     }
     /// Adds the attempt's worktree from the grant already checked by the caller.
     pub async fn start(&self, attempt: Uuid, path: PathBuf, grant: Grant) -> Result<Worktree> {

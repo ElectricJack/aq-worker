@@ -312,16 +312,16 @@ or volumes on the Podman daemon; remove those first if you want them gone.
 ### Related project workspaces
 
 An admitted Docker-local task can receive explicitly approved sibling project
-checkouts when node Git is configured and the worker has a state-path mapping.
-A read-only project is mounted from a source-only snapshot. It contains no Git
-metadata or worker credentials, and the sandbox cannot write to its mount.
+checkouts when the home repository has a node-Git grant and the worker has a
+state-path mapping. The Docker daemon mounts read-only projects from source-only
+snapshots. Git metadata and worker credentials stay on the node.
 
 The managed launcher supplies `AQ_WORKER_DAEMON_STATE_ROOT` from the host
 directory bound at `/state`. A Compose worker should set that variable to
 the host side of its existing `/state` bind, for example
 `/home/worker/.local/state/agent-q/workers/local`. Set it on the worker
-container, where the launch driver can resolve its private files. The agent
-container does not receive it. Configure an explicit mapping under the native
+container so the launch driver can resolve its private files. The mapping
+stays in the worker process. Configure an explicit mapping under the native
 executor's `settings.host.docker_local` when running the worker directly:
 
 ```json

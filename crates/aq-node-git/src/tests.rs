@@ -733,3 +733,62 @@ fn old_git_wildcard_400_is_absence_but_other_400s_are_refused() {
             assert!(remote(&new).workspaces(attempt, timeout).await.is_err());
         });
 }
+
+#[test]
+fn a_missing_home_grant_refuses_project_and_service_plans_before_fallback() {
+    use axum::{Json, Router, routing::get};
+    use std::sync::{Arc, Mutex};
+    use workspaces::{Access, Project, Service, Workspaces};
+
+    let plan = Arc::new(Mutex::new(Workspaces::default()));
+    let grants = plan.clone();
+    let central = Central::start_with(Router::new().route(
+        "/v1/git/grants/{attempt}/workspaces",
+        get(move || async move { Json(grants.lock().unwrap().clone()) }),
+    ));
+    let state = tempfile::tempdir().unwrap();
+    let node = config(state.path()).node(remote(&central));
+    let attempt = Uuid::from_u128(81);
+    let timeout = Duration::from_secs(10);
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            assert!(node.grant(attempt, timeout).await.unwrap().is_none());
+            plan.lock().unwrap().services.push(Service::Postgres);
+            let error = node.grant(attempt, timeout).await.unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("task_workspaces_home_grant_required")
+            );
+
+            let project = Uuid::from_u128(19);
+            let mut git = central.grant("related", None);
+            git.endpoint = workspaces::project_endpoint(project, git.repository_id);
+            *plan.lock().unwrap() = Workspaces {
+                workspaces: vec![Project {
+                    project_id: project,
+                    project_revision: 1,
+                    binding_generation: 1,
+                    access: Access::Read,
+                    checkout_head: git.base.clone(),
+                    git,
+                }],
+                services: vec![],
+            };
+            let error = node.grant(attempt, timeout).await.unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("task_workspaces_home_grant_required")
+            );
+            central
+                .grants
+                .lock()
+                .unwrap()
+                .insert(attempt, central.grant("home", None));
+            assert!(node.grant(attempt, timeout).await.unwrap().is_some());
+        });
+}
