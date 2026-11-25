@@ -434,12 +434,49 @@ impl NodeGit {
         ];
         let args: Vec<&str> = fetch.into_iter().chain([url.as_str(), &refspec]).collect();
         self.ok(repo, &args, Some((remote, scope)))?;
-        for commit in commits {
+        for (index, commit) in commits.iter().enumerate() {
             let object = format!("{commit}^{{commit}}");
+            if index == 0
+                && endpoint.starts_with("/v1/git/workspaces/")
+                && let Scope::Attempt(attempt) = scope
+                && !self.run(repo, &["cat-file", "-e", &object], None)?.ok
+            {
+                self.import_workspace_bundle(remote, endpoint, attempt, repo, commit)?;
+            }
             self.ok(repo, &["cat-file", "-e", &object], None)
                 .context("the commit is not in central aq-git")?;
         }
         Ok(synced)
+    }
+
+    fn import_workspace_bundle(
+        &self,
+        remote: &Remote,
+        endpoint: &str,
+        attempt: Uuid,
+        repo: &Path,
+        commit: &str,
+    ) -> Result<()> {
+        // Called from Node::start_siblings's blocking task with the cache lock
+        // held. The temporary file is removed after success or a partial read.
+        let bundle = tempfile::NamedTempFile::new_in(&self.repositories)?;
+        let path = bundle
+            .path()
+            .to_str()
+            .context("workspace bundle path UTF-8")?;
+        tokio::runtime::Handle::try_current()?.block_on(remote.workspace_bundle(
+            attempt,
+            endpoint,
+            bundle.reopen()?,
+            self.limits.command_timeout,
+        ))?;
+        let heads = self.ok(repo, &["bundle", "list-heads", path], None)?;
+        ensure!(
+            !heads.contains('\n') && heads.split_once(' ').map(|(oid, _)| oid) == Some(commit),
+            "workspace bundle differs from the approved commit"
+        );
+        self.ok(repo, &["bundle", "unbundle", path], None)?;
+        Ok(())
     }
 
     /// Syncs the project's repository and adds the attempt's worktree at

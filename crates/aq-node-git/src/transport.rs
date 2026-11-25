@@ -159,6 +159,108 @@ impl Remote {
         Ok(plan)
     }
 
+    pub(crate) async fn workspace_bundle(
+        &self,
+        attempt: Uuid,
+        endpoint: &str,
+        bundle: std::fs::File,
+        timeout: Duration,
+    ) -> Result<()> {
+        use sha2::{Digest, Sha256};
+        use tokio::io::AsyncWriteExt;
+
+        const CHUNK: u64 = 1_048_576;
+        const MAX_BYTES: u64 = 1024 * CHUNK;
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let mut file = tokio::fs::File::from_std(bundle);
+        let transfer = async {
+            let mut offset = 0;
+            let mut total = None;
+            let mut digest = None;
+            let mut hash = Sha256::new();
+            loop {
+                let mut request = http
+                    .get(format!(
+                        "{}{endpoint}/aq-source-bundle?offset={offset}",
+                        self.origin
+                    ))
+                    .header(ATTEMPT_HEADER, attempt.to_string());
+                for (name, value) in &self.headers {
+                    request = request.header(name, value);
+                }
+                let mut reply = request
+                    .send()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("workspace bundle request failed"))?;
+                ensure!(
+                    reply.status().is_success(),
+                    "workspace bundle refused ({})",
+                    reply.status()
+                );
+                let size: u64 = reply
+                    .headers()
+                    .get("aq-workspace-bundle-size")
+                    .context("workspace bundle size missing")?
+                    .to_str()?
+                    .parse()?;
+                ensure!(
+                    size > offset
+                        && size <= MAX_BYTES
+                        && total.is_none_or(|n| n == size)
+                        && reply
+                            .headers()
+                            .get("content-type")
+                            .is_some_and(|v| v == "application/x-git-bundle"),
+                    "workspace bundle size or type differs"
+                );
+                let current_digest = reply
+                    .headers()
+                    .get("aq-workspace-bundle-sha256")
+                    .context("workspace bundle digest missing")?
+                    .to_str()?;
+                ensure!(
+                    current_digest.len() == 64
+                        && current_digest
+                            .bytes()
+                            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                        && digest
+                            .as_deref()
+                            .is_none_or(|known| known == current_digest),
+                    "workspace bundle digest differs"
+                );
+                digest.get_or_insert_with(|| current_digest.to_owned());
+                total = Some(size);
+                let start = offset;
+                let stop = offset + (size - offset).min(CHUNK);
+                while let Some(bytes) = reply
+                    .chunk()
+                    .await
+                    .map_err(|_| anyhow::anyhow!("workspace bundle interrupted"))?
+                {
+                    offset += bytes.len() as u64;
+                    ensure!(offset <= stop, "workspace bundle exceeds requested range");
+                    hash.update(&bytes);
+                    file.write_all(&bytes).await?;
+                }
+                ensure!(
+                    offset == stop && offset > start,
+                    "workspace bundle range incomplete"
+                );
+                if offset == size {
+                    ensure!(
+                        digest.as_deref() == Some(format!("{:x}", hash.finalize()).as_str()),
+                        "workspace bundle bytes differ from manifest"
+                    );
+                    file.flush().await?;
+                    return Ok(());
+                }
+            }
+        };
+        tokio::time::timeout(timeout, transfer).await?
+    }
+
     pub(crate) async fn workspace_result(
         &self,
         attempt: Uuid,

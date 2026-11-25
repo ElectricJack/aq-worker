@@ -817,3 +817,81 @@ fn a_bundle_home_supports_sealed_projects_and_service_only_grants() {
             );
         });
 }
+
+#[test]
+fn sibling_hydrates_retained_commit_absent_from_advertised_branches() {
+    use axum::{Router, http::HeaderMap, routing::get};
+    use workspaces::project_endpoint;
+
+    let state = tempfile::tempdir().unwrap();
+    let source = state.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    git(&source, &["init", "-b", "retained"]);
+    std::fs::write(source.join("proof.txt"), "retained sibling contents").unwrap();
+    git(&source, &["add", "proof.txt"]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "retained",
+        ],
+    );
+    let oid = git(&source, &["rev-parse", "HEAD"]);
+    let file = state.path().join("retained.bundle");
+    git(
+        &source,
+        &["bundle", "create", file.to_str().unwrap(), "retained"],
+    );
+    let bytes = std::fs::read(file).unwrap();
+    let attempt = Uuid::from_u128(25);
+    let project = Uuid::from_u128(55);
+    let central = Central::start_with(Router::new().route(
+        "/v1/git/workspaces/{project}/{repo}/aq-source-bundle",
+        get(move |headers: HeaderMap| {
+            let bytes = bytes.clone();
+            async move {
+                assert_eq!(headers["authorization"], "Bearer node-secret");
+                assert_eq!(headers["aq-attempt"], attempt.to_string());
+                use sha2::{Digest, Sha256};
+                let digest = format!("{:x}", Sha256::digest(&bytes));
+                (
+                    [
+                        ("content-type", "application/x-git-bundle".into()),
+                        ("aq-workspace-bundle-sha256", digest),
+                        ("aq-workspace-bundle-size", bytes.len().to_string()),
+                    ],
+                    bytes,
+                )
+            }
+        }),
+    ));
+    let mut grant = central.grant("retained", None);
+    assert_ne!(grant.base, oid);
+    grant.base = oid.clone();
+    grant.repository_id = project;
+    grant.endpoint = project_endpoint(project, project);
+    let node = node(&state.path().join("repositories"));
+    let remote = remote(&central);
+    let checkout = state.path().join("checkout");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let checked = checkout.clone();
+    runtime.block_on(async {
+        tokio::task::spawn_blocking(move || node.start(&remote, &grant, attempt, &checked))
+            .await
+            .unwrap()
+            .unwrap()
+    });
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), oid);
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("proof.txt")).unwrap(),
+        "retained sibling contents"
+    );
+}
