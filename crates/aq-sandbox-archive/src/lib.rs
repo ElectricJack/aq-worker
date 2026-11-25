@@ -5,6 +5,7 @@ pub mod codex_runtime;
 pub mod conversation;
 pub mod docker_engine;
 pub mod pane;
+pub mod placement_api;
 pub mod query_replies;
 pub mod redact;
 pub mod tar;

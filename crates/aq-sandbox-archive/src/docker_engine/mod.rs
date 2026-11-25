@@ -4,6 +4,8 @@
 
 mod info;
 mod socket;
+mod workspace_path;
+pub use workspace_path::WorkspaceBindPaths;
 mod storage;
 pub use info::*;
 pub use socket::*;

@@ -1,3 +1,4 @@
+//! Shared contracts for placed sandboxes, their resources, and retention evidence.
 use aq_lifecycle_protocol::{ArtifactRole, Binding, RetentionReceipt, validate_retention};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -455,3 +456,13 @@ impl fmt::Display for BackendError {
     }
 }
 impl std::error::Error for BackendError {}
+
+impl From<crate::docker_engine::CallError> for BackendError {
+    fn from(error: crate::docker_engine::CallError) -> Self {
+        BackendError::Uncertain(match error {
+            crate::docker_engine::CallError::Timeout => UnconfirmedReason::Timeout,
+            crate::docker_engine::CallError::Transport
+            | crate::docker_engine::CallError::TooLarge => UnconfirmedReason::BackendFailure,
+        })
+    }
+}

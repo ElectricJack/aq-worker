@@ -408,6 +408,7 @@ dependencies = [
  "anyhow",
  "aq-agent-channel",
  "aq-handoff-note",
+ "aq-lifecycle-protocol",
  "bytes",
  "http-body-util",
  "hyper",

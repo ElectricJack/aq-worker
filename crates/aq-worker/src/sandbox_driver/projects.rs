@@ -5,6 +5,7 @@ use aq_node_git::workspaces::{self, Access};
 pub(super) fn stage_readonly(
     primary: &Path,
     limit: u64,
+    mapping: Option<&aq_sandbox_archive::docker_engine::WorkspaceBindPaths>,
     mounts: &mut BTreeMap<uuid::Uuid, PathBuf>,
 ) -> Result<u64> {
     let plan = workspaces::load(primary)?;
@@ -20,7 +21,9 @@ pub(super) fn stage_readonly(
         remaining = after_tree(remaining, &entries)?;
         std::fs::create_dir_all(&snapshot)?;
         sync_tree(&snapshot, &entries)?;
-        mounts.insert(entry.project_id, snapshot);
+        let target =
+            mapping.context("read-only projects require a worker-to-daemon path mapping")?;
+        mounts.insert(entry.project_id, target.on_daemon(&snapshot)?);
     }
     Ok(remaining)
 }

@@ -81,7 +81,8 @@ impl Admission {
                 git.node.is_some()
                     && matches!(
                         config.executor.as_ref(),
-                        Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { .. })
+                        Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. })
+                        if settings.host.docker_local.project_bind_paths().is_some()
                     ),
             );
         if let Some((node, slot)) = &node {

@@ -228,6 +228,7 @@ impl Launch<'_> {
             offer,
         } = *self;
         let mut docker_local = profile.config.docker_local.clone();
+        docker_local.workspace_bind_paths = docker_local.project_bind_paths();
         let template = profile.config.template.clone();
         #[cfg(feature = "project_environments")]
         let template = docker_local

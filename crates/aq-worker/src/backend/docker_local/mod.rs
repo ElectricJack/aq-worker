@@ -59,15 +59,6 @@ pub fn require_confinement(mode: ConfinementMode) -> Result<(), BackendError> {
     }
 }
 
-impl From<CallError> for BackendError {
-    fn from(error: CallError) -> Self {
-        BackendError::Uncertain(match error {
-            CallError::Timeout => UnconfirmedReason::Timeout,
-            CallError::Transport | CallError::TooLarge => UnconfirmedReason::BackendFailure,
-        })
-    }
-}
-
 pub struct DockerLocalBackend<T: DockerTransport = UnixSocketTransport> {
     config: DockerLocalConfig,
     transport: T,

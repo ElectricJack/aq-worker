@@ -446,6 +446,7 @@ impl DriverConfig {
         let workspace_budget = projects::stage_readonly(
             &self.workspace,
             self.max_workspace_bytes,
+            docker.workspace_bind_paths.as_ref(),
             &mut docker.readonly_projects,
         )?;
         docker.runner_tty = true;

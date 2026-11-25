@@ -433,6 +433,13 @@ async fn sandbox_driver_isolates_related_projects_and_copies_only_writable_outpu
         &[(&read_target, b"ignore this".to_vec()), (&write_target, b"returned write".to_vec())],
         (b"", b""),
         |config| {
+            let root = config.workspace.parent().unwrap().to_path_buf();
+            config.docker_local.workspace_bind_paths = Some(
+                aq_sandbox_archive::docker_engine::WorkspaceBindPaths {
+                    worker_root: root.clone(),
+                    daemon_root: root,
+                },
+            );
             let grant = |project: Uuid, access: &str| json!({
                 "project_id": project, "project_revision": 4, "binding_generation": 2,
                 "repository_id": project, "endpoint": format!("/v1/git/workspaces/{project}/{project}"),
