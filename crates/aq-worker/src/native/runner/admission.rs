@@ -59,7 +59,7 @@ struct Admission {
     producer: ScopedPresenceProducer,
     held: std::fs::File,
 }
-type Found = (AttemptOffer, u64, InFlight);
+type Found = (AttemptOffer, bool, u64, InFlight);
 impl Admission {
     async fn open(
         worker: &WorkerConfig,
@@ -155,7 +155,7 @@ impl Admission {
             heartbeat,
             ..
         } = self;
-        let (offer, offer_deadline, in_flight) = found;
+        let (offer, workspace_required, offer_deadline, in_flight) = found;
         check_root(&config, &held)?;
         if *shutdown.borrow() {
             return Ok(RunDisposition::ShutdownBeforeAdmission);
@@ -173,7 +173,13 @@ impl Admission {
         let deadline = maximum.min(offer_deadline);
         let original = offer.offer.clone();
         let id = pipeline
-            .reserve(offer, config.runtime.clone(), deadline, disk)
+            .reserve_with_workspaces(
+                offer,
+                config.runtime.clone(),
+                deadline,
+                disk,
+                workspace_required,
+            )
             .await?;
         let grant = prepare::Preparation {
             pipeline: &pipeline,

@@ -312,8 +312,9 @@ or volumes on the Podman daemon; remove those first if you want them gone.
 ### Related project workspaces
 
 An admitted Docker-local task can receive explicitly approved sibling project
-checkouts when the home repository has a node-Git grant and the worker has a
-state-path mapping. The Docker daemon mounts read-only projects from source-only
+checkouts when node Git is configured for sibling repositories and the worker
+has a state-path mapping. The home repository can use either source archive
+hydration or a node-Git grant. The Docker daemon mounts read-only projects from source-only
 snapshots. Git metadata and worker credentials stay on the node.
 
 The managed launcher supplies `AQ_WORKER_DAEMON_STATE_ROOT` from the host

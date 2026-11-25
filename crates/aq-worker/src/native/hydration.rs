@@ -40,6 +40,11 @@ impl HydratedWorkspace {
             .context("source attempt absent")?;
         let s = a.source.as_ref().context("source owner absent")?;
         ensure!(
+            aq_node_git::workspaces::load(&self.workspace.path)?.has_resources()
+                == a.reservation.workspace_required,
+            "workspace_required_mismatch: frozen supplemental checkout absent or changed",
+        );
+        ensure!(
             self.binding == a.reservation.offer.offered.offer.binding
                 && s.manifest.as_ref() == Some(&self.manifest),
             "source join association"
@@ -169,6 +174,15 @@ impl SourceHydration<'_> {
             .preparation
             .deadline_ns()
             .min(self.preparation.deadline_ns());
+        let workspace_required = self
+            .storage(move |journal| {
+                Ok(journal.state().attempts[&id].reservation.workspace_required)
+            })
+            .await?;
+        ensure!(
+            !workspace_required || self.git.node.is_some(),
+            "workspace_required: supplemental task resources need node Git configured",
+        );
         let grant = self.grant(deadline).await?;
         let client = self.pipeline.client.fetch_until(deadline);
         let (manifest, maximum_range) = client
@@ -183,15 +197,7 @@ impl SourceHydration<'_> {
             .await?;
         if let (Some(node), Some(grant)) = (&self.git.node, grant) {
             let workspace = self.checkout((node, grant), &plan, &manifest).await?;
-            let remaining = deadline
-                .checked_sub(boot_ns()?)
-                .context("sibling workspace preparation expired")?;
-            node.start_siblings(
-                id,
-                &workspace.path,
-                std::time::Duration::from_nanos(remaining),
-            )
-            .await?;
+            start_siblings(node, id, &workspace.path, deadline, workspace_required).await?;
             let observed_ns = boot_ns()?;
             ensure!(observed_ns < deadline, "native source proof expired");
             return Ok(HydratedWorkspace {
@@ -212,7 +218,18 @@ impl SourceHydration<'_> {
         let stage = self.open_stage(&plan, &manifest).await?;
         self.download((&client, deadline), &manifest, &stage)
             .await?;
-        self.complete_bundle(manifest, stage).await
+        let hydrated = self.complete_bundle(manifest, stage).await?;
+        if let Some(node) = &hydrated.git.node {
+            start_siblings(
+                node,
+                id,
+                &hydrated.workspace.path,
+                deadline,
+                workspace_required,
+            )
+            .await?;
+        }
+        Ok(hydrated)
     }
     async fn grant(&self, deadline: u64) -> Result<Option<aq_node_git::Grant>> {
         let Some(node) = &self.git.node else {
@@ -259,4 +276,28 @@ impl SourceHydration<'_> {
             path,
         })
     }
+}
+
+async fn start_siblings(
+    node: &aq_node_git::Node,
+    attempt: Uuid,
+    workspace: &std::path::Path,
+    deadline: u64,
+    required: bool,
+) -> Result<()> {
+    let remaining = deadline
+        .checked_sub(boot_ns()?)
+        .context("sibling workspace preparation expired")?;
+    node.start_siblings(
+        attempt,
+        workspace,
+        std::time::Duration::from_nanos(remaining),
+        required,
+    )
+    .await?;
+    ensure!(
+        boot_ns()? < deadline,
+        "sibling workspace preparation expired"
+    );
+    Ok(())
 }

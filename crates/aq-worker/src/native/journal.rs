@@ -92,6 +92,8 @@ pub struct Reservation {
     pub offer: NativeOffer,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git_author: Option<GitAuthor>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub workspace_required: bool,
     pub runtime: RuntimeIdentity,
     pub reserved_at_ns: u64,
     pub deadline_ns: u64,
@@ -675,6 +677,16 @@ impl Journal {
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
+        self.reserve_with_workspaces(offer, runtime, deadline_ns, disk_bytes, false)
+    }
+    pub fn reserve_with_workspaces(
+        &mut self,
+        offer: impl Into<AttemptOffer>,
+        runtime: RuntimeIdentity,
+        deadline_ns: u64,
+        disk_bytes: u64,
+        workspace_required: bool,
+    ) -> Result<Uuid> {
         let now = self.live()?;
         let AttemptOffer { offer, git_author } = offer.into();
         offer.validate()?;
@@ -700,6 +712,7 @@ impl Journal {
         let reservation = Reservation {
             offer,
             git_author,
+            workspace_required,
             runtime,
             reserved_at_ns: now,
             deadline_ns,

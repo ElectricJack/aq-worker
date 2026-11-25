@@ -222,7 +222,7 @@ impl NativeClient {
         self.checkpoint_author = supported;
         self
     }
-    pub(crate) fn with_workspace_expansion(mut self, supported: bool) -> Self {
+    pub fn with_workspace_expansion(mut self, supported: bool) -> Self {
         self.workspace_expansion = supported;
         self
     }

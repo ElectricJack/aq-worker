@@ -662,7 +662,7 @@ fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
     let primary = state.path().join("primary");
     let attempt = Uuid::from_u128(77);
     tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
-        node.start_siblings(attempt, &primary, Duration::from_secs(10)).await.unwrap();
+        node.start_siblings(attempt, &primary, Duration::from_secs(10), true).await.unwrap();
         for id in [read, write, unchanged] {
             let path = checkout_path(&primary, id);
             assert_eq!(git(&path, &["rev-parse", "HEAD"]), base);
@@ -689,7 +689,7 @@ fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
         resumed_grant.checkout_head = head.clone();
         plan.lock().unwrap().workspaces = vec![resumed_grant];
         let successor = Uuid::from_u128(78);
-        node.start_siblings(successor, &primary, Duration::from_secs(10)).await.unwrap();
+        node.start_siblings(successor, &primary, Duration::from_secs(10), true).await.unwrap();
         let resumed = checkout_path(&primary, write);
         assert_eq!(git(&resumed, &["rev-parse", "HEAD"]), head);
         assert_eq!(std::fs::read(resumed.join("a.txt")).unwrap(), b"write-only update");
@@ -735,7 +735,7 @@ fn old_git_wildcard_400_is_absence_but_other_400s_are_refused() {
 }
 
 #[test]
-fn a_missing_home_grant_refuses_project_and_service_plans_before_fallback() {
+fn a_bundle_home_supports_sealed_projects_and_service_only_grants() {
     use axum::{Json, Router, routing::get};
     use std::sync::{Arc, Mutex};
     use workspaces::{Access, Project, Service, Workspaces};
@@ -750,45 +750,70 @@ fn a_missing_home_grant_refuses_project_and_service_plans_before_fallback() {
     let node = config(state.path()).node(remote(&central));
     let attempt = Uuid::from_u128(81);
     let timeout = Duration::from_secs(10);
+    let primary = state.path().join("archive-home");
+    std::fs::create_dir(&primary).unwrap();
+    std::fs::write(primary.join("original"), "bundle source").unwrap();
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(async {
             assert!(node.grant(attempt, timeout).await.unwrap().is_none());
-            plan.lock().unwrap().services.push(Service::Postgres);
-            let error = node.grant(attempt, timeout).await.unwrap_err();
             assert!(
-                error
-                    .to_string()
-                    .contains("task_workspaces_home_grant_required")
+                node.start_siblings(attempt, &primary, timeout, true)
+                    .await
+                    .is_err()
             );
+            node.start_siblings(attempt, &primary, timeout, false)
+                .await
+                .unwrap();
+
+            plan.lock().unwrap().services.push(Service::Postgres);
+            assert!(
+                node.start_siblings(attempt, &primary, timeout, false)
+                    .await
+                    .is_err()
+            );
+            node.start_siblings(attempt, &primary, timeout, true)
+                .await
+                .unwrap();
+            assert_eq!(
+                workspaces::load(&primary).unwrap().services,
+                [Service::Postgres]
+            );
+            node.end_siblings(&primary).await.unwrap();
+            assert!(primary.join("original").is_file());
 
             let project = Uuid::from_u128(19);
             let mut git = central.grant("related", None);
             git.endpoint = workspaces::project_endpoint(project, git.repository_id);
+            let checkout_head = git.base.clone();
             *plan.lock().unwrap() = Workspaces {
                 workspaces: vec![Project {
                     project_id: project,
                     project_revision: 1,
                     binding_generation: 1,
                     access: Access::Read,
-                    checkout_head: git.base.clone(),
+                    checkout_head: checkout_head.clone(),
                     git,
                 }],
                 services: vec![],
             };
-            let error = node.grant(attempt, timeout).await.unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("task_workspaces_home_grant_required")
+            assert!(node.grant(attempt, timeout).await.unwrap().is_none());
+            node.start_siblings(attempt, &primary, timeout, true)
+                .await
+                .unwrap();
+            assert_eq!(
+                test_support::git(
+                    &workspaces::checkout_path(&primary, project),
+                    &["rev-parse", "HEAD"]
+                ),
+                checkout_head,
             );
-            central
-                .grants
-                .lock()
-                .unwrap()
-                .insert(attempt, central.grant("home", None));
-            assert!(node.grant(attempt, timeout).await.unwrap().is_some());
+            node.end_siblings(&primary).await.unwrap();
+            assert_eq!(
+                std::fs::read(primary.join("original")).unwrap(),
+                b"bundle source"
+            );
         });
 }

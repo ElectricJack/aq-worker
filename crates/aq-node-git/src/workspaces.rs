@@ -50,6 +50,10 @@ enum Checkpoint {
 }
 
 impl Workspaces {
+    pub fn has_resources(&self) -> bool {
+        !self.workspaces.is_empty() || !self.services.is_empty()
+    }
+
     pub fn validate(&self) -> Result<()> {
         ensure!(
             self.workspaces.len() <= 16 && self.services.len() <= 1,
@@ -146,12 +150,17 @@ impl Node {
         attempt: Uuid,
         primary: &Path,
         remaining: Duration,
+        required: bool,
     ) -> Result<()> {
         let plan = self
             .remote
             .workspaces(attempt, remaining.min(self.git.limits.command_timeout))
             .await?;
-        if plan == Workspaces::default() {
+        ensure!(
+            required == plan.has_resources(),
+            "workspace_required_mismatch: supplemental workspace response differs from sealed offer",
+        );
+        if !required {
             ensure!(load(primary)? == plan, "sealed workspace plan disappeared");
             return Ok(());
         }
@@ -261,6 +270,9 @@ impl Node {
 
     pub async fn end_siblings(&self, primary: &Path) -> Result<()> {
         let plan = load(primary)?;
+        if !plan.has_resources() {
+            return Ok(());
+        }
         for entry in plan.workspaces {
             let path = checkout_path(primary, entry.project_id);
             if record(&path).is_file() {

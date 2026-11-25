@@ -47,36 +47,62 @@ impl InputPipeline {
     }
     /// Removes a worktree attempt's worktree once its report is recorded.
     pub async fn end_result_source(&self, stopped: &DurableStoppedResult) {
-        let (o, id) = (Live(self, stopped), stopped.attempt_id());
-        let (Some(node), Ok(h)) = (o.git().node.clone(), snapshot(&o).await) else {
-            return;
-        };
-        if let Err(error) = node.end_siblings(&h.scope.workspace.path).await {
-            tracing::warn!(attempt_id=%id, %error, "sibling worktrees not removed");
-        }
-        if let Err(error) = node.end(h.scope.workspace.path).await {
-            tracing::warn!(attempt_id=%id, %error, "attempt worktree not removed");
-        }
+        cleanup(&Live(self, stopped)).await;
+    }
+}
+pub(super) async fn cleanup<O: StoppedOwner>(o: &O) {
+    let (Some(node), Ok(h)) = (o.git().node.clone(), snapshot(o).await) else {
+        return;
+    };
+    let id = o.attempt_id();
+    if let Err(error) = node.end_siblings(&h.scope.workspace.path).await {
+        tracing::warn!(attempt_id=%id, %error, "sibling worktrees not removed");
+    }
+    if h.source.pushed.is_some()
+        && let Err(error) = node.end(h.scope.workspace.path).await
+    {
+        tracing::warn!(attempt_id=%id, %error, "attempt worktree not removed");
     }
 }
 /// After the stopped-writer proof: commit and push under the grant's lease.
 pub(super) async fn push<O: StoppedOwner>(o: &O) -> Result<bool> {
     o.verify()?;
     let id = o.attempt_id();
-    let at = o
-        .journal(move |j| Ok(j.state().attempts[&id].source.clone()))
+    let (at, required) = o
+        .journal(move |j| {
+            let attempt = &j.state().attempts[&id];
+            Ok((
+                attempt.source.clone(),
+                attempt.reservation.workspace_required,
+            ))
+        })
         .await?;
+    let expected = snapshot(o).await?;
+    ensure!(
+        required == aq_node_git::workspaces::load(&expected.scope.workspace.path)?.has_resources(),
+        "workspace_required_mismatch: frozen supplemental result plan absent or changed",
+    );
+    ensure!(
+        !required || o.git().node.is_some(),
+        "supplemental result needs node Git"
+    );
+    if let Some(node) = o.git().node.clone() {
+        o.roots().verify()?;
+        node.finish_siblings(
+            id,
+            &expected.scope.workspace.path,
+            expected.scope.git_author.clone(),
+        )
+        .await?;
+        o.verify()?;
+    }
     let Some(path) = at.and_then(|s| s.worktree) else {
         return Ok(false);
     };
-    let expected = snapshot(o).await?;
     if expected.source.pushed.is_some() {
         return Ok(true);
     }
     let node = o.git().node.clone().context("node git is not configured")?;
-    o.roots().verify()?;
-    node.finish_siblings(id, &path, expected.scope.git_author.clone())
-        .await?;
     // A moved task ref is recorded as push_conflict and reported; never forced.
     let (_, pushed) = node
         .finish_as(
