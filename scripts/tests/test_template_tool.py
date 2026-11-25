@@ -355,6 +355,34 @@ class TemplateTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'credential'):
                         scanner.scan_oci(archive)
 
+    def test_pgdg_schema_requires_exact_oci_path_and_complete_bytes(self):
+        scanner = load('credential_scan')
+        path = 'usr/share/postgresql/17/postgres.bki'
+        schema = b'rolpassword = text\nprstoken = regproc\n'
+        # Match the schema near the start, then hash through the later scan chunk.
+        schema += b'\n' * (1024 * 1024)
+        fingerprint = hashlib.sha256(schema).hexdigest()
+        manifest = {'opt/aq/manifest.json': json.dumps(bundle()).encode()}
+        self.assertTrue(scanner.secret_shaped(schema))
+        with patch.dict(scanner.OCI_PUBLIC_FILE_CONSTANTS, {path: (fingerprint, len(schema))}, clear=True):
+            with tempfile.TemporaryDirectory() as directory:
+                archive = Path(directory) / 'image.tar'
+                oci(archive, [{path: schema}, manifest])
+                self.assertEqual(scanner.scan_oci(archive)['layers_scanned'], 2)
+                for files in [{'tmp/postgres.bki': schema},
+                              {path: schema[:-1]},
+                              {path: schema[:-1] + b' '},
+                              {path: schema + b'TOKEN=private-value'},
+                              {path: schema, 'root/.netrc': schema}]:
+                    with self.subTest(files=list(files)):
+                        oci(archive, [files, {'usr/share/postgresql/17/.wh.postgres.bki': b'', **manifest}])
+                        with self.assertRaisesRegex(ValueError, 'credential'):
+                            scanner.scan_oci(archive)
+                snapshot = Path(directory) / 'snapshot.tar'
+                snapshot.write_bytes(layer({path: schema}))
+                with self.assertRaisesRegex(ValueError, 'credential'):
+                    scanner.scan_snapshot(snapshot)
+
     def test_public_constants_and_credentials_across_stream_boundaries(self):
         scanner = load('credential_scan')
         public = b'public-prefix\0-----BEGIN PRIVATE KEY-----\0public-suffix'
