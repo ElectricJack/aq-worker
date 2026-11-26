@@ -6,6 +6,7 @@
 //! normal home leaves room for.
 use crate::{ServiceConfig, config::valid_profile, enrollment_file::write_private};
 use anyhow::{Context, Result, bail, ensure};
+use aq_machine_load::AdmissionDeferral;
 use std::{
     os::unix::fs::{DirBuilderExt, MetadataExt},
     path::{Path, PathBuf},
@@ -13,25 +14,36 @@ use std::{
 
 const ADMISSION_WAIT_FILE: &str = "admission-wait";
 
-/// Publishes a slot's temporary readiness failure for service status.
-pub fn report_admission_wait(current: &Path, readiness: &Result<()>) {
+/// Publishes a slot's temporary readiness failure for service status and the machine report
+/// (`None`: admitted, which clears it). A deferral with the code of the last keeps its
+/// `since_ms`, so the report says how long the slot has waited.
+pub fn report_admission_wait(current: &Path, deferral: Option<AdmissionDeferral>) {
     let path = current.join(ADMISSION_WAIT_FILE);
-    let previous = std::fs::read_to_string(&path).ok();
-    let result = match readiness {
-        Ok(()) if previous.is_some() => std::fs::remove_file(&path).map_err(anyhow::Error::from),
-        Ok(()) => return,
-        Err(error) => {
-            let reason = format!("{error:#}");
-            if previous.as_deref() == Some(&reason) {
+    let previous = read_wait(&path);
+    let result = match deferral {
+        None if previous.is_some() => std::fs::remove_file(&path).map_err(anyhow::Error::from),
+        None => return,
+        Some(mut deferral) => {
+            match &previous {
+                Some(p) if p.code == deferral.code => deferral.since_ms = p.since_ms,
+                _ => {
+                    tracing::warn!(reason = %deferral, "native sandbox admission deferred; rechecking automatically")
+                }
+            }
+            if previous.as_ref() == Some(&deferral) {
                 return;
             }
-            tracing::warn!(%reason, "native sandbox admission deferred; rechecking automatically");
-            write_private(&path, reason.as_bytes())
+            serde_json::to_vec(&deferral)
+                .map_err(anyhow::Error::from)
+                .and_then(|bytes| write_private(&path, &bytes))
         }
     };
     if let Err(error) = result {
         tracing::warn!(%error, "could not update sandbox admission status");
     }
+}
+fn read_wait(path: &Path) -> Option<AdmissionDeferral> {
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
 }
 
 #[derive(Clone)]
@@ -307,8 +319,20 @@ impl Layout {
     pub fn held_reason(&self, slot: u32) -> Option<String> {
         std::fs::read_to_string(self.slot_held(slot)).ok()
     }
-    pub fn admission_wait_reason(&self, slot: u32) -> Option<String> {
-        std::fs::read_to_string(self.current(slot).join(ADMISSION_WAIT_FILE)).ok()
+    pub fn admission_wait_reason(&self, slot: u32) -> Option<AdmissionDeferral> {
+        read_wait(&self.current(slot).join(ADMISSION_WAIT_FILE))
+    }
+    /// The machine's sandbox admission deferral: the longest-waiting slot's of any node. A
+    /// slot's `current` holds one only while it polls (an ended poll is archived).
+    pub fn admission_deferral(&self) -> Option<AdmissionDeferral> {
+        let slots = self.enrolled_nodes().into_iter().flat_map(|node| {
+            let node = self.for_node(node);
+            let slots = node.existing_slots();
+            slots
+                .into_iter()
+                .filter_map(move |slot| node.admission_wait_reason(slot))
+        });
+        slots.min_by_key(|deferral| deferral.since_ms)
     }
     pub fn machine_json(&self) -> PathBuf {
         self.config_dir.join("machine.json")
@@ -405,12 +429,35 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let layout = layout(dir.path());
         let current = layout.fresh_current(1).unwrap();
-        let reason = "sandbox_daemon_unavailable";
-        report_admission_wait(&current, &Err(anyhow::anyhow!(reason)));
-        assert_eq!(layout.admission_wait_reason(1).as_deref(), Some(reason));
+        let short = |available| {
+            let mut d =
+                AdmissionDeferral::new("sandbox_disk_headroom_unavailable", Some((available, 9)));
+            d.since_ms = available;
+            d
+        };
+        report_admission_wait(&current, Some(short(5)));
+        assert_eq!(layout.admission_wait_reason(1), Some(short(5)));
         assert_eq!(layout.held_reason(1), None);
-        report_admission_wait(&current, &Ok(()));
+        // The same code later keeps its start and takes the new numbers.
+        report_admission_wait(&current, Some(short(7)));
+        let kept = layout.admission_wait_reason(1).unwrap();
+        assert_eq!((kept.since_ms, kept.available_bytes), (5, Some(7)));
+        report_admission_wait(&current, None);
         assert_eq!(layout.admission_wait_reason(1), None);
+    }
+    #[test]
+    fn the_machine_deferral_is_the_longest_waiting_slot_of_any_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let machine = layout(dir.path());
+        assert_eq!(machine.admission_deferral(), None);
+        for (node, slot, since) in [(1, 1, 30), (2, 2, 10), (2, 1, 20)] {
+            std::fs::create_dir_all(machine.config_dir.join(format!("slots/{node}"))).unwrap();
+            let current = machine.for_node(node).fresh_current(slot).unwrap();
+            let mut deferral = AdmissionDeferral::new("sandbox_daemon_unavailable", None);
+            deferral.since_ms = since;
+            report_admission_wait(&current, Some(deferral));
+        }
+        assert_eq!(machine.admission_deferral().unwrap().since_ms, 10);
     }
     #[test]
     fn two_nodes_with_three_agents_have_six_isolated_roots() {

@@ -2,6 +2,7 @@
 use super::*;
 use crate::native::adapter::{AdapterManifest, ExpectedAdapter, InstalledAdapter};
 use aq_admission::{scoped_presence, transport::Feature};
+use aq_machine_load::AdmissionDeferral;
 use aq_session_protocol::{ArtifactRef, Capability, Digest, Validate};
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -176,20 +177,21 @@ pub(super) fn private_file(path: &Path, maximum: usize) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 impl NativeConfig {
-    pub(super) async fn check_backend_admission(&self) -> Result<()> {
-        if let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal {
-            settings, ..
-        }) = &self.executor
-        {
-            ensure!(
-                fs2::available_space(self.state_dir.join("journal"))
-                    .context("native_journal_storage_unmeasurable")?
-                    >= crate::config::MINIMUM_FREE_JOURNAL_BYTES,
-                "native_journal_disk_headroom_unavailable"
-            );
-            settings.host.docker_local.check_admission().await?;
-        }
-        Ok(())
+    /// Why the node cannot admit a sandbox now, if it cannot. A disk shortfall first
+    /// reclaims stale build-cache keys and checks again.
+    pub(super) async fn check_backend_admission(&self) -> Result<(), AdmissionDeferral> {
+        use aq_sandbox_archive::{build_cache::BuildCacheConfig, docker_engine::admit_reclaiming};
+        let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+            &self.executor
+        else {
+            return Ok(());
+        };
+        let journal = fs2::available_space(self.state_dir.join("journal"));
+        let minimum = crate::config::MINIMUM_FREE_JOURNAL_BYTES;
+        AdmissionDeferral::check_free(journal, minimum, "native_journal")?;
+        let reclaim = || BuildCacheConfig::reclaim_off_runtime(settings.host.build_cache.clone());
+        let docker = &settings.host.docker_local;
+        Ok(admit_reclaiming(|| docker.check_admission(), reclaim).await?)
     }
 
     /// The slot's aq-git and, when `node_git` is configured, the node's git with its remote.

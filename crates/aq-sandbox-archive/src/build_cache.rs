@@ -21,7 +21,10 @@
 //! freshness by mtime, so the ledger gives a file the mtime it had when its
 //! content was last uploaded and "now" when the content is new: a build reused
 //! from main can never be taken for a build of changed sources.
-use crate::tar::TreeEntry;
+//!
+//! A variant is a toolchain key. Only the newest `build_cache_keys_kept` of a project (the
+//! node's Setting) stay; an older one goes once nothing uses it.
+use crate::{LiveLimits, tar::TreeEntry};
 use anyhow::{Context, Result, bail, ensure};
 use aq_handoff_note::now_ms;
 use serde::{Deserialize, Serialize};
@@ -101,6 +104,9 @@ struct Settings {
     root: PathBuf,
     limits: Limits,
     projects: BTreeMap<Uuid, ProjectCache>,
+    /// The node's Settings; set by the service, never read from a file.
+    #[serde(skip)]
+    node: LiveLimits,
 }
 
 /// The node's build-cache settings; validated when read.
@@ -185,8 +191,41 @@ impl BuildCacheConfig {
             task,
             template: template.to_owned(),
             limits: self.0.limits.clone(),
+            keys_kept: self.keys_kept(),
             cache: self.0.projects.get(&project)?.clone(),
         })
+    }
+
+    /// Applies the node's Settings, as the last control reply carried them.
+    pub fn with_node_limits(&mut self, node: LiveLimits) {
+        self.0.node = node;
+    }
+    fn keys_kept(&self) -> Option<usize> {
+        Some(self.0.node.get()?.build_cache_keys_kept as usize)
+    }
+
+    /// Deletes every project's toolchain keys beyond the newest kept that nothing uses
+    /// (blocking: it waits for each project lock); the bytes freed. Nothing before the
+    /// node has its Settings.
+    pub fn reclaim(&self) -> u64 {
+        self.reclaim_at(now_ms())
+    }
+    /// [`Self::reclaim`] off the async runtime; nothing without a cache.
+    pub async fn reclaim_off_runtime(cache: Option<Self>) -> u64 {
+        let reclaim = move || cache.map_or(0, |c| c.reclaim());
+        tokio::task::spawn_blocking(reclaim).await.unwrap_or(0)
+    }
+    fn reclaim_at(&self, now: u64) -> u64 {
+        let Some(keep) = self.keys_kept() else {
+            return 0;
+        };
+        let warm_timeout = self.0.limits.warm_timeout_ms;
+        let projects = subdirs(&self.0.root).unwrap_or_default();
+        let freed = projects.iter().map(|project| {
+            let _project = lock(&project.join("lock"), true).ok()?;
+            retain_newest_keys(project, keep, None, warm_timeout, now).ok()
+        });
+        freed.flatten().sum()
     }
 
     /// Deletes a finished or cancelled task's slots (every variant) unless an
@@ -215,6 +254,8 @@ pub struct SlotCache {
     task: Uuid,
     template: String,
     limits: Limits,
+    /// Toolchain keys kept per project (the node's Setting); None: none deleted.
+    keys_kept: Option<usize>,
     cache: ProjectCache,
 }
 
@@ -310,6 +351,59 @@ fn write_ledger(path: &Path, ledger: &Ledger) -> Result<()> {
     let partial = path.with_extension("partial");
     fs::write(&partial, serde_json::to_vec(ledger)?)?;
     Ok(fs::rename(partial, path)?)
+}
+
+/// The last use of a toolchain key: its newest slot use or generation.
+fn last_use(variant: &Path) -> u64 {
+    let slots = subdirs(&variant.join("slot")).unwrap_or_default();
+    let used = slots.iter().filter_map(|slot| {
+        let modified = fs::metadata(slot.join("lock")).and_then(|m| m.modified());
+        Some(modified.ok()?.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64)
+    });
+    let generations = subdirs(&variant.join("gen")).unwrap_or_default();
+    used.chain(generations.iter().map(|g| created_ms(g)))
+        .max()
+        .unwrap_or(0)
+}
+/// An attempt holds one of its slots, or one of its generations is still being warmed.
+fn key_in_use(variant: &Path, warm_timeout_ms: u64, now: u64) -> bool {
+    let slots = subdirs(&variant.join("slot")).unwrap_or_default();
+    let warming = |g: &PathBuf| !sealed(g) && now.saturating_sub(created_ms(g)) <= warm_timeout_ms;
+    slots
+        .iter()
+        .any(|slot| lock(&slot.join("lock"), false).is_err())
+        || subdirs(&variant.join("gen"))
+            .unwrap_or_default()
+            .iter()
+            .any(warming)
+}
+/// Deletes `project`'s toolchain keys beyond the newest `keep` by last use, unless in use;
+/// `current` (the key being opened) always stays and counts as one. The caller holds the
+/// project lock. Returns the bytes freed.
+fn retain_newest_keys(
+    project: &Path,
+    keep: usize,
+    current: Option<&Path>,
+    warm_timeout_ms: u64,
+    now: u64,
+) -> Result<u64> {
+    let mut keys: Vec<(u64, PathBuf)> = subdirs(project)?
+        .into_iter()
+        .filter(|key| Some(key.as_path()) != current)
+        .map(|key| (last_use(&key), key))
+        .collect();
+    keys.sort_by(|a, b| b.cmp(a));
+    let mut freed = 0;
+    for (_, key) in keys
+        .iter()
+        .skip(keep.saturating_sub(usize::from(current.is_some())))
+    {
+        if !key_in_use(key, warm_timeout_ms, now) {
+            freed += disk_bytes(key);
+            remove(key);
+        }
+    }
+    Ok(freed)
 }
 
 fn orphaned_overlay(slot: &Path) -> bool {
@@ -459,6 +553,9 @@ impl SlotCache {
     /// being opened, a generation a slot overlays or one still being built.
     fn sweep(&self, current: &Path, opening: &Path, now: u64) -> Result<()> {
         let limits = &self.limits;
+        if let Some(keep) = self.keys_kept {
+            retain_newest_keys(&self.dir, keep, Some(current), limits.warm_timeout_ms, now)?;
+        }
         let (slots, mut generations) = self.sweep_generations(now)?;
         let mut used = self.sweep_slots(slots, opening, now);
         let size = |generations: &[PathBuf]| generations.iter().map(|g| disk_bytes(g)).sum::<u64>();
@@ -884,6 +981,49 @@ mod tests {
         assert_eq!((stamped.mtime("a.rs"), stamped.mtime("b.rs")), (9, 5));
         // The slot is held: a second attempt of the task cannot share it.
         assert!(second.open_at(work.path(), 9_600).is_err());
+    }
+
+    #[test]
+    fn only_the_newest_toolchain_keys_stay_and_one_in_use_is_never_deleted() {
+        let (root, work) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let project = Uuid::new_v4();
+        let mut config = config(root.path(), project, u64::MAX);
+        let limits = aq_protocol::NodeLimits {
+            sandbox_headroom_bytes: 1,
+            build_cache_keys_kept: 2,
+        };
+        config.with_node_limits(LiveLimits(std::sync::Arc::new(std::sync::RwLock::new(
+            Some(limits),
+        ))));
+        // Each toolchain file content is its own key; `open_at` uses the given time.
+        let open = |toolchain: &str, now: u64| {
+            fs::write(work.path().join("rust-toolchain.toml"), toolchain).unwrap();
+            let slot = config.slot(project, Uuid::new_v4(), "aa").unwrap();
+            let opened = slot.open_at(work.path(), now).unwrap();
+            (opened.variant.clone(), opened)
+        };
+        let keys = || -> BTreeSet<PathBuf> {
+            let keys = subdirs(&root.path().join(project.to_string())).unwrap();
+            keys.into_iter().collect()
+        };
+        let (a, held) = open("a", 1_000);
+        let (b, opened) = open("b", 2_000);
+        drop(opened);
+        let (c, opened) = open("c", 3_000);
+        drop(opened);
+        // `a` is past the newest two but an attempt holds its slot.
+        assert_eq!(keys(), [a.clone(), b.clone(), c.clone()].into());
+        drop(held);
+        assert!(config.reclaim_at(4_000) > 0);
+        assert_eq!(keys(), [b.clone(), c.clone()].into());
+        assert_eq!(config.reclaim_at(5_000), 0, "nothing more to free");
+        // An older key reopened stays (it is being opened) and the oldest other goes.
+        let (b2, opened) = open("b", 6_000);
+        assert_eq!(b2, b);
+        drop(opened);
+        let (d, _opened) = open("d", 7_000);
+        assert_eq!(keys(), [b, d].into());
+        assert!(!c.exists());
     }
 
     /// The `warm.sh` a fresh slot of `config` writes for one tree, if any.

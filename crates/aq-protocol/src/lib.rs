@@ -184,6 +184,19 @@ pub struct ControlResponse {
     /// with that `schema_version`. Absent (an older server): one slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slots: Option<u32>,
+    /// The node's limits (the server's Settings value `node-limits`), sent with `slots`. A node
+    /// that has none admits no sandbox.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<NodeLimits>,
+}
+/// Limits a node applies itself, from the server's Settings; read at every use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeLimits {
+    /// Free sandbox storage the node needs before it requests or accepts work.
+    pub sandbox_headroom_bytes: u64,
+    /// Build-cache toolchain keys kept per project; older idle ones are deleted.
+    pub build_cache_keys_kept: u32,
 }
 impl ControlResponse {
     /// The node's slot count; one when the server names none.

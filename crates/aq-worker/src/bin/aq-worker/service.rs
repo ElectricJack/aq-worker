@@ -135,6 +135,9 @@ pub struct NativeSlotBackend {
     /// Spec 0017: each node's pulled admitted environments, shared by its slots.
     #[cfg(feature = "project_environments")]
     environments: std::collections::BTreeMap<Uuid, aq_environment_builder::node::Held>,
+    /// The sandbox daemon's storage roots, read once for every node and slot of this service
+    /// (they share the template's daemon), not on each admission check.
+    daemon: aq_sandbox_archive::docker_engine::DaemonCache,
 }
 /// Starts a node's observation service: its store under `<state_root>/observations/<node id>`,
 /// the transport owner handshake and delivery. A failure leaves the node running unobserved.
@@ -251,11 +254,22 @@ impl NativeSlotBackend {
             transcript_bound: None,
             #[cfg(feature = "project_environments")]
             environments: Default::default(),
+            daemon: Default::default(),
         }
     }
     fn native_config(&self, ctx: &SlotContext) -> Result<NativeConfig> {
-        #[cfg_attr(not(feature = "project_environments"), allow(unused_mut))]
         let mut cfg = slot_native_config(&self.template, ctx)?;
+        // The node's Settings, live: a change applies at the slot's next admission check.
+        if let (Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }), Some(node)) =
+            (&mut cfg.executor, self.sessions.get(&ctx.node_id))
+        {
+            let limits = aq_sandbox_archive::LiveLimits(node.limits.clone());
+            if let Some(cache) = &mut settings.host.build_cache {
+                cache.with_node_limits(limits.clone());
+            }
+            settings.host.docker_local.node_limits = limits;
+            settings.host.docker_local.daemon = self.daemon.clone();
+        }
         #[cfg(feature = "project_environments")]
         if let (Some(ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }), Some(held)) =
             (&mut cfg.executor, self.environments.get(&ctx.node_id))

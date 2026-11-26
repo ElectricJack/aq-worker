@@ -378,7 +378,7 @@ dependencies = [
 
 [[package]]
 name = "aq-protocol"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "chrono",
  "serde",
@@ -411,7 +411,9 @@ dependencies = [
  "aq-codex-mapper",
  "aq-handoff-note",
  "aq-lifecycle-protocol",
+ "aq-machine-load",
  "aq-node-git",
+ "aq-protocol",
  "bytes",
  "http-body-util",
  "hyper",

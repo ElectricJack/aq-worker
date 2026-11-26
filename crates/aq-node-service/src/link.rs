@@ -323,7 +323,9 @@ pub fn validate_control(reply: &ControlResponse) -> Result<()> {
             1 | aq_protocol::NODE_SLOTS_SCHEMA_VERSION
         ) && reply.slots.is_none_or(|n| reply.schema_version
             == aq_protocol::NODE_SLOTS_SCHEMA_VERSION
-            && n <= aq_protocol::MAX_NODE_SLOTS),
+            && n <= aq_protocol::MAX_NODE_SLOTS)
+            && (reply.limits.is_none()
+                || reply.schema_version == aq_protocol::NODE_SLOTS_SCHEMA_VERSION),
         "invalid node control response"
     );
     Ok(())
@@ -384,6 +386,7 @@ mod tests {
             generation: 1,
             handoff: vec![],
             qualification: None,
+            limits: None,
         }
     }
     #[tokio::test]

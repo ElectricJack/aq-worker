@@ -251,12 +251,19 @@ def set_bundle_paths(native, host):
     host["docker_local"].pop("workspace_bind_paths", None)
 
 
-def stage_runtime(args, stage):
+# Files a bundle takes from this checkout; everything else is pinned on the operator's host.
+CHECKOUT_FILES = ("aq-install.sh", "worker-install-config.py", "aq-wsl-autostart.ps1", "sandbox-daemon")
+
+
+def stage_scripts(stage):
     for name in ("aq-install.sh", "worker-install-config.py"):
         shutil.copyfile(HERE / name, stage / name)
     shutil.copyfile(ROOT / "packaging/windows/aq-wsl-autostart.ps1", stage / "aq-wsl-autostart.ps1")
-    scripts = ROOT / "scripts/sandbox-daemon"
-    shutil.copytree(scripts, stage / "sandbox-daemon")
+    shutil.copytree(ROOT / "scripts/sandbox-daemon", stage / "sandbox-daemon")
+
+
+def stage_runtime(args, stage):
+    stage_scripts(stage)
     with tarfile.open(stage / "podman-linux-amd64.tar.gz", "w:gz", compresslevel=3) as archive:
         archive.add(args.podman, arcname="podman-linux-amd64")
     if args.codex_helpers:
@@ -308,6 +315,10 @@ def build(args):
         stage_runtime(args, stage)
         digest, installer_digest = publish_bundle(stage, download)
     (args.output / "nginx.conf").write_text(config)
+    finish(args, digest, installer_digest)
+
+
+def finish(args, digest, installer_digest):
     published = {"installer_sha256": installer_digest, "bundle_sha256": digest, "worker_revision": worker_revision(args.worker)}
     if getattr(args, "manifest", None):
         # What aq-server's [workers.install] manifest_file reads on every request: written last and
@@ -316,6 +327,36 @@ def build(args):
         staged.write_text(json.dumps(published, indent=2) + "\n")
         staged.replace(args.manifest)
     print(json.dumps(published))
+    return published
+
+
+def restage(args):
+    """Republish `--base-bundle` with this checkout's worker installer files and `--worker`.
+
+    The base's host-pinned contents (session host, aq-agent, aq-git, tmux, Podman, Codex helpers,
+    native template and definitions, repositories) are kept byte for byte, so a worker built in CI
+    ships with the runtime the operator qualified. Its nginx routes stay valid: the template image
+    does not change. `--max-workspace-bytes` sets that native template limit for every machine
+    that installs the bundle.
+    """
+    download = args.output / "install"
+    download.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=args.output) as temp:
+        stage = Path(temp) / "bundle"
+        with tarfile.open(args.base_bundle) as base:
+            base.extractall(stage, filter="data")
+        for name in CHECKOUT_FILES:
+            path = stage / name
+            shutil.rmtree(path) if path.is_dir() else path.unlink()
+        stage_scripts(stage)
+        shutil.copyfile(args.worker, stage / "aq-worker")
+        (stage / "aq-worker").chmod(0o755)
+        if args.max_workspace_bytes is not None:
+            native = json.loads((stage / "native.json").read_text())
+            native["executor"]["settings"]["host"]["max_workspace_bytes"] = args.max_workspace_bytes
+            (stage / "native.json").write_text(safe_json(native))
+        digest, installer_digest = publish_bundle(stage, download)
+    return finish(args, digest, installer_digest)
 
 
 def worker_revision(worker):
@@ -329,10 +370,17 @@ def worker_revision(worker):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("runtime", "worker", "service", "podman", "output"):
+    for name in ("worker", "output"):
         parser.add_argument("--" + name, type=Path, required=True)
-    for name in ("codex-helpers", "tls-cert", "tls-key", "manifest"):
+    for name in ("runtime", "service", "podman", "base-bundle", "codex-helpers", "tls-cert", "tls-key", "manifest"):
         parser.add_argument("--" + name, type=Path)
     parser.add_argument("--listen", default="127.0.0.1:28443")
     parser.add_argument("--worker-port", type=int, default=28081)
-    build(parser.parse_args())
+    parser.add_argument("--max-workspace-bytes", type=int)
+    parsed = parser.parse_args()
+    if parsed.base_bundle:
+        restage(parsed)
+    elif parsed.runtime and parsed.service and parsed.podman:
+        build(parsed)
+    else:
+        parser.error("give --base-bundle, or --runtime, --service and --podman for a full build")
