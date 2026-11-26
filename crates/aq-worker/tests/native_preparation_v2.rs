@@ -157,6 +157,8 @@ async fn adjust_prepare(mode: usize, response: &mut Value, data: &Value) {
                 json!(aq_admission::Digest::of(b"changed"))
         }
         15 => {
+            // Keep the short real delivery lifetime; the expiry regression
+            // controls its local boot clock instead of racing this window.
             response["body"]["delivery"]["clock"] =
                 json!(DeliveryClock::new(49900, 50000).unwrap());
         }

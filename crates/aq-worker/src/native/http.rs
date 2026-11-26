@@ -27,8 +27,8 @@ mod refresh_history;
 mod refresh_terminal;
 mod scoped_presence;
 pub mod source;
-#[cfg(test)]
-pub(crate) mod test_clock;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_clock;
 
 #[derive(Clone)]
 pub struct NativeClient {
@@ -124,7 +124,7 @@ pub(crate) fn body_type(response: &Response) -> Result<()> {
     Ok(())
 }
 pub(super) fn boot_ns() -> Result<u64> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     if let Some(now) = test_clock::now() {
         return Ok(now);
     }
