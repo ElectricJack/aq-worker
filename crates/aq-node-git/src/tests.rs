@@ -603,7 +603,6 @@ fn the_final_result_push_still_succeeds_after_a_checkpoint() {
 }
 
 #[test]
-<<<<<<< HEAD
 fn test_git_prefers_the_pinned_sandbox_git_then_the_native_runtime() {
     let all = |_: &Path| true;
     assert_eq!(
@@ -629,7 +628,9 @@ fn test_git_is_an_existing_candidate() {
     let selected = git_executable();
     assert!(GIT_CANDIDATES.contains(&selected));
     assert!(Path::new(selected).is_file(), "{selected} must exist");
-=======
+}
+
+#[test]
 fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
     use axum::{
         Json, Router,
@@ -924,5 +925,4 @@ fn sibling_hydrates_retained_commit_absent_from_advertised_branches() {
         std::fs::read_to_string(checkout.join("proof.txt")).unwrap(),
         "retained sibling contents"
     );
->>>>>>> refs/remotes/central/main
 }
