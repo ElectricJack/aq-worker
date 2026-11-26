@@ -86,8 +86,8 @@ impl Admission {
         }))
     }
     pub(super) async fn backend_ready(&self) -> bool {
-        let readiness = self.config.check_backend_admission().await;
-        aq_node_service::layout::report_admission_wait(&self.config.state_dir, &readiness);
-        readiness.is_ok()
+        let deferral = self.config.check_backend_admission().await.err();
+        aq_node_service::layout::report_admission_wait(&self.config.state_dir, deferral.clone());
+        deferral.is_none()
     }
 }

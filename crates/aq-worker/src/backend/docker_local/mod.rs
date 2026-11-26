@@ -547,12 +547,12 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         }
     }
 
-    /// statvfs of the daemon's storage root (`DockerRootDir`; Podman's
-    /// libpod `store.graphRoot`). It must be an absolute host path.
+    /// statvfs of the daemon's storage root (`DockerRootDir`; Podman's libpod
+    /// `store.graphRoot`; the admission check's cached root once it has one).
     async fn graph_root_stats(&self) -> Option<crate::backend::FsStats> {
-        let info = self.api.get_json("/info").await.ok()?;
-        let root = transport::graph_root(&info)?;
-        self.statvfs.statvfs(root).ok()
+        let info = async { self.api.get_json("/info").await.ok() };
+        let root = self.config.daemon.graph_root_or(info).await?;
+        self.statvfs.statvfs(&root).ok()
     }
 
     /// Preserved containers' writable layers (`SizeRw`) plus their work

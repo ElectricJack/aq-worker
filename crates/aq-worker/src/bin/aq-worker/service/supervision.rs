@@ -44,12 +44,15 @@ fn machine_reporter(
     mut stop: watch::Receiver<bool>,
 ) -> Option<JoinHandle<()>> {
     // Only slot 1 reports; the server groups the sibling slots by the machine key.
+    let layout = layout.clone();
     aq_machine_load::sampler_from_file(&layout.machine_json(), layout.state_root.clone()).map(
         |(sampler, interval)| {
             tokio::spawn(aq_machine_load::report_loop(
                 sampler,
                 interval,
-                move |report| {
+                move |mut report| {
+                    // Any slot's deferral is the machine's: they share its disk and daemon.
+                    report.sandbox_admission = layout.admission_deferral();
                     let link = link.clone();
                     async move {
                         link.machine_report(&report)

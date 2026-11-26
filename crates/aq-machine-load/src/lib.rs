@@ -65,7 +65,60 @@ pub struct MachineReport {
     pub disk_total_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_free_bytes: Option<u64>,
+    /// Present while the node cannot admit a sandbox and rechecks automatically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox_admission: Option<AdmissionDeferral>,
 }
+
+/// Why the node defers sandbox admission, since when (worker clock), and for a disk
+/// shortfall the bytes available and required.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdmissionDeferral {
+    pub code: String,
+    pub since_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_bytes: Option<u64>,
+}
+
+impl AdmissionDeferral {
+    /// A deferral observed now; `since_ms` is the caller's to keep across checks.
+    pub fn new(code: impl Into<String>, bytes: Option<(u64, u64)>) -> Self {
+        Self {
+            code: code.into(),
+            since_ms: now_ms(),
+            available_bytes: bytes.map(|b| b.0),
+            required_bytes: bytes.map(|b| b.1),
+        }
+    }
+}
+impl AdmissionDeferral {
+    /// `free` bytes of the `what` filesystem against `minimum`.
+    pub fn check_free(free: std::io::Result<u64>, minimum: u64, what: &str) -> Result<(), Self> {
+        match free {
+            Err(_) => Err(Self::new(format!("{what}_storage_unmeasurable"), None)),
+            Ok(free) if free < minimum => Err(Self::new(
+                format!("{what}_disk_headroom_unavailable"),
+                Some((free, minimum)),
+            )),
+            Ok(_) => Ok(()),
+        }
+    }
+}
+impl std::fmt::Display for AdmissionDeferral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.code)?;
+        match (self.available_bytes, self.required_bytes) {
+            (Some(available), Some(required)) => {
+                write!(f, ": {available} available, {required} required")
+            }
+            _ => Ok(()),
+        }
+    }
+}
+impl std::error::Error for AdmissionDeferral {}
 
 fn default_interval_secs() -> u64 {
     15
@@ -231,6 +284,7 @@ impl Sampler {
             cpu_busy_bps: cpu,
             disk_total_bytes: disk.map(|d| d.0),
             disk_free_bytes: disk.map(|d| d.1),
+            sandbox_admission: None,
         };
         if let Some(file) = &self.config.host_load_file {
             report.apply_host_load(read_host_load(file, now_ms));
