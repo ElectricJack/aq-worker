@@ -1,0 +1,118 @@
+name: worker-image
+
+# Builds aq-worker on every merge to main and publishes it to GHCR by digest as
+# ghcr.io/electricjack/aq-worker:sha-<sha> (packaging/worker/Dockerfile, the
+# binary at /usr/local/bin/aq-worker). `:main` moves to it only while that
+# commit is still main's head. On the aq-ms1 host, scripts/ms1-worker-deploy.py
+# follows `:main`: it republishes the installer bundle with this worker and
+# sends each hosted machine a receiver update.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - scripts/ms1-worker-deploy.py
+      - scripts/tests/test_ms1_worker_deploy.py
+      - packaging/worker/Dockerfile
+      - .github/workflows/worker-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-image-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/electricjack/aq-worker
+  # The compile-time epic flags the aq-ms1 workers run with.
+  CARGO_FEATURES: project_environments
+
+jobs:
+  deploy-script:
+    name: ms1-worker-deploy tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Run the deploy script's tests
+        run: |
+          python3 -m pip install --disable-pip-version-check --target "$RUNNER_TEMP/pytest" pytest
+          PYTHONPATH="$RUNNER_TEMP/pytest" python3 -m pytest -q scripts/tests/test_ms1_worker_deploy.py
+
+  image:
+    name: build and publish
+    if: github.event_name != 'pull_request'
+    needs: deploy-script
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push the worker image
+        id: worker
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./packaging/worker/Dockerfile
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            AQ_SOURCE_REVISION=${{ github.sha }}
+            CARGO_FEATURES=${{ env.CARGO_FEATURES }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:sha-${{ github.sha }}
+
+      - name: Check the worker and move :main if this is still main's head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.worker.outputs.digest }}
+        run: |
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::unexpected image digest '$DIGEST'"
+            exit 1
+          fi
+          image=$IMAGE@$DIGEST
+          docker pull --quiet "$image" >/dev/null
+          id=$(docker create "$image")
+          docker cp "$id:/usr/local/bin/aq-worker" aq-worker
+          docker rm "$id" >/dev/null
+          version=$(./aq-worker --version)
+          if [[ "$version" != *"+$GITHUB_SHA" ]]; then
+            echo "::error::the worker reports '$version', not revision $GITHUB_SHA"
+            exit 1
+          fi
+          sha256sum aq-worker >aq-worker.sha256
+          head=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [ "$head" = "$GITHUB_SHA" ]; then
+            docker buildx imagetools create --prefer-index=false -t "$IMAGE:main" "$image"
+          else
+            echo "main is at $head, not $GITHUB_SHA: :main is left alone"
+          fi
+          {
+            echo "### $version"
+            echo '```'
+            echo "$image"
+            cat aq-worker.sha256
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
