@@ -1,4 +1,6 @@
 """Install script checks: fake PATH stubs and a temporary HOME; nothing real is installed."""
+import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -7,11 +9,12 @@ import shutil
 import socket
 import subprocess
 import sys
+import tarfile
 import tomllib
 
 import pytest
 
-from install_fixtures import BINARIES, CODE, SCRIPT, downloadable_bundle, host
+from install_fixtures import BINARIES, CODE, ROOT, SCRIPT, downloadable_bundle, host
 # Keep the installer suite and its individual scenarios selectable from this module.
 from install_service_scenarios import (
     login_helper,
@@ -616,3 +619,46 @@ def test_installer_waits_for_a_fresh_inventory_report(monkeypatch, tmp_path):
     monkeypatch.setattr(time, "sleep", lambda _: None)
     module.wait_for_inventory(tmp_path, 90)
     assert next(reports, None) is None
+
+
+def test_restaged_bundle_keeps_host_pins_and_takes_worker_and_installer_files(host, monkeypatch):
+    base, original, _ = downloadable_bundle(host, monkeypatch)
+    spec = importlib.util.spec_from_file_location("prepare_restage", SCRIPT.with_name("prepare-worker-install.py"))
+    prepare = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prepare)
+    (original / "worker-install-config.py").write_text("# an older receiver\n")
+    (original / "sandbox-daemon/stale").write_text("removed upstream")
+    with tarfile.open(base, "w:gz") as archive:  # the base as an older revision published it
+        for item in sorted(original.iterdir()):
+            archive.add(item, arcname=item.name)
+    worker = host["tmp"] / "new-aq-worker"
+    worker.write_text("#!/bin/sh\necho 'aq-worker 0.5.1+" + "c" * 40 + "'\n")
+    worker.chmod(0o755)
+    output, manifest = host["tmp"] / "gateway", host["tmp"] / "install-manifest.json"
+    published = prepare.restage(argparse.Namespace(
+        base_bundle=base, worker=worker, output=output, manifest=manifest, max_workspace_bytes=402653184))
+    assert json.loads(manifest.read_text()) == published and published["worker_revision"] == "c" * 40
+    assert not (output / "nginx.conf").exists()
+    bundle = output / "install" / (published["bundle_sha256"] + ".tar.gz")
+    installer = (output / "install" / (published["installer_sha256"] + ".sh")).read_text()
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == published["bundle_sha256"]
+    assert f"digest='{published['bundle_sha256']}'" in installer
+    restaged = host["tmp"] / "restaged"
+    with tarfile.open(bundle) as archive:
+        archive.extractall(restaged, filter="data")
+    kept = sorted(p.relative_to(original) for p in original.rglob("*") if p.is_file())
+    now = sorted(p.relative_to(restaged) for p in restaged.rglob("*") if p.is_file())
+    assert now == [p for p in kept if p != Path("sandbox-daemon/stale")]
+    for rel in now:
+        if rel.parts[0] in prepare.CHECKOUT_FILES:
+            source = ROOT / ("packaging/windows" if rel.name.endswith(".ps1") else "scripts" if rel.parts[0] == "sandbox-daemon" else "packaging/service") / rel
+            assert (restaged / rel).read_bytes() == source.read_bytes(), rel
+        elif rel.name == "aq-worker":
+            assert (restaged / rel).read_bytes() == worker.read_bytes() and (restaged / rel).stat().st_mode & 0o111
+        elif rel.name == "native.json":
+            native = json.loads((restaged / rel).read_text())
+            assert native["executor"]["settings"]["host"]["max_workspace_bytes"] == 402653184
+            del native["executor"]["settings"]["host"]["max_workspace_bytes"]
+            assert native == json.loads((original / rel).read_text())
+        else:
+            assert (restaged / rel).read_bytes() == (original / rel).read_bytes(), rel
