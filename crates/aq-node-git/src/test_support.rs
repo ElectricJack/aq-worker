@@ -199,28 +199,14 @@ fn smart_http(
                         uri: axum::http::Uri,
                         h: HeaderMap,
                         body: Bytes| async move {
-<<<<<<< HEAD
-=======
         let rest = fields["rest"].as_str();
-        let text = |name: &str| {
-            let value = h.get(name).and_then(|v| v.to_str().ok());
-            value.unwrap_or_default().to_string()
-        };
         // The header aq-server spec 0017 names; a literal so the double needs no feature.
-        let job = text("aq-environment-job");
->>>>>>> refs/remotes/central/main
+        let job = header_text(&h, "aq-environment-job");
         seen.lock().unwrap().push(format!(
             "{method} {rest}{} {} {}{}",
             uri.query().map(|q| format!("?{q}")).unwrap_or_default(),
-<<<<<<< HEAD
             header_text(&h, "authorization"),
-            header_text(&h, transport::ATTEMPT_HEADER)
-        ));
-        let output = git_http_backend(&root, &method, &rest, &uri, &h, body);
-        let (response, body) = cgi_response(&output);
-=======
-            text("authorization"),
-            text(transport::ATTEMPT_HEADER),
+            header_text(&h, transport::ATTEMPT_HEADER),
             if job.is_empty() {
                 job
             } else {
@@ -230,43 +216,8 @@ fn smart_http(
         if refuse.load(Ordering::SeqCst) {
             return axum::http::StatusCode::FORBIDDEN.into_response();
         }
-        let mut child = Command::new(git_executable())
-            .arg("http-backend")
-            .env("GIT_PROJECT_ROOT", &root)
-            .env("GIT_HTTP_EXPORT_ALL", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("PATH_INFO", format!("/remote.git/{rest}"))
-            .env("REQUEST_METHOD", method.as_str())
-            .env("QUERY_STRING", uri.query().unwrap_or_default())
-            .env("CONTENT_TYPE", text("content-type"))
-            .env("CONTENT_LENGTH", body.len().to_string())
-            .env("HTTP_CONTENT_ENCODING", text("content-encoding"))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        let mut stdin = child.stdin.take().unwrap();
-        let writer = std::thread::spawn(move || {
-            let _ = std::io::Write::write_all(&mut stdin, &body);
-        });
-        let out = child.wait_with_output().unwrap();
-        writer.join().unwrap();
-        let cut = out
-            .stdout
-            .windows(4)
-            .position(|w| w == b"\r\n\r\n")
-            .unwrap();
-        let mut response = axum::http::Response::builder();
-        for line in std::str::from_utf8(&out.stdout[..cut]).unwrap().lines() {
-            let (name, value) = line.split_once(": ").unwrap();
-            response = if name == "Status" {
-                response.status(value[..3].parse::<u16>().unwrap())
-            } else {
-                response.header(name, value)
-            };
-        }
-        let body = out.stdout[cut + 4..].to_vec();
->>>>>>> refs/remotes/central/main
+        let output = git_http_backend(&root, &method, rest, &uri, &h, body);
+        let (response, body) = cgi_response(&output);
         if rest == "git-receive-pack" && drop_push.swap(false, Ordering::SeqCst) {
             // Applied, but the connection ends before the client reads its status.
             let cut: std::io::Result<Bytes> = Err(std::io::ErrorKind::ConnectionReset.into());
@@ -301,7 +252,7 @@ fn git_http_backend(
     headers: &HeaderMap,
     body: Bytes,
 ) -> Vec<u8> {
-    let mut child = Command::new(GIT)
+    let mut child = Command::new(git_executable())
         .arg("http-backend")
         .env("GIT_PROJECT_ROOT", root)
         .env("GIT_HTTP_EXPORT_ALL", "1")
