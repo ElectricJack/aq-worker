@@ -16,6 +16,25 @@ pub mod task_postgres;
 pub mod workspace;
 
 use anyhow::{Result, ensure};
+use std::sync::{Arc, PoisonError, RwLock};
+
+/// The node's limits from the server's Settings (the last control reply's), shared with the
+/// node session so a change applies at the next use. Runtime state, not configuration: any
+/// two compare equal, so a config compares as before.
+#[derive(Clone, Debug, Default)]
+pub struct LiveLimits(pub Arc<RwLock<Option<aq_protocol::NodeLimits>>>);
+impl PartialEq for LiveLimits {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for LiveLimits {}
+impl LiveLimits {
+    /// None until the server has sent them.
+    pub fn get(&self) -> Option<aq_protocol::NodeLimits> {
+        *self.0.read().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 use sha2::Digest as _;
 use std::{
     io::{Read, Write},

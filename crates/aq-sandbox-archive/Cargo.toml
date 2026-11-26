@@ -15,6 +15,8 @@ aq-lifecycle-protocol = { path = "../aq-lifecycle-protocol" }
 aq-codex-mapper = { path = "../aq-codex-mapper" }
 aq-node-git = { path = "../aq-node-git" }
 aq-handoff-note = { path = "../aq-handoff-note" }
+aq-protocol.workspace = true
+aq-machine-load = { path = "../aq-machine-load" }
 aq-agent-channel = { path = "../aq-agent-channel" }
 serde.workspace = true
 serde_json.workspace = true
