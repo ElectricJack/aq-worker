@@ -293,22 +293,26 @@ impl StopProof {
             Self::CgroupTeardown {
                 invocation_id,
                 unit,
-            } => {
-                let id = invocation_id.len() == 32
-                    && invocation_id
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
-                let unit_ok = unit.len() <= 256
-                    && unit.ends_with(".service")
-                    && unit.len() > ".service".len()
-                    && !unit.contains('/')
-                    && !unit.chars().any(char::is_control);
-                (id && unit_ok)
-                    .then_some(())
-                    .ok_or("cgroup_teardown proof needs a systemd invocation id and unit")
-            }
+            } => (is_invocation_id(invocation_id) && is_service_unit(unit))
+                .then_some(())
+                .ok_or("cgroup_teardown proof needs a systemd invocation id and unit"),
         }
     }
+}
+
+fn is_invocation_id(id: &str) -> bool {
+    id.len() == 32
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+fn is_service_unit(unit: &str) -> bool {
+    unit.len() <= 256
+        && unit.ends_with(".service")
+        && unit.len() > ".service".len()
+        && !unit.contains('/')
+        && !unit.chars().any(char::is_control)
 }
 
 /// POST /v1/worker/lost-attempts (swarm phase 1, D2 ruling C). A restarted node asks the

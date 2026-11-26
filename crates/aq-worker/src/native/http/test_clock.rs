@@ -18,12 +18,13 @@ pub(super) fn now() -> Option<u64> {
     clocks().lock().unwrap().get(&runtime).copied()
 }
 
-pub(crate) struct TestClock {
+pub struct TestClock {
     runtime: Id,
 }
 
 impl TestClock {
-    pub(crate) fn new() -> Self {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         let runtime = Handle::current().id();
         assert!(now().is_none(), "test clock already installed");
         // Keep historical boot namespaces valid by starting from the kernel.
@@ -32,7 +33,7 @@ impl TestClock {
         Self { runtime }
     }
 
-    pub(crate) fn advance_to(&self, target: u64) {
+    pub fn advance_to(&self, target: u64) {
         let mut clocks = clocks().lock().unwrap();
         let now = clocks.get_mut(&self.runtime).unwrap();
         assert!(target >= *now, "test boot clock cannot move backwards");
@@ -47,14 +48,11 @@ impl Drop for TestClock {
 }
 
 /// Cross an existing cap, or wait for the real kernel cap in unmodified tests.
+#[cfg(test)]
 pub(crate) async fn expire(deadline: u64) {
-    let runtime = Handle::current().id();
-    {
-        let mut clocks = clocks().lock().unwrap();
-        if let Some(now) = clocks.get_mut(&runtime) {
-            *now = (*now).max(deadline.checked_add(1).unwrap());
-            return;
-        }
+    if let Some(now) = clocks().lock().unwrap().get_mut(&Handle::current().id()) {
+        *now = (*now).max(deadline.checked_add(1).unwrap());
+        return;
     }
     while super::boot_ns().unwrap() <= deadline {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

@@ -6,9 +6,13 @@ macro_rules! input_entries {
     };
     (@one $name:ident, $kind:ident, $prep:ty, $context:ident, ($($arg:ident: $ty:ty),*), $out:ty) => {
         pub async fn $name(&self, id: Uuid, preparation: Arc<$prep>, $($arg: $ty),*) -> Result<$out> {
-            self.$context(id, InputContext::$kind(preparation), $($arg),*).await
+            self.$context(InputAttempt { id, preparation: InputContext::$kind(preparation) }, $($arg),*).await
         }
     };
+}
+struct InputAttempt {
+    id: Uuid,
+    preparation: InputContext,
 }
 type Phase = super::http::preparation_v2::AcceptedPreparation;
 type Refresh = super::http::preparation_refresh_v1::AcceptedPreparation;
@@ -77,6 +81,17 @@ impl InputPipeline {
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
+        self.reserve_with_workspaces(offer, runtime, deadline_ns, disk_bytes, false)
+            .await
+    }
+    pub(crate) async fn reserve_with_workspaces(
+        &self,
+        offer: impl Into<aq_worker_protocol::git_author::AttemptOffer>,
+        runtime: super::journal::RuntimeIdentity,
+        deadline_ns: u64,
+        disk_bytes: u64,
+        workspace_required: bool,
+    ) -> Result<Uuid> {
         let offer = offer.into();
         let retained = self.retained.clone();
         let launch = self.launch.clone();
@@ -84,8 +99,16 @@ impl InputPipeline {
             let mut retained = retained
                 .lock()
                 .map_err(|_| anyhow::anyhow!("retained reservation owner poisoned"))?;
-            let id =
-                retained.reserve(&mut owner.journal, offer, runtime, deadline_ns, disk_bytes)?;
+            let id = offer.offer.offered.offer.binding.attempt_id;
+            retained.reserve(id, || {
+                owner.journal.reserve_with_workspaces(
+                    offer,
+                    runtime,
+                    deadline_ns,
+                    disk_bytes,
+                    workspace_required,
+                )
+            })?;
             // A registry refusal preserves the durable reservation and all
             // resource claims; it never permits a launch or frees capacity.
             launch.admit(id)?;
@@ -208,8 +231,7 @@ impl InputPipeline {
     } }
     async fn artifacts_context(
         &self,
-        id: Uuid,
-        preparation: InputContext,
+        InputAttempt { id, preparation }: InputAttempt,
     ) -> Result<Vec<VerifiedArtifact>> {
         let _bulk = self
             .bulk_slots
@@ -265,8 +287,7 @@ impl InputPipeline {
     } }
     async fn artifact_context(
         &self,
-        id: Uuid,
-        preparation: InputContext,
+        InputAttempt { id, preparation }: InputAttempt,
         reference: ArtifactRef,
     ) -> Result<VerifiedArtifact> {
         let _bulk = self
@@ -309,8 +330,7 @@ impl InputPipeline {
     } }
     async fn material_context(
         &self,
-        id: Uuid,
-        preparation: InputContext,
+        InputAttempt { id, preparation }: InputAttempt,
         lease_id: Uuid,
     ) -> Result<MaterialReceipt> {
         let _bulk = self

@@ -13,12 +13,13 @@ libc.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 
 axum = { workspace = true, optional = true }
 futures-util = { version = "0.3", optional = true }
-tempfile = { workspace = true, optional = true }
+tempfile.workspace = true
 
 [dev-dependencies]
 axum.workspace = true
@@ -27,4 +28,8 @@ tempfile.workspace = true
 
 [features]
 # The git HTTP double, for callers' tests.
-test-support = ["dep:axum", "dep:futures-util", "dep:tempfile"]
+test-support = ["dep:axum", "dep:futures-util"]
+# Fetches for aq-server spec 0017 environment jobs (aq-worker `project_environments`).
+environment-job = []
+# The `aq environment try` checkpoint (aq-server spec 0017 §6.2; aq-worker `project_environments`).
+environment-try = []

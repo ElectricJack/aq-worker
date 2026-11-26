@@ -3,14 +3,15 @@ use super::codex::ExecutorConfig;
 use super::*;
 use crate::backend::{
     SandboxIdentity, SandboxState,
-    docker_local::{
-        DockerLocalBackend,
-        tar::{self, TreeEntry},
-    },
+    docker_local::{DockerLocalBackend, tar::TreeEntry},
 };
 use crate::native::journal::{Attempt, RecoveryHold};
 use crate::sandbox_driver as driver;
-use aq_admission::result_record;
+use aq_admission::{
+    control::{CurrentPhase, FailureCode, ReconcileEntry},
+    result_record,
+    transport::{JournalEvidence, Reconcile, ReconcileAttempt},
+};
 use aq_agent_result_local as local;
 use aq_handoff_note::{preserved_claim_bytes as preserved, salvage_note};
 use profile::TerminalProfile;
@@ -29,24 +30,12 @@ pub enum ReconcileDisposition {
     NeverExecuted,
 }
 
-enum Receipt {
-    Started(aq_phase_terminal_protocol::StartedReceipt),
-    Stopped(aq_phase_terminal_protocol::StoppedReceipt),
-    RefreshStarted(aq_phase_terminal_protocol::refresh_v1::StartedReceipt),
-    RefreshStopped(aq_phase_terminal_protocol::refresh_v1::StoppedReceipt),
-    Result(aq_session_protocol::Digest, result_record::Receipt),
-}
-impl Receipt {
-    fn retain(self, journal: &mut Journal, id: Uuid) -> Result<()> {
-        match self {
-            Self::Started(r) => journal.phase_started_receipt(id, r),
-            Self::Stopped(r) => journal.phase_stopped_receipt(id, r),
-            Self::RefreshStarted(r) => journal.refresh_started_receipt(id, r),
-            Self::RefreshStopped(r) => journal.refresh_stopped_receipt(id, r),
-            Self::Result(digest, r) => journal.retain_result_receipt(id, &digest, r),
-        }
-    }
-}
+mod closure;
+use closure::closure_request;
+mod replay;
+#[cfg(test)]
+use replay::Receipt;
+use replay::replay;
 
 /// The state-dir lock, so a running node never shares the scope with recovery.
 pub fn lock_recovery_scope(config: &NativeConfig) -> Result<std::fs::File> {
@@ -107,8 +96,20 @@ pub async fn reconcile_native(
     )?;
     // R4: boxed, as are the inner futures below: an Attempt is about 35 KiB.
     let mut attempt = attempt_of(&journal, attempt_id)?;
-    if let Some(disposition) = pre_launch(&attempt) {
-        return disposition;
+    match pre_launch(&attempt) {
+        Some(PreLaunch::NeverExecuted) => return Ok(ReconcileDisposition::NeverExecuted),
+        Some(PreLaunch::PrepareUnconfirmed) => {
+            let client = NativeClient::from_config(worker)?;
+            return Box::pin(reconcile_prepared(&client, journal.state(), &attempt)).await;
+        }
+        Some(PreLaunch::Granted) => {
+            return Err(RecoveryHold(
+                "launch_closure_pending",
+                anyhow::anyhow!("execution granted, no launch recorded"),
+            )
+            .into());
+        }
+        None => {}
     }
     // B5b/AQ-08: a granted Frozen-phase launch with no Running history never
     // started. Stop any host it configured, durably close it, and report the
@@ -117,8 +118,7 @@ pub async fn reconcile_native(
         return Box::pin(close_unstarted(
             worker,
             config,
-            &held,
-            &mut journal,
+            (&held, &mut journal),
             attempt_id,
         ))
         .await;
@@ -126,9 +126,8 @@ pub async fn reconcile_native(
     // MS1 restart drill: a node that died while its host ran left no stop in
     // the journal. Recover the host owner from its sealed intent, request a
     // stop, and retain the actual kernel stopped proof. Never relaunch.
-    if let Some(h) = attempt.native_host.as_ref()
-        && h.stopped.is_none()
-        && let Some(intent) = h.host_intent.as_ref()
+    if let Some(h) = attempt.native_host.as_ref().filter(|h| h.stopped.is_none())
+        && let Some(intent) = &h.host_intent
     {
         let last = h.running.as_ref().map(|r| &r.observation);
         let proof = aq_session_host::recover_stopped(&h.intent.host_root, intent, last)?;
@@ -196,21 +195,66 @@ pub async fn salvage_interrupted(
         crate::native::launch::claude_driver_dir(&host.intent.host_root, host.intent.launch_id);
     let reason = driver::read_handoff_marker(&dir.join(driver::HANDOFF_MARKER));
     let reason = reason.unwrap_or(aq_protocol::HandoffReason::Restart);
-    // A retained claim was submitted by the driver after its copy-back: keep it.
-    let claim = if h.claim.is_some() {
+    // A normal driver claim already follows copy-back. Older preserved or
+    // salvaged claims may have been journaled after an unverified import.
+    let needs_staging_evidence = h.salvaged.is_some()
+        || h.claim
+            .as_ref()
+            .is_some_and(|claim| preserved(&claim.bytes));
+    let claim = if h.claim.is_some() && !needs_staging_evidence {
         None
     } else {
         let mut backend =
             DockerLocalBackend::connect_unix(settings.host.docker_local.clone()).await?;
         let sandboxes = stopped_sandboxes(&mut backend, worker.node_id, attempt).await?;
+        let container_id = match sandboxes.as_slice() {
+            [sandbox] => backend.container_id(sandbox).await?,
+            _ => None,
+        };
+        if h.claim.is_some()
+            && let Err(reason) = driver::staging::recoverable(
+                &h.scope.workspace.path,
+                &sandboxes,
+                container_id.as_deref(),
+            )
+        {
+            return Ok(SalvageDisposition::Unsalvageable(reason));
+        }
         let max = settings.host.max_workspace_bytes;
-        let bound = usize::try_from(max)?.saturating_mul(2);
-        let archive =
-            async |s: &SandboxIdentity| Ok(backend.get_archive(s, "/aq/work", bound).await?);
+        let backend = &backend;
+        let archive = async |s: &SandboxIdentity| {
+            let entries = backend.stopped_work_tree(s, max).await?;
+            let siblings = driver::projects::returned_trees(
+                &h.scope.workspace.path,
+                driver::projects::after_tree(max, &entries)?,
+                |project, limit| async move {
+                    Ok(backend.stopped_project_tree(s, project, limit).await?)
+                },
+            )
+            .await?;
+            driver::projects::refuse_credentials(&entries, &siblings)?;
+            ensure!(
+                container_id.is_some() && backend.container_id(s).await? == container_id,
+                "sandbox container changed during salvage"
+            );
+            driver::projects::apply(&siblings)?;
+            Ok(entries)
+        };
         let proof = host.stopped.as_ref().map(|s| &s.observation.stop_reason);
-        match Box::pin(salvage_claim(&h, (reason, proof), &sandboxes, max, archive)).await? {
-            Ok(claim) => Some(claim),
-            Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
+        if h.claim.is_some() {
+            None
+        } else {
+            match Box::pin(salvage_claim(
+                &h,
+                (reason, proof),
+                (&sandboxes, container_id.as_deref()),
+                archive,
+            ))
+            .await?
+            {
+                Ok(claim) => Some(claim),
+                Err(why) => return Ok(SalvageDisposition::Unsalvageable(why)),
+            }
         }
     };
     let git = config.git_client(worker)?;
@@ -250,29 +294,27 @@ async fn stopped_sandboxes(
 async fn salvage_claim(
     h: &crate::native::result::history::ResultHistory,
     (reason, proof): (aq_protocol::HandoffReason, Option<&Option<String>>),
-    sandboxes: &[SandboxIdentity],
-    max_workspace_bytes: u64,
-    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<u8>>,
+    (sandboxes, container_id): (&[SandboxIdentity], Option<&str>),
+    archive: impl AsyncFnOnce(&SandboxIdentity) -> Result<Vec<TreeEntry>>,
 ) -> Result<Result<local::Submission, &'static str>> {
-    let [sandbox] = sandboxes else {
-        return Ok(Err(if sandboxes.is_empty() {
-            "sandbox_absent"
-        } else {
-            "sandbox_ambiguous"
-        }));
+    let (sandbox, phase) =
+        match driver::staging::recoverable(&h.scope.workspace.path, sandboxes, container_id) {
+            Ok(proven) => proven,
+            Err(reason) => return Ok(Err(reason)),
+        };
+    let changed = match phase {
+        driver::staging::Phase::PrepareFailed => Vec::new(),
+        driver::staging::Phase::Started => {
+            let entries = archive(sandbox).await?;
+            if aq_sandbox_archive::workspace::credential_shaped(&entries) {
+                return Ok(Err("credential_in_workspace"));
+            }
+            driver::sync_tree(&h.scope.workspace.path, &entries)?
+        }
     };
-    let entries = tar::read_tree(&archive(sandbox).await?, max_workspace_bytes)?;
-    let secret = |b: &[u8]| {
-        aq_agent_channel::holds_agent_credential(b) || aq_agent_channel::holds_claude_token_shape(b)
-    };
-    if entries.iter().any(|e| {
-        secret(e.path().as_bytes())
-            || matches!(e, TreeEntry::File { data, .. } if secret(data))
-            || matches!(e, TreeEntry::Symlink { target, .. } if secret(target.as_bytes()))
-    }) {
-        return Ok(Err("credential_in_workspace"));
+    if let Ok(Some(original)) = crate::native::result::retained_submission(&h.scope) {
+        return Ok(Ok(original));
     }
-    let changed = driver::sync_tree(&h.scope.workspace.path, &entries)?;
     let conclusion = local::Conclusion::new(salvage_note(reason, &changed, proof))?;
     let input = local::SubmissionInput {
         schema_version: 1,
@@ -300,30 +342,88 @@ fn attempt_of(journal: &Journal, id: Uuid) -> Result<Box<Attempt>> {
         a.context("native recovery attempt absent")?.clone(),
     ))
 }
-/// R1: the disposition of an attempt with no host history (it never launched), or None.
-fn pre_launch(a: &Attempt) -> Option<Result<ReconcileDisposition>> {
-    let hold = |r, why: &'static str| Some(Err(RecoveryHold(r, anyhow::anyhow!(why)).into()));
+#[derive(Debug, PartialEq, Eq)]
+enum PreLaunch {
+    NeverExecuted,
+    PrepareUnconfirmed,
+    Granted,
+}
+
+/// Disposition of an attempt with no host or result history.
+fn pre_launch(a: &Attempt) -> Option<PreLaunch> {
     if a.native_host.is_some() || a.result.is_some() {
         return None;
     }
     let granted = a.initial_grant.is_some() || a.phase_execution.is_some();
     let prepared = a.prepared.is_some() || a.phase_prepared.is_some();
-    match (
-        granted || a.refresh_execution.is_some(),
-        prepared || a.refresh_prepared.is_some(),
-    ) {
-        // Failed in preparation before Prepare: the server's pre-grant expiry closes its claim.
-        (false, false) => Some(Ok(ReconcileDisposition::NeverExecuted)),
-        // Prepare was journaled (then sent) but no grant is: the reply may be lost, and the
-        // server's pre-grant expiry never closes a granted claim. Recovery cannot record a
-        // replayed grant (its journal is not live). follow-up: replay the journaled Prepare to
-        // learn its disposition, then close or settle the grant.
-        (false, true) => hold("prepare_disposition_unknown", "Prepare journaled, no grant"),
-        // Nothing launched: the service archives it and frees the slot. follow-up: its closure.
-        (true, _) => hold(
-            "launch_closure_pending",
-            "execution granted, no launch recorded",
-        ),
+    Some(
+        match (
+            granted || a.refresh_execution.is_some(),
+            prepared || a.refresh_prepared.is_some(),
+        ) {
+            (false, false) => PreLaunch::NeverExecuted,
+            (false, true) => PreLaunch::PrepareUnconfirmed,
+            (true, _) => PreLaunch::Granted,
+        },
+    )
+}
+
+async fn reconcile_prepared(
+    client: &NativeClient,
+    state: &crate::native::journal::State,
+    attempt: &Attempt,
+) -> Result<ReconcileDisposition> {
+    let reservation = &attempt.reservation;
+    let request = Reconcile {
+        schema_version: 1,
+        operation_id: Uuid::new_v4(),
+        identity: state.identity.clone(),
+        after_attempt: None,
+        limit: 1,
+        attempts: vec![ReconcileAttempt {
+            binding: reservation.offer.offered.offer.binding.clone(),
+            guardian_id: reservation.guardian_id,
+            launch_id: reservation.launch_id,
+            last_grant_id: None,
+            journal: JournalEvidence::Recorded {
+                revision: state.revision,
+                digest: crate::native::journal::canonical_digest(state)?,
+            },
+        }],
+    };
+    let page = client.reconcile(&request).await?;
+    match page.attempts.as_slice() {
+        [ReconcileEntry::Current { authority }] => match &authority.phase {
+            CurrentPhase::NeverGranted { closure } => {
+                ensure!(closure.version.as_str() == "1"
+                    && closure.id.as_str().strip_prefix("aq.never-granted/")
+                        .is_some_and(|id| Uuid::parse_str(id).is_ok()),
+                    "invalid never-granted closure identity");
+                tracing::info!(attempt = %authority.binding.attempt_id, closure = %closure.id.as_str(),
+                    "closed preparation confirmed by server; ready to archive the slot");
+                Ok(ReconcileDisposition::NeverExecuted)
+            }
+            CurrentPhase::Released { release }
+                if authority.versions.grant_revision > 0
+                    && release.version.as_str() == "1"
+                    && release.id.as_str() == format!("aq.granted-never-started/{}", reservation.offer.offered.offer.binding.attempt_id) =>
+            {
+                tracing::info!(attempt = %authority.binding.attempt_id, receipt = %release.id.as_str(),
+                    "server settled the undelivered launch grant; ready to archive the slot");
+                Ok(ReconcileDisposition::NeverExecuted)
+            }
+            CurrentPhase::Released { .. } | CurrentPhase::Stopped { .. }
+            | CurrentPhase::Granted { started_operation_id: Some(_), .. } => Err(RecoveryHold(
+                "prepare_history_conflict",
+                anyhow::anyhow!("server history cannot establish that the launch missing from this journal never started"),
+            ).into()),
+            _ => anyhow::bail!("waiting for AQ to settle this preparation or its undelivered grant"),
+        },
+        [ReconcileEntry::Refused { code: FailureCode::UnknownOrNotOwned, .. }] => Err(RecoveryHold(
+            "prepare_reconciliation_scope_refused",
+            anyhow::anyhow!("the server could not identify this preparation in the worker's scope"),
+        ).into()),
+        _ => anyhow::bail!("waiting for AQ to settle this preparation or its undelivered grant"),
     }
 }
 /// A Frozen-phase launch whose host never recorded Running or a terminal.
@@ -337,123 +437,16 @@ fn unstarted(a: &Attempt) -> bool {
         })
 }
 
-/// Closure evidence for a launch that never started: a durable suppression when
-/// no host process was ever started, otherwise the host's own stopped proof.
-fn closure_request(
-    a: &Attempt,
-    revision: u64,
-    state: &crate::native::journal::State,
-    operation_id: Uuid,
-) -> Result<crate::native::journal::launch::ClosureRequest> {
-    use aq_admission::granted_closure::{
-        DriverIntent, Evidence, HostStoppedProof, JournalCheckpoint, Request, SuppressionRecord,
-    };
-    let h = a.native_host.as_ref().context("closure host absent")?;
-    let i = &h.intent;
-    let execution = a.phase_scope()?;
-    let previous = JournalCheckpoint {
-        revision: state.revision,
-        digest: crate::native::journal::canonical_digest(state)?,
-    };
-    let evidence = match (&h.guardian, &h.stopped) {
-        (None, _) if !h.start_intended => {
-            let record = SuppressionRecord {
-                schema_version: 1,
-                operation_id,
-                suppression_id: Uuid::new_v4(),
-                binding: i.binding.clone(),
-                grant_id: i.grant_id,
-                guardian_id: i.logical_guardian_id,
-                launch_id: i.launch_id,
-                reservation_id: i.reservation_id,
-                original_kernel_boot_id: execution.kernel_boot_id,
-                recording_kernel_boot_id: state.kernel_boot_id,
-                previous: previous.clone(),
-                terminal_revision: revision,
-            };
-            let record_digest = record.digest()?;
-            Evidence::Suppressed {
-                record,
-                record_digest,
-            }
-        }
-        (Some(_), Some(stopped)) => {
-            let proof = HostStoppedProof {
-                observation: serde_json::from_value(serde_json::to_value(&stopped.observation)?)?,
-            };
-            let host = h
-                .host_intent
-                .as_ref()
-                .context("closure host intent absent")?;
-            Evidence::HostStopped {
-                driver_intent: Box::new(DriverIntent {
-                    binding: i.binding.clone(),
-                    grant_id: i.grant_id,
-                    guardian_id: i.logical_guardian_id,
-                    reservation_id: i.reservation_id,
-                    host: serde_json::from_value(serde_json::to_value(host)?)?,
-                    journal: previous.clone(),
-                }),
-                proof_digest: proof.digest()?,
-                proof,
-            }
-        }
-        _ => anyhow::bail!("unstarted launch has no closure evidence (host not stopped)"),
-    };
-    let original = Request {
-        schema_version: 1,
-        operation_id,
-        binding: i.binding.clone(),
-        grant_id: i.grant_id,
-        guardian_id: i.logical_guardian_id,
-        launch_id: i.launch_id,
-        reservation_id: i.reservation_id,
-        runtime: i.runtime.runtime.clone(),
-        qualification: i.runtime.qualification.clone(),
-        journal: JournalCheckpoint {
-            revision,
-            digest: previous.digest,
-        },
-        evidence,
-    };
-    use crate::native::journal::launch::ClosureRequest;
-    if a.refresh_acceptance.is_some() {
-        use aq_phase_terminal_protocol::refresh_v1 as wire;
-        return crate::native::journal::refresh_terminal::with_context(a, |c| {
-            let request = wire::ClosureRequest {
-                schema_version: 1,
-                negotiation: wire::Negotiation::current()?,
-                origin: wire::Origin::for_context(c)?,
-                original,
-            };
-            request.validate_for(c)?;
-            Ok(ClosureRequest::Refresh(request))
-        });
-    }
-    crate::native::journal::phase_terminal::with_context(a, |c| {
-        let request = aq_phase_terminal_protocol::ClosureRequest {
-            schema_version: 1,
-            negotiation: aq_phase_terminal_protocol::Negotiation::current()?,
-            origin: aq_phase_terminal_protocol::Origin::for_context(c)?,
-            original,
-        };
-        request.validate_for(c)?;
-        Ok(ClosureRequest::Frozen(request))
-    })
-}
-
 async fn close_unstarted(
     worker: &WorkerConfig,
     config: &NativeConfig,
-    held: &std::fs::File,
-    journal: &mut Journal,
+    (held, journal): (&std::fs::File, &mut Journal),
     attempt_id: Uuid,
 ) -> Result<ReconcileDisposition> {
     let attempt = attempt_of(journal, attempt_id)?;
     let h = attempt.native_host.as_ref().unwrap();
-    if h.closure.is_none()
-        && h.stopped.is_none()
-        && let (Some(_), Some(intent)) = (&h.guardian, &h.host_intent)
+    if let (None, None, Some(_), Some(intent)) =
+        (&h.closure, &h.stopped, &h.guardian, &h.host_intent)
     {
         // A guardian was started: stop it and retain its actual kernel proof.
         let proof = aq_session_host::recover_stopped(&h.intent.host_root, intent, None)?;
@@ -487,90 +480,6 @@ async fn close_unstarted(
     journal.native_closure_receipt(attempt_id, receipt)?;
     tracing::warn!(%attempt_id, "granted launch closed before Started; awaiting server settlement");
     Ok(ReconcileDisposition::LaunchClosed)
-}
-
-async fn replay(
-    client: &NativeClient,
-    attempt: &Attempt,
-    mut retain: impl FnMut(Receipt) -> Result<()>,
-) -> Result<ReconcileDisposition> {
-    // A missing or mixed history cannot change on retry: the service holds the slot (R1).
-    let profile = TerminalProfile::for_attempt(attempt);
-    let profile = profile.map_err(|e| RecoveryHold("journal_inconsistent", e))?;
-    let host = attempt.native_host.as_ref().unwrap();
-    ensure!(
-        host.stopped.is_some(),
-        "native recovery requires retained physical stop"
-    );
-    match profile {
-        TerminalProfile::Frozen => {
-            let terminal = host.terminal.as_ref().unwrap();
-            let stopped = terminal
-                .stopped
-                .as_ref()
-                .context("native Stopped outbox absent")?;
-            if terminal.started.receipt.is_none() {
-                retain(Receipt::Started(
-                    client
-                        .phase_terminal_started(&terminal.started.request)
-                        .await?,
-                ))?;
-            }
-            if stopped.receipt.is_none() {
-                retain(Receipt::Stopped(
-                    client.phase_terminal_stopped(&stopped.request).await?,
-                ))?;
-            }
-        }
-        TerminalProfile::Refresh => {
-            let terminal = host.refresh_terminal.as_ref().unwrap();
-            let stopped = terminal
-                .stopped
-                .as_ref()
-                .context("native Stopped outbox absent")?;
-            if terminal.started.receipt.is_none() {
-                retain(Receipt::RefreshStarted(
-                    client
-                        .refresh_terminal_started(&terminal.started.request)
-                        .await?,
-                ))?;
-            }
-            if stopped.receipt.is_none() {
-                retain(Receipt::RefreshStopped(
-                    client.refresh_terminal_stopped(&stopped.request).await?,
-                ))?;
-            }
-        }
-    }
-    let Some(history) = &attempt.result else {
-        return Ok(ReconcileDisposition::StopReported);
-    };
-    history.validate()?;
-    if history.receipt.is_some() {
-        return Ok(ReconcileDisposition::ResultRecorded);
-    }
-    let Some(intent) = &history.report else {
-        // A missing claim/source receipt cannot be invented from historical data.
-        return Ok(ReconcileDisposition::StopReported);
-    };
-    ensure!(
-        intent.bytes == serde_json::to_vec(&intent.request)?,
-        "result request bytes changed"
-    );
-    let receipt = client
-        .report(
-            &intent.request,
-            &history.scope.binding.expected_outcome,
-            &history
-                .stop
-                .as_ref()
-                .context("result actual stop absent")?
-                .stopped_receipt,
-            history.source.pushed_headers(),
-        )
-        .await?;
-    retain(Receipt::Result(intent.digest.clone(), receipt))?;
-    Ok(ReconcileDisposition::ResultRecorded)
 }
 
 #[cfg(test)]

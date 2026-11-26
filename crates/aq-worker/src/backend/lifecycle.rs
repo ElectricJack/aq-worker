@@ -45,6 +45,40 @@ impl LifecycleRecord {
             && !sandbox.backend_id.is_empty()
             && self.phase.sandbox().is_none_or(|known| known == sandbox)
     }
+    fn confirmed<'a>(
+        &self,
+        result: &'a Confirmation<StoppedWriterProof>,
+        kind: WriterProofKind,
+    ) -> Result<&'a StoppedWriterProof, BackendError> {
+        match result {
+            Confirmation::Confirmed(proof)
+                if proof.kind() == kind && self.matches(proof.sandbox()) =>
+            {
+                Ok(proof)
+            }
+            _ => Err(BackendError::InvalidState),
+        }
+    }
+    fn inventory_conflict(&self, entry: &InventoryEntry) -> Option<ReconcileAction> {
+        if self.request.owner.node_id != entry.sandbox.owner.node_id {
+            return Some(ReconcileAction::IgnoreForeign);
+        }
+        let destroyed = matches!(self.phase, LifecyclePhase::Destroyed { .. });
+        if destroyed && entry.state != SandboxState::Destroyed {
+            return Some(ReconcileAction::Hold);
+        }
+        let attributes = (
+            &self.request.name,
+            &self.request.template_digest,
+            self.request.hard_deadline_ms,
+        );
+        let observed = (&entry.name, &entry.template_digest, entry.hard_deadline_ms);
+        let valid = self.request.validate().is_ok() && self.matches(&entry.sandbox);
+        if !valid || attributes != observed {
+            return Some(ReconcileAction::Hold);
+        }
+        None
+    }
     pub fn record_created(&mut self, sandbox: SandboxIdentity) -> Result<(), BackendError> {
         self.request.validate()?;
         if !self.matches(&sandbox)
@@ -63,26 +97,18 @@ impl LifecycleRecord {
         result: &Confirmation<StoppedWriterProof>,
         archived: bool,
     ) -> Result<(), BackendError> {
-        let Confirmation::Confirmed(proof) = result else {
-            return Err(BackendError::InvalidState);
-        };
-        if !self.matches(proof.sandbox())
-            || proof.kind() != WriterProofKind::StoppedNoProcesses
-            || matches!(
-                self.phase,
-                LifecyclePhase::Intent | LifecyclePhase::Destroyed { .. }
-            )
-        {
+        let proof = self.confirmed(result, WriterProofKind::StoppedNoProcesses)?;
+        if matches!(
+            self.phase,
+            LifecyclePhase::Intent | LifecyclePhase::Destroyed { .. }
+        ) {
             return Err(BackendError::InvalidState);
         }
+        let proof = proof.clone();
         self.phase = if archived {
-            LifecyclePhase::Archived {
-                proof: proof.clone(),
-            }
+            LifecyclePhase::Archived { proof }
         } else {
-            LifecyclePhase::Stopped {
-                proof: proof.clone(),
-            }
+            LifecyclePhase::Stopped { proof }
         };
         Ok(())
     }
@@ -107,17 +133,12 @@ impl LifecycleRecord {
         result: &Confirmation<StoppedWriterProof>,
         authorization: &DestroyAuthorization,
     ) -> Result<(), BackendError> {
-        let Confirmation::Confirmed(proof) = result else {
-            return Err(BackendError::InvalidState);
-        };
-        if !self.matches(proof.sandbox())
-            || proof.kind() != WriterProofKind::Destroyed
-            || !authorization.authorizes(proof.sandbox())
-            || !matches!(
-                self.phase,
-                LifecyclePhase::Preserved { .. } | LifecyclePhase::Destroyed { .. }
-            )
-        {
+        let proof = self.confirmed(result, WriterProofKind::Destroyed)?;
+        let preserved = matches!(
+            self.phase,
+            LifecyclePhase::Preserved { .. } | LifecyclePhase::Destroyed { .. }
+        );
+        if !preserved || !authorization.authorizes(proof.sandbox()) {
             return Err(BackendError::InvalidState);
         }
         self.phase = LifecyclePhase::Destroyed {
@@ -178,58 +199,37 @@ pub fn reconcile(
         return ReconcileAction::Hold;
     };
     let sandbox = &entry.sandbox;
-    if let Some(journal) = journal {
-        if journal.request.owner.node_id != sandbox.owner.node_id {
-            return ReconcileAction::IgnoreForeign;
-        }
-        // A terminal journal cannot be reconciled into a live mapping. Treat
-        // stale inventory or backend ID reuse as contradictory evidence.
-        if matches!(journal.phase, LifecyclePhase::Destroyed { .. })
-            && entry.state != SandboxState::Destroyed
-        {
-            return ReconcileAction::Hold;
-        }
-        if journal.request.validate().is_err()
-            || !journal.matches(sandbox)
-            || journal.request.name != entry.name
-            || journal.request.template_digest != entry.template_digest
-            || journal.request.hard_deadline_ms != entry.hard_deadline_ms
-        {
-            return ReconcileAction::Hold;
-        }
+    if let Some(action) = journal.and_then(|j| j.inventory_conflict(entry)) {
+        return action;
     }
-    let proof = entry.writer_proof();
-    if matches!(proof, Confirmation::Confirmed(ref proof) if proof.kind() == WriterProofKind::Destroyed)
-    {
-        // Already gone. The controller may record that evidence, but this is not
-        // a request to destroy again or proof that retention ever succeeded.
-        return ReconcileAction::Hold;
+    let active_journal = deadline == Deadline::Active && journal.is_some();
+    match entry.writer_proof() {
+        // A terminal observation is evidence of past destruction, never authority to destroy again.
+        Confirmation::Confirmed(proof) if proof.kind() == WriterProofKind::Destroyed => {
+            ReconcileAction::Hold
+        }
+        Confirmation::Confirmed(_) if active_journal => retained_action(sandbox, retention),
+        Confirmation::Confirmed(_) => ReconcileAction::Preserve(sandbox.clone()),
+        Confirmation::Unconfirmed(_) if active_journal => live_action(entry),
+        Confirmation::Unconfirmed(_) => ReconcileAction::Stop(sandbox.clone()),
     }
-    if deadline != Deadline::Active {
-        return if proof.is_confirmed() {
-            ReconcileAction::Preserve(sandbox.clone())
-        } else {
-            ReconcileAction::Stop(sandbox.clone())
-        };
-    }
-    if proof.is_confirmed() {
-        if journal.is_some()
-            && let RetentionState::Authorized(authorization) = retention
-            && authorization.authorizes(sandbox)
-        {
-            return ReconcileAction::Destroy {
+}
+fn retained_action(sandbox: &SandboxIdentity, retention: &RetentionState) -> ReconcileAction {
+    match retention {
+        RetentionState::Authorized(authorization) if authorization.authorizes(sandbox) => {
+            ReconcileAction::Destroy {
                 sandbox: sandbox.clone(),
                 authorization: authorization.clone(),
-            };
+            }
         }
-        return ReconcileAction::Preserve(sandbox.clone());
+        _ => ReconcileAction::Preserve(sandbox.clone()),
     }
-    if journal.is_none() || entry.state == SandboxState::Unknown {
-        ReconcileAction::Stop(sandbox.clone())
-    } else if matches!(entry.state, SandboxState::Created | SandboxState::Running) {
-        ReconcileAction::Adopt(sandbox.clone())
-    } else {
-        // A stopped label with unknown/nonzero writers still needs a real stop.
-        ReconcileAction::Stop(sandbox.clone())
+}
+fn live_action(entry: &InventoryEntry) -> ReconcileAction {
+    match entry.state {
+        SandboxState::Created | SandboxState::Running => {
+            ReconcileAction::Adopt(entry.sandbox.clone())
+        }
+        _ => ReconcileAction::Stop(entry.sandbox.clone()),
     }
 }

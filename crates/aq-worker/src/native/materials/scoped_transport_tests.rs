@@ -11,12 +11,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-fn installed() -> (
-    tempfile::TempDir,
-    InstalledMaterial,
-    LaunchManifest,
-    LaunchBinding,
-) {
+fn fixture_offer() -> (LaunchManifest, LaunchBinding) {
     let startup: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../../../vendor/aq-admission-0.1.9/artifacts/startup.fixture.json"
     ))
@@ -31,6 +26,15 @@ fn installed() -> (
     offer.offered.offer.binding.launch_manifest_digest = canonical_digest(manifest).unwrap();
     let manifest = manifest.clone();
     let binding = offer.offered.offer.binding;
+    (manifest, binding)
+}
+fn installed() -> (
+    tempfile::TempDir,
+    InstalledMaterial,
+    LaunchManifest,
+    LaunchBinding,
+) {
+    let (manifest, binding) = fixture_offer();
     let control: serde_json::Value = serde_json::from_slice(include_bytes!(
         "../../../../../vendor/aq-admission-0.1.9/artifacts/control.fixture.json"
     ))
@@ -93,10 +97,8 @@ fn installed() -> (
         binding,
     )
 }
-#[tokio::test]
-async fn retained_transport_generates_fresh_cap_and_refuses_changed_original_before_forwarding() {
+async fn finite_peer() -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
     use axum::{Router, body::Bytes, http::HeaderMap, routing::post};
-    let (root, original, manifest, binding) = installed();
     let requests = Arc::new(AtomicUsize::new(0));
     let count = requests.clone();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -120,6 +122,12 @@ async fn retained_transport_generates_fresh_cap_and_refuses_changed_original_bef
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
+    (origin, requests, server)
+}
+#[tokio::test]
+async fn retained_transport_generates_fresh_cap_and_refuses_changed_original_before_forwarding() {
+    let (root, original, manifest, binding) = installed();
+    let (origin, requests, server) = finite_peer().await;
     let scope = || {
         ResponsesScope::new(
             binding.clone(),
@@ -128,22 +136,18 @@ async fn retained_transport_generates_fresh_cap_and_refuses_changed_original_bef
         )
         .unwrap()
     };
-    let first = ScopedResponsesTransport::start_retained(
-        scope(),
-        UpstreamEndpoint::development_loopback(&origin).unwrap(),
-        original.retained_copy().unwrap(),
-        &manifest,
-    )
-    .await
-    .unwrap();
-    let second = ScopedResponsesTransport::start_retained(
-        scope(),
-        UpstreamEndpoint::development_loopback(&origin).unwrap(),
-        original.retained_copy().unwrap(),
-        &manifest,
-    )
-    .await
-    .unwrap();
+    let start = || async {
+        ScopedResponsesTransport::start_retained(
+            scope(),
+            UpstreamEndpoint::development_loopback(&origin).unwrap(),
+            original.retained_copy().unwrap(),
+            &manifest,
+        )
+        .await
+        .unwrap()
+    };
+    let first = start().await;
+    let second = start().await;
     let cap = first.local_capability();
     assert_eq!(cap.len(), 77);
     assert_ne!(cap.as_slice(), b"synthetic-provider-key");

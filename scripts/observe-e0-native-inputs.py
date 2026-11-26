@@ -130,6 +130,23 @@ def image_observation(image):
             'scope': 'installed bytes and version only; source label is not build provenance; no runtime qualification'}
 
 
+def check_retention(seed, evidence, exchanges):
+    base = evidence['source_base']
+    retained = base['retention']
+    require(retained['id'] == base['retention_handle'] and retained['state'] == 'active'
+            and retained['repository_id'] == seed['repository_id']
+            and retained['binding_generation'] == evidence['repository']['binding_generation']
+            and any(r['oid'] == base['base']['hex'] for r in retained['refs']),
+            'retained source receipt mismatch')
+    check_retention_exchange(retained, exchanges)
+
+
+def check_retention_exchange(retained, exchanges):
+    inspected = [item for item in exchanges if item['request']['operation'] == 'retention.inspect']
+    require(len(inspected) == 1 and inspected[0]['response'].get('ok') is True
+            and inspected[0]['response']['result'] == retained, 'retention exchange mismatch')
+
+
 def e0_observation(root):
     evidence = load_json(read_file(root / 'seed-evidence.json'))
     seed = load_json(read_file(root / 'state/seed.json'))
@@ -139,15 +156,7 @@ def e0_observation(root):
         'base_branch': 'main', 'credential_ref': 'none', 'local_fixture': False,
         'url': 'https://github.com/ElectricJack/aq-scratch.git'}, 'owner designation mismatch')
     base = evidence['source_base']
-    retained = base['retention']
-    require(retained['id'] == base['retention_handle'] and retained['state'] == 'active'
-            and retained['repository_id'] == seed['repository_id']
-            and retained['binding_generation'] == evidence['repository']['binding_generation']
-            and any(r['oid'] == base['base']['hex'] for r in retained['refs']),
-            'retained source receipt mismatch')
-    inspected = [item for item in exchanges if item['request']['operation'] == 'retention.inspect']
-    require(len(inspected) == 1 and inspected[0]['response'].get('ok') is True
-            and inspected[0]['response']['result'] == retained, 'retention exchange mismatch')
+    check_retention(seed, evidence, exchanges)
     config = tomllib.loads(read_file(root / 'state/vault/config.toml').decode())
     catalog = load_json(read_file(root / 'source/scripts/dev-catalog.json'))
     # These hashes identify public saved receipts, never protocol ArtifactRefs.

@@ -2,6 +2,7 @@ use anyhow::Result;
 use aq_admission_sandbox::{
     control::DeliveryStamp,
     sandbox::{DelegatedPermit, RunnerRenewalRequest},
+    transport::DeliveryClock,
 };
 use aq_session_host::*;
 use aq_session_protocol::{LaunchManifest, canonical_digest};
@@ -71,6 +72,65 @@ pub fn now_ns() -> u64 {
     );
     t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
 }
+fn frozen_launch(dir: &Path, ttl_ms: u64) -> (FrozenLaunch, DelegatedPermit) {
+    let mut manifest: LaunchManifest = serde_json::from_slice(include_bytes!(
+        "../../../aq-session-host/tests/fixtures/manifest.json"
+    ))
+    .unwrap();
+    let vectors: serde_json::Value = serde_json::from_slice(include_bytes!(
+        "../../../../protocol/aq-admission/artifacts/sandbox-v1.fixtures.json"
+    ))
+    .unwrap();
+    let mut request: RunnerRenewalRequest = serde_json::from_value(
+        vectors
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["name"] == "phase_v2_renewal")
+            .unwrap()["case"]["request"]
+            .clone(),
+    )
+    .unwrap();
+    manifest.bindings.session = request.authority.grant.binding.session.clone();
+    manifest.bindings.assignment_generation = 2;
+    manifest.terminal.input_enabled = false;
+    manifest.resources.wall_time_ms = 20_000;
+    request.authority.grant.binding.graph_access_profile_digest =
+        manifest.bindings.graph_access_profile.digest.clone();
+    request.authority.grant.binding.launch_manifest_digest = canonical_digest(&manifest).unwrap();
+    request.authority.grant.expires_at_ms = 1000 + ttl_ms;
+    request.authority.hard_deadline_ms = 21_000;
+    request.permit.expires_at_ms = 1000 + ttl_ms;
+    request.permit.hard_deadline_ms = 21_000;
+    let now = now_ns();
+    let meta = fs::metadata(dir).unwrap();
+    let frozen = FrozenLaunch {
+        schema_version: 1,
+        launch_id: Uuid::new_v4(),
+        manifest,
+        authority: request.authority,
+        state_dir: dir.canonicalize().unwrap(),
+        state_device: meta.dev(),
+        state_inode: meta.ino(),
+        kernel_boot_id: fs::read_to_string("/proc/sys/kernel/random/boot_id")
+            .unwrap()
+            .trim()
+            .into(),
+        delivery: DeliveryStamp {
+            nonce: Uuid::new_v4(),
+            clock: DeliveryClock {
+                server_time_ms: 1000,
+                expires_at_ms: 1000 + ttl_ms,
+                valid_for_ms: ttl_ms,
+            },
+        },
+        sent_boot_ns: now,
+        received_boot_ns: now,
+        revision: 1,
+    };
+    (frozen, request.permit)
+}
+
 impl Fixture {
     pub fn new(hold: bool, ttl_ms: u64) -> Self {
         // Runner warnings (for example why a host launch failed) go to the
@@ -90,40 +150,8 @@ impl Fixture {
         .unwrap();
         let context = dir.path().join("context");
         fs::write(&context, b"fixture").unwrap();
-        let mut manifest: LaunchManifest = serde_json::from_slice(include_bytes!(
-            "../../../aq-session-host/tests/fixtures/manifest.json"
-        ))
-        .unwrap();
-        let vectors: serde_json::Value = serde_json::from_slice(include_bytes!(
-            "../../../../protocol/aq-admission/artifacts/sandbox-v1.fixtures.json"
-        ))
-        .unwrap();
-        let mut request: RunnerRenewalRequest = serde_json::from_value(
-            vectors
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|x| x["name"] == "phase_v2_renewal")
-                .unwrap()["case"]["request"]
-                .clone(),
-        )
-        .unwrap();
-        manifest.bindings.session = request.authority.grant.binding.session.clone();
-        manifest.bindings.assignment_generation = 2;
-        manifest.terminal.input_enabled = false;
-        manifest.resources.wall_time_ms = 20_000;
-        request.authority.grant.binding.graph_access_profile_digest =
-            manifest.bindings.graph_access_profile.digest.clone();
-        request.authority.grant.binding.launch_manifest_digest =
-            canonical_digest(&manifest).unwrap();
-        request.authority.grant.expires_at_ms = 1000 + ttl_ms;
-        request.authority.hard_deadline_ms = 21_000;
-        request.permit.expires_at_ms = 1000 + ttl_ms;
-        request.permit.hard_deadline_ms = 21_000;
-        let now = now_ns();
-        let meta = fs::metadata(dir.path()).unwrap();
-        let frozen = FrozenLaunch { schema_version: 1, launch_id: Uuid::new_v4(), manifest: manifest.clone(), authority: request.authority, state_dir: dir.path().canonicalize().unwrap(), state_device: meta.dev(), state_inode: meta.ino(), kernel_boot_id: fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap().trim().into(), delivery: serde_json::from_value::<DeliveryStamp>(serde_json::json!({"nonce":Uuid::new_v4(),"clock":{"server_time_ms":1000,"expires_at_ms":1000+ttl_ms,"valid_for_ms":ttl_ms}})).unwrap(), sent_boot_ns:now, received_boot_ns:now, revision:1 };
-        let reference = manifest.harness.adapter.clone();
+        let (frozen, permit) = frozen_launch(dir.path(), ttl_ms);
+        let reference = frozen.manifest.harness.adapter.clone();
         let local = LocalEnvironment {
             resource_policy: ResourcePolicy::CallerAdmission(reference.clone()),
             workspace,
@@ -147,7 +175,7 @@ impl Fixture {
         };
         let worker = WorkerConfig {
             server_url: "https://fixture.invalid".into(),
-            node_id: request.permit.binding.node.node_id,
+            node_id: permit.binding.node.node_id,
             credential: "fixture-worker-secret".into(),
             cf_client_id: None,
             cf_client_secret: None,
@@ -155,7 +183,7 @@ impl Fixture {
         Self {
             dir,
             frozen,
-            permit: request.permit,
+            permit,
             worker,
             local,
             adapter: Adapter {

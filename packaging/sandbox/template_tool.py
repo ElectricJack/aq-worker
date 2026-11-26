@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Non-secret template recipe validation and fixed build assembly."""
+import datetime
+import fcntl
 import hashlib
 import importlib.util
 import json
@@ -9,11 +11,34 @@ import re
 import shutil
 import subprocess
 import tempfile
-from urllib.parse import urlsplit
+from typing import NamedTuple
 
-_spec = importlib.util.spec_from_file_location('credential_scan', Path(__file__).with_name('credential_scan.py'))
-scan = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(scan)
+
+def load_sibling(name):
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + '.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+contract = load_sibling("template_contract")
+scan = contract.scan
+text = contract.text
+pinned = contract.pinned
+parent_image = contract.parent_image
+validate_recipe = contract.validate_recipe
+relative_allowlist = contract.relative_allowlist
+template_identity = contract.template_identity
+validate_config = contract.validate_config
+read_json = contract.read_json
+canonical = contract.canonical
+validate_entry = contract.validate_entry
+read_allowlist = contract.read_allowlist
+validate_job = contract.validate_job
+UUID = contract.UUID
+LIMIT_FIELDS = contract.LIMIT_FIELDS
+JOB_FIELDS = contract.JOB_FIELDS
+
 
 FINALIZE = ('getent passwd runner >/dev/null && getent passwd agent >/dev/null && '
             'command -v tmux >/dev/null && command -v bwrap >/dev/null && '
@@ -22,71 +47,6 @@ FINALIZE = ('getent passwd runner >/dev/null && getent passwd agent >/dev/null &
 # Only these three settings are overridden; other repository profile values stand.
 CARGO_ENV = ('ENV CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only '
              'CARGO_PROFILE_TEST_DEBUG=line-tables-only')
-
-
-def text(value, limit=128, pattern=None):
-    if (not isinstance(value, str) or not 1 <= len(value.encode()) <= limit
-            or any(ord(c) < 32 or ord(c) == 127 for c in value)
-            or scan.secret_shaped(value) or (pattern and not re.fullmatch(pattern, value))):
-        raise ValueError('invalid or secret-shaped field')
-    return value
-
-
-def pinned(value):
-    text(value, 512, r'[a-z0-9][a-z0-9./:_-]*@sha256:[0-9a-f]{64}')
-    return value
-
-
-def parent_image(recipe, config, entries=()):
-    if 'parent' not in recipe:
-        # A parsed project recipe has no parent: AQ supplies the base template.
-        if 'base_template' not in config:
-            raise ValueError('a project recipe needs a configured base_template')
-        return config['base_template']
-    parent = recipe['parent']
-    if parent == config['os_image']:
-        return parent
-    if config.get('universal_image') and parent in {'codex-universal', config['universal_image']}:
-        return config['universal_image']
-    for entry in entries:
-        if parent == entry['name'] + '@' + entry['version']:
-            return entry['image_reference']
-    raise ValueError('parent must be a pinned configured base or allowlisted toolchain')
-
-
-def validate_recipe(recipe, config, entries=()):
-    if not isinstance(recipe, dict) or set(recipe) - {'schema_version', 'name', 'version', 'parent', 'install_steps', 'prefetch'}:
-        raise ValueError('unknown recipe fields')
-    if recipe.get('schema_version') != 1:
-        raise ValueError('unsupported recipe schema')
-    text(recipe.get('name'), 64, r'[a-z][a-z0-9-]*')
-    text(recipe.get('version'), 64, r'[A-Za-z0-9_.+-]+')
-    text(recipe.get('parent'), 512)
-    parent_image(recipe, config, entries)
-    steps = recipe.get('install_steps')
-    if not isinstance(steps, list) or len(steps) > 64:
-        raise ValueError('invalid install steps')
-    for step in steps:
-        if not isinstance(step, list) or not 1 <= len(step) <= 32:
-            raise ValueError('install step must be an argv array')
-        for arg in step:
-            text(arg, 4096)
-        if step[0].startswith('-'):
-            raise ValueError('invalid install executable')
-    prefetch = recipe.get('prefetch', [])
-    if not isinstance(prefetch, list) or len(prefetch) > 16:
-        raise ValueError('invalid repository prefetch')
-    if prefetch and config.get('registry_visibility') != 'private':
-        raise ValueError('repository objects require a private target registry')
-    for item in prefetch:
-        if not isinstance(item, dict) or set(item) != {'repository', 'commit'}:
-            raise ValueError('invalid prefetch fields')
-        repo = text(item['repository'], 512)
-        url = urlsplit(repo)
-        if url.scheme != 'https' or not url.hostname or url.username or url.password or url.query or url.fragment:
-            raise ValueError('prefetch requires a non-secret HTTPS repository URL')
-        text(item['commit'], 40, r'[0-9a-f]{40}')
-    return recipe
 
 
 def dockerfile(recipe, base, config, stage=None):
@@ -114,117 +74,22 @@ def dockerfile(recipe, base, config, stage=None):
     return '\n'.join(lines) + '\n'
 
 
-def validate_config(config):
-    required = {'schema_version', 'role', 'docker_context', 'buildkit_builder', 'builder_identity',
-                'os_image', 'runtime_image', 'target_repository', 'registry_visibility', 'allowlist'}
-    if not isinstance(config, dict) or not required <= set(config) or set(config) - required - {'universal_image', 'docker_binary', 'base_template', 'limits', 'skopeo_image'}:
-        raise ValueError('invalid build configuration fields')
-    if config['schema_version'] != 1 or config['role'] != 'template-build':
-        raise ValueError('an explicit template-build node is required')
-    for key in ['docker_context', 'buildkit_builder', 'builder_identity']:
-        text(config[key], 128, r'[A-Za-z0-9][A-Za-z0-9_.-]*')
-    for key in ['os_image', 'runtime_image', 'universal_image', 'base_template', 'skopeo_image']:
-        if key in config:
-            pinned(config[key])
-    if config['os_image'].split('@')[0].rsplit('/', 1)[-1] != 'aq-sandbox-os':
-        raise ValueError('configured OS must be aq-sandbox-os')
-    if config['runtime_image'].split('@')[0].rsplit('/', 1)[-1] != 'aq-sandbox-runtime':
-        raise ValueError('configured runtime must be aq-sandbox-runtime')
-    if 'universal_image' in config and config['universal_image'].split('@')[0].rsplit('/', 1)[-1] != 'codex-universal':
-        raise ValueError('configured universal base must be codex-universal')
-    text(config['target_repository'], 256, r'[a-z0-9][a-z0-9.:-]*/[a-z0-9][a-z0-9/_.-]*')
-    if config['registry_visibility'] not in {'private', 'public'}:
-        raise ValueError('registry visibility must be explicit')
-    path = text(config['allowlist'], 512)
-    if Path(path).is_absolute() or scan.safe_path(path) != path:
-        raise ValueError('allowlist must be a relative vault path')
-    if 'limits' in config:
-        limits = config['limits']
-        if not isinstance(limits, dict):
-            raise ValueError('limits must be an object')
-        for key in ['log_bytes', 'build_wall_ms']:
-            if not isinstance(limits.get(key), int) or isinstance(limits[key], bool) or limits[key] < 1:
-                raise ValueError('invalid limit: ' + key)
-    if 'docker_binary' in config:
-        if not Path(text(config['docker_binary'], 512)).is_absolute():
-            raise ValueError('docker_binary must be absolute')
-    return config
-
-
-def read_json(path):
-    with Path(path).open('rb') as stream:
-        return scan.json_bytes(stream.read(scan.MAX_JSON + 1))
-
-
-def canonical(value):
-    return json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()
-
-
-def validate_entry(entry):
-    fields = {'name', 'version', 'image_digest', 'image_reference', 'provenance',
-              'harness_versions', 'materializations'}
-    if not isinstance(entry, dict) or set(entry) != fields:
-        raise ValueError('invalid allowlist entry fields')
-    text(entry['name'], 64, r'[a-z][a-z0-9-]*')
-    text(entry['version'], 64, r'[A-Za-z0-9_.+-]+')
-    pinned(entry['image_reference'])
-    if not scan.DIGEST.fullmatch(entry['image_digest']) or not entry['image_reference'].endswith('@' + entry['image_digest']):
-        raise ValueError('allowlist digest mismatch')
-    provenance = entry['provenance']
-    expected = {'image_digest', 'recipe_digest', 'base_digest', 'runtime_bundle_digest', 'harness_versions',
-                'built_at', 'builder_identity', 'finalize_policy', 'credential_scan_policy'}
-    if not isinstance(provenance, dict) or set(provenance) != expected:
-        raise ValueError('invalid allowlist provenance')
-    if provenance['image_digest'] != entry['image_digest']:
-        raise ValueError('provenance image digest mismatch')
-    for key in ['recipe_digest', 'base_digest', 'runtime_bundle_digest']:
-        if not scan.DIGEST.fullmatch(provenance[key]):
-            raise ValueError('invalid provenance digest')
-    text(provenance['builder_identity'], 128, r'[A-Za-z0-9][A-Za-z0-9_.-]*')
-    text(provenance['built_at'], 40, r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00')
-    if provenance['finalize_policy'] != 'aq-finalize-v1' or provenance['credential_scan_policy'] != 'aq-credential-scan-v1':
-        raise ValueError('allowlist entry has no supported admission evidence')
-    versions = entry['harness_versions']
-    if not isinstance(versions, dict) or not 1 <= len(versions) <= 32 or versions != provenance['harness_versions']:
-        raise ValueError('inconsistent advertised harness versions')
-    for name, version in versions.items():
-        text(name, 128, r'[A-Za-z0-9_.+-]+')
-        text(version, 128, r'[A-Za-z0-9_.+-]+')
-    if not isinstance(entry['materializations'], dict) or len(canonical(entry['materializations'])) > 65536:
-        raise ValueError('invalid materialization metadata')
-    if 'boat' in entry['materializations']:
-        boat = entry['materializations']['boat']
-        fields = {'image_digest','saved_snapshot','snapshot_id','scan_policy','snapshot_archive_digest',
-                  'build_org','builder_identity','built_at'}
-        if not isinstance(boat, dict) or set(boat) != fields or boat['image_digest'] != entry['image_digest']:
-            raise ValueError('boat materialization digest mismatch')
-        for key in ['saved_snapshot','snapshot_id','build_org','builder_identity']:
-            text(boat[key],128,r'[A-Za-z0-9][A-Za-z0-9_.-]*')
-        text(boat['built_at'],40,r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?\+00:00')
-        if boat['scan_policy'] != 'aq-credential-scan-v1' or not scan.DIGEST.fullmatch(boat['snapshot_archive_digest']):
-            raise ValueError('boat snapshot scan evidence missing')
-    if scan.secret_shaped(canonical(entry)):
-        raise ValueError('credential in allowlist metadata')
-    return entry
-
-
-def read_allowlist(path):
-    if not path.exists():
-        return {'schema_version': 1, 'entries': []}
-    value = read_json(path)
-    if not isinstance(value, dict) or set(value) != {'schema_version', 'entries'} or value['schema_version'] != 1:
-        raise ValueError('unsupported allowlist schema')
-    entries = value['entries']
-    if not isinstance(entries, list) or len(entries) > 1024:
-        raise ValueError('allowlist entry limit')
-    names = set()
-    for entry in entries:
-        validate_entry(entry)
-        key = (entry['name'], entry['version'])
-        if key in names:
-            raise ValueError('duplicate allowlist name/version')
-        names.add(key)
-    return value
+def replace_allowlist(allowlist, encoded, prefix):
+    fd, temporary = tempfile.mkstemp(prefix=prefix, dir=allowlist.parent)
+    try:
+        with os.fdopen(fd, 'wb') as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, allowlist)
+        dirfd = os.open(allowlist.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dirfd)
+        finally:
+            os.close(dirfd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def write_json(path, value):
@@ -289,6 +154,19 @@ def captured(command, directory, number):
     return 'RUN ' + json.dumps(['sh', '-c', script])
 
 
+# An admitted PostgreSQL capability must contain real server and client tools.
+POSTGRES_CHECK = (
+    'set -eu; bindir=$(pg_config --bindir); '
+    'for tool in initdb pg_ctl postgres psql; do test -x "$bindir/$tool"; done; '
+    '"$bindir/postgres" --version; "$bindir/psql" --version'
+)
+
+
+def environment_checks(env):
+    required = [POSTGRES_CHECK] if 'postgres' in env.get('provides', []) else []
+    return [*required, *env['checks']]
+
+
 def environment_dockerfile(env, base, config, run=None):
     """The template stage, then a checks stage whose results a scratch stage exposes for export.
 
@@ -297,7 +175,7 @@ def environment_dockerfile(env, base, config, run=None):
     """
     lines = [dockerfile(env, base, config, stage='template').rstrip('\n'),
              'FROM template AS checks', 'RUN mkdir /aq-checks']
-    lines += [captured(command, '/aq-checks', number) for number, command in enumerate(env['checks'])]
+    lines += [captured(command, '/aq-checks', number) for number, command in enumerate(environment_checks(env))]
     lines += ['FROM scratch AS check-output', 'COPY --from=checks /aq-checks /']
     if run is not None:
         lines += ['FROM template AS run', 'COPY . /workspace', 'RUN mkdir /aq-run', captured(run, '/aq-run', 0),
@@ -306,24 +184,49 @@ def environment_dockerfile(env, base, config, run=None):
     return '\n'.join(lines) + '\n'
 
 
-def run_buildx(docker, cfg, context, target, output, log_path, timeout, dockerfile_path=None):
-    command = [docker, '--context', cfg['docker_context'], 'buildx', 'build',
-               '--builder', cfg['buildkit_builder'], '--platform', 'linux/amd64',
-               '--provenance=false', '--sbom=false', '--progress=plain', '--target', target,
-               '--output', output]
-    if dockerfile_path is not None:
-        command += ['--file', str(dockerfile_path)]
-    command.append(str(context))
-    with Path(log_path).open('wb') as log:
-        try:
-            subprocess.run(command, env=build_env(), check=True, stdin=subprocess.DEVNULL,
-                           stdout=subprocess.DEVNULL, stderr=log, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            log.write(b'\nbuild timed out\n')
-            raise
-        except OSError:
-            log.write(b'could not run docker buildx\n')
-            raise
+def buildkit_docker(cfg):
+    docker = cfg.get('docker_binary') or shutil.which('docker')
+    if not docker:
+        raise ValueError('Docker BuildKit is required on the configured build node')
+    return docker
+
+
+class Buildx(NamedTuple):
+    docker: str
+    config: dict
+    context: Path
+    log_path: Path
+
+    def run(self, target, output, dockerfile_path=None):
+        command = [self.docker, '--context', self.config['docker_context'], 'buildx', 'build',
+                   '--builder', self.config['buildkit_builder'], '--platform', 'linux/amd64',
+                   '--provenance=false', '--sbom=false', '--progress=plain', '--target', target,
+                   '--output', output]
+        if dockerfile_path is not None:
+            command += ['--file', str(dockerfile_path)]
+        command.append(str(self.context))
+        with self.log_path.open('wb') as log:
+            try:
+                subprocess.run(command, env=build_env(), check=True, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=log, timeout=self.config['limits']['build_wall_ms'] / 1000)
+            except subprocess.TimeoutExpired:
+                log.write(b'\nbuild timed out\n')
+                raise
+            except OSError:
+                log.write(b'could not run docker buildx\n')
+                raise
+
+
+def validate_output_path(path, error='unsupported output path'):
+    if ',' in str(path) or '\n' in str(path):
+        raise ValueError(error)
+
+
+def environment_config(config):
+    cfg = validate_config(config)
+    if 'limits' not in cfg:
+        raise ValueError('environment builds need limits in the build configuration')
+    return cfg
 
 
 def build_environment(env, config, output):
@@ -334,18 +237,12 @@ def build_environment(env, config, output):
     the scanned archive is left at `output/image.oci.tar`. `config['limits']` supplies `log_bytes`
     and `build_wall_ms`.
     """
-    cfg = validate_config(config)
-    if 'limits' not in cfg:
-        raise ValueError('environment builds need limits in the build configuration')
+    cfg = environment_config(config)
     limit = cfg['limits']['log_bytes']
-    timeout = cfg['limits']['build_wall_ms'] / 1000
     base = parent_image(env, cfg)
     output = Path(output).absolute()
-    if ',' in str(output) or '\n' in str(output):
-        raise ValueError('unsupported output path')
-    docker = cfg.get('docker_binary') or shutil.which('docker')
-    if not docker:
-        raise ValueError('Docker BuildKit is required on the configured build node')
+    validate_output_path(output)
+    docker = buildkit_docker(cfg)
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
     archive = output / 'image.oci.tar'
     with tempfile.TemporaryDirectory(prefix='aq-environment-context-') as directory:
@@ -355,16 +252,17 @@ def build_environment(env, config, output):
         (context / 'Dockerfile').write_text(environment_dockerfile(env, base, cfg))
         log_path = work / 'build.log'
         checked = work / 'checks'
+        builder = Buildx(docker, cfg, context, log_path)
 
         def buildx(step, target, spec):
             try:
-                run_buildx(docker, cfg, context, target, spec, log_path, timeout)
+                builder.run(target, spec)
             except (OSError, subprocess.SubprocessError):
                 raise BuildFailed(step, bounded_log(tail(log_path, limit), limit)) from None
 
         buildx('install', 'template', f'type=oci,dest={archive},compression=gzip,force-compression=true')
         results = []
-        if env['checks']:
+        if environment_checks(env):
             buildx('check', 'check-output', f'type=local,dest={checked}')
             results = check_results(env, checked, limit)
     try:
@@ -382,7 +280,7 @@ def build_environment(env, config, output):
 
 def check_results(env, directory, limit):
     """(command, (exit, output)) per check; raises BuildFailed('check') naming the failing checks."""
-    results = [(command, read_check(directory, number, limit)) for number, command in enumerate(env['checks'])]
+    results = [(command, read_check(directory, number, limit)) for number, command in enumerate(environment_checks(env))]
     failed = [(command, code, out) for command, (code, out) in results if code != 0]
     if failed:
         report = ''.join(f'$ {command}\n(exit {code})\n{out}\n' for command, code, out in failed)
@@ -397,18 +295,13 @@ def try_environment(env, config, repo, run):
     publication. Returns `{"exit", "output"}` for `run`, or None without one. Raises BuildFailed
     `install` (BuildKit failed), `check` (a check failed) or `run` (the command left no result).
     """
-    cfg = validate_config(config)
-    if 'limits' not in cfg:
-        raise ValueError('environment builds need limits in the build configuration')
+    cfg = environment_config(config)
     limit = cfg['limits']['log_bytes']
-    timeout = cfg['limits']['build_wall_ms'] / 1000
     base = parent_image(env, cfg)
     repo = Path(repo).resolve(strict=True)
     if not repo.is_dir():
         raise ValueError('the repository must be a directory')
-    docker = cfg.get('docker_binary') or shutil.which('docker')
-    if not docker:
-        raise ValueError('Docker BuildKit is required on the configured build node')
+    docker = buildkit_docker(cfg)
     with tempfile.TemporaryDirectory(prefix='aq-environment-try-') as directory:
         work = Path(directory)
         definition = work / 'Dockerfile'
@@ -417,22 +310,24 @@ def try_environment(env, config, repo, run):
         (work / 'Dockerfile.dockerignore').write_text('.git\n**/.git\n')
         log_path = work / 'build.log'
         exported = work / 'exported'
-        if ',' in str(exported) or '\n' in str(exported):
-            raise ValueError('unsupported temporary path')
+        validate_output_path(exported, 'unsupported temporary path')
         target = 'check-output' if run is None else 'try-output'
         try:
-            run_buildx(docker, cfg, repo, target, f'type=local,dest={exported}', log_path, timeout,
-                       dockerfile_path=definition)
+            Buildx(docker, cfg, repo, log_path).run(target, f'type=local,dest={exported}', definition)
         except (OSError, subprocess.SubprocessError):
             raise BuildFailed('install', bounded_log(tail(log_path, limit), limit)) from None
-        if run is None:
-            check_results(env, exported, limit)
-            return None
-        check_results(env, exported / 'checks', limit)
-        if not (exported / 'run' / '0.exit').is_file():
-            raise BuildFailed('run', 'the command produced no result')
-        code, output = read_check(exported / 'run', 0, limit)
-        return {'exit': code, 'output': output}
+        return try_results(env, exported, limit, run)
+
+
+def try_results(env, exported, limit, run):
+    if run is None:
+        check_results(env, exported, limit)
+        return None
+    check_results(env, exported / 'checks', limit)
+    if not (exported / 'run' / '0.exit').is_file():
+        raise BuildFailed('run', 'the command produced no result')
+    code, output = read_check(exported / 'run', 0, limit)
+    return {'exit': code, 'output': output}
 
 
 def publish(config, directory, digest):
@@ -461,50 +356,17 @@ def publish(config, directory, digest):
                 raise BuildFailed('publish', bounded_log(tail(log_path, limit), limit)) from None
 
 
-UUID = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
-JOB_FIELDS = {'job_id', 'kind', 'project_id', 'project', 'commit', 'recipes', 'run', 'base_template',
-              'target_repository', 'limits'}
-LIMIT_FIELDS = {'max_install_steps', 'max_step_args', 'max_arg_bytes', 'max_prefetch', 'max_recipe_bytes',
-                'build_wall_ms', 'build_cpu_millis', 'build_memory_bytes', 'log_bytes', 'try_concurrency',
-                'keep_versions'}
-
-
-def validate_job(job, kind):
-    """A server Job (plan Shared shapes) of `kind`; a try names one recipe, a build has no run."""
-    if not isinstance(job, dict) or set(job) != JOB_FIELDS:
-        raise ValueError('invalid job fields')
-    if job['kind'] != kind:
-        raise ValueError('job kind does not match the operation')
-    text(job['job_id'], 36, UUID)
-    text(job['project_id'], 36, UUID)
-    text(job['project'], 128, r'[A-Za-z0-9][A-Za-z0-9_.-]*')
-    text(job['commit'], 40, r'[0-9a-f]{40}')
-    pinned(job['base_template'])
-    limits = job['limits']
-    if not isinstance(limits, dict) or set(limits) != LIMIT_FIELDS:
-        raise ValueError('invalid job limits')
-    for key, value in limits.items():
-        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-            raise ValueError('invalid limit: ' + key)
-    recipes = job['recipes']
-    if not isinstance(recipes, list) or not recipes or len(set(map(str, recipes))) != len(recipes):
-        raise ValueError('a job names distinct recipes')
-    for name in recipes:
-        text(name, 64, r'[a-z][a-z0-9-]*')
-    if kind == 'try':
-        if len(recipes) != 1:
-            raise ValueError('a try names one recipe')
-        if job['run'] is not None:
-            text(job['run'], limits['max_arg_bytes'])
-    elif job['run'] is not None:
-        raise ValueError('a build job has no run command')
-    return job
-
-
 def job_config(config, job):
     """The builder config with the job's base template, target repository and limits."""
     return validate_config({**config, 'base_template': job['base_template'],
                             'target_repository': job['target_repository'], 'limits': job['limits']})
+
+
+def recipe_path(root, name):
+    path = (root / '.aq' / 'environments' / (name + '.md')).resolve(strict=True)
+    if not path.is_relative_to(root) or not path.is_file():
+        raise BuildFailed('parse', 'the recipe file is outside the repository or not a file')
+    return path
 
 
 def load_recipe(repo, name, limits):
@@ -512,9 +374,7 @@ def load_recipe(repo, name, limits):
     environment_recipe = load_sibling('environment_recipe')
     root = Path(repo).resolve(strict=True)
     try:
-        path = (root / '.aq' / 'environments' / (name + '.md')).resolve(strict=True)
-        if not path.is_relative_to(root) or not path.is_file():
-            raise BuildFailed('parse', 'the recipe file is outside the repository or not a file')
+        path = recipe_path(root, name)
         env = environment_recipe.parse_environment(path, limits)
     except OSError:
         raise BuildFailed('parse', 'the recipe file is missing or unreadable') from None
@@ -524,13 +384,6 @@ def load_recipe(repo, name, limits):
     if env['name'] != name:
         raise BuildFailed('parse', 'the recipe name does not match its file name')
     return env
-
-
-def load_sibling(name):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(name + '.py'))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def job_result(job, builds=(), failure=None, run=None):
@@ -549,8 +402,7 @@ def environment_build(job_path, repo, config_path, output):
     if 'skopeo_image' not in cfg:
         raise ValueError('environment builds need a pinned skopeo_image')
     output = Path(output).absolute()
-    if ',' in str(output) or '\n' in str(output):
-        raise ValueError('unsupported output path')
+    validate_output_path(output)
     output.mkdir(mode=0o700, parents=False, exist_ok=False)
     name = None
     try:
@@ -589,34 +441,10 @@ def read_check(directory, number, limit):
     return code, bounded_log(data, limit)
 
 
-def build(recipe_path, config_path, output_path):
-    import datetime
-    import fcntl
-    import hashlib
-    import os
-    import shutil
-    import subprocess
-    import tempfile
-
-    cfg = validate_config(read_json(config_path))
-    vault = Path(config_path).resolve().parent
-    allowlist = vault / cfg['allowlist']
-    # Config and vault are trusted operator inputs, never task/attempt inputs.
-    entries = read_allowlist(allowlist)['entries']
-    recipe = validate_recipe(read_json(recipe_path), cfg, entries)
-    if any(e['name'] == recipe['name'] and e['version'] == recipe['version'] for e in entries):
-        raise ValueError('recipe name/version already allowlisted; bump version')
-    base = parent_image(recipe, cfg, entries)
-    output = Path(output_path).absolute()
-    if ',' in str(output) or '\n' in str(output):
-        raise ValueError('unsupported output path')
-    output.mkdir(mode=0o700, parents=False, exist_ok=False)
-    docker = cfg.get('docker_binary') or shutil.which('docker')
-    if not docker:
-        raise ValueError('Docker BuildKit is required on the configured build node')
+def build_archive(docker, cfg, definition, output):
     with tempfile.TemporaryDirectory(prefix='aq-template-context-') as directory:
         context = Path(directory)
-        (context / 'Dockerfile').write_text(dockerfile(recipe, base, cfg))
+        (context / 'Dockerfile').write_text(definition)
         # Provider keys, SSH agent, attempt variables, build args/secrets and arbitrary
         # host files are never forwarded. Docker's own context/registry auth stays local.
         env = build_env()
@@ -630,60 +458,81 @@ def build(recipe_path, config_path, output_path):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3600)
         except (OSError, subprocess.SubprocessError) as error:
             raise ValueError('BuildKit build/finalize failed; template not admitted') from error
+
+
+class TemplateBuild(NamedTuple):
+    recipe: dict
+    config: dict
+    base: str
+
+    def reviewed_entry(self, scanned):
+        versions = {item['name']: item['version'] for item in scanned['bundle_manifest']['harnesses']}
+        provenance = {'image_digest': scanned['image_digest'],
+                      'recipe_digest': 'sha256:' + hashlib.sha256(canonical(self.recipe)).hexdigest(),
+                      'base_digest': self.base.split('@')[1],
+                      'runtime_bundle_digest': self.config['runtime_image'].split('@')[1],
+                      'harness_versions': versions,
+                      'built_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      'builder_identity': self.config['builder_identity'],
+                      'finalize_policy': 'aq-finalize-v1', 'credential_scan_policy': 'aq-credential-scan-v1'}
+        entry = {'name': self.recipe['name'], 'version': self.recipe['version'],
+                 'image_digest': scanned['image_digest'],
+                 'image_reference': self.config['target_repository'] + '@' + scanned['image_digest'],
+                 'provenance': provenance, 'harness_versions': versions, 'materializations': {}}
+        validate_entry(entry)
+        return entry
+
+    def publish(self, allowlist, entry):
+        allowlist.parent.mkdir(parents=True, exist_ok=True)
+        with allowlist.with_suffix(allowlist.suffix + '.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            current = read_allowlist(allowlist)
+            # Revalidate parents and unique names under the same lock as publication.
+            if parent_image(self.recipe, self.config, current['entries']) != self.base:
+                raise ValueError('allowlisted parent changed during build')
+            if any(template_identity(e) == template_identity(entry) for e in current['entries']):
+                raise ValueError('recipe version concurrently allowlisted')
+            current['entries'].append(entry)
+            encoded = canonical(current) + b'\n'
+            if len(encoded) > scan.MAX_JSON:
+                raise ValueError('allowlist size limit')
+            replace_allowlist(allowlist, encoded, prefix=".allowlist-")
+
+
+def build(recipe_path, config_path, output_path):
+    cfg = validate_config(read_json(config_path))
+    vault = Path(config_path).resolve().parent
+    allowlist = vault / cfg['allowlist']
+    # Config and vault are trusted operator inputs, never task/attempt inputs.
+    entries = read_allowlist(allowlist)['entries']
+    recipe = validate_recipe(read_json(recipe_path), cfg, entries)
+    if any(e['name'] == recipe['name'] and e['version'] == recipe['version'] for e in entries):
+        raise ValueError('recipe name/version already allowlisted; bump version')
+    base = parent_image(recipe, cfg, entries)
+    output = Path(output_path).absolute()
+    validate_output_path(output)
+    output.mkdir(mode=0o700, parents=False, exist_ok=False)
+    docker = buildkit_docker(cfg)
+    definition = dockerfile(recipe, base, cfg)
+    build_archive(docker, cfg, definition, output)
     scanned = scan.scan_oci(output / 'image.oci.tar')
-    versions = {item['name']: item['version'] for item in scanned['bundle_manifest']['harnesses']}
-    provenance = {'image_digest': scanned['image_digest'],
-                  'recipe_digest': 'sha256:' + hashlib.sha256(canonical(recipe)).hexdigest(),
-                  'base_digest': base.split('@')[1],
-                  'runtime_bundle_digest': cfg['runtime_image'].split('@')[1],
-                  'harness_versions': versions,
-                  'built_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                  'builder_identity': cfg['builder_identity'],
-                  'finalize_policy': 'aq-finalize-v1', 'credential_scan_policy': 'aq-credential-scan-v1'}
-    entry = {'name': recipe['name'], 'version': recipe['version'],
-             'image_digest': scanned['image_digest'],
-             'image_reference': cfg['target_repository'] + '@' + scanned['image_digest'],
-             'provenance': provenance, 'harness_versions': versions, 'materializations': {}}
-    validate_entry(entry)
+    plan = TemplateBuild(recipe, cfg, base)
+    entry = plan.reviewed_entry(scanned)
     # Persist all reviewable artifacts before the allowlist commit point.
     write_json(output / 'recipe.json', recipe)
-    write_json(output / 'provenance.json', provenance)
+    write_json(output / 'provenance.json', entry['provenance'])
     write_json(output / 'bundle-manifest.json', scanned['bundle_manifest'])
-    (output / 'Dockerfile').write_text(dockerfile(recipe, base, cfg))
-    allowlist.parent.mkdir(parents=True, exist_ok=True)
-    with allowlist.with_suffix(allowlist.suffix + '.lock').open('a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        current = read_allowlist(allowlist)
-        # Revalidate parents and unique names under the same lock as publication.
-        if parent_image(recipe, cfg, current['entries']) != base:
-            raise ValueError('allowlisted parent changed during build')
-        if any(e['name'] == recipe['name'] and e['version'] == recipe['version'] for e in current['entries']):
-            raise ValueError('recipe version concurrently allowlisted')
-        current['entries'].append(entry)
-        encoded = canonical(current) + b'\n'
-        if len(encoded) > scan.MAX_JSON:
-            raise ValueError('allowlist size limit')
-        fd, temporary = tempfile.mkstemp(prefix='.allowlist-', dir=allowlist.parent)
-        try:
-            with os.fdopen(fd, 'wb') as stream:
-                stream.write(encoded)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, allowlist)
-            dirfd = os.open(allowlist.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(dirfd)
-            finally:
-                os.close(dirfd)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+    (output / 'Dockerfile').write_text(definition)
+    plan.publish(allowlist, entry)
     return entry
 
 
 def main():
     import argparse
+    import signal
     import sys
+    # A stopped job (SIGTERM) unwinds, so subprocess children are killed and temporary directories removed.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
     parser = argparse.ArgumentParser(description='Build and scan pinned sandbox templates')
     sub = parser.add_subparsers(dest='command', required=True)
     builder = sub.add_parser('build')
@@ -706,7 +555,13 @@ def main():
     trial.add_argument('--job', type=Path, required=True)
     trial.add_argument('--repo', type=Path, required=True)
     trial.add_argument('--build-config', type=Path, required=True)
+    redaction = sub.add_parser('redact-log', help='print the tail of a log file, redacted like build logs')
+    redaction.add_argument('--input', type=Path, required=True)
+    redaction.add_argument('--limit', type=int, required=True)
     args = parser.parse_args()
+    if args.command == 'redact-log':
+        sys.stdout.write(bounded_log(tail(args.input, max(args.limit, 0)), max(args.limit, 0)))
+        return 0
     try:
         if args.command == 'boat-materialize':
             spec = importlib.util.spec_from_file_location('boat_materialize', Path(__file__).with_name('boat_materialize.py'))

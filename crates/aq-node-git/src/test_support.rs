@@ -11,10 +11,36 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-pub const GIT: &str = "/usr/bin/git";
+/// Where the supported images keep Git, in preference order: the pinned sandbox OS
+/// (`packaging/sandbox/Dockerfile.os`), the native runtime image
+/// (`packaging/native-runtime/Dockerfile`), then a system Git.
+pub const GIT_CANDIDATES: [&str; 3] = [
+    "/opt/git/bin/git",
+    "/opt/aq-git-runtime/bin/git",
+    "/usr/bin/git",
+];
+
+/// The first candidate for which `usable` holds; `None` if there is none.
+pub fn select_git<'a>(candidates: &[&'a str], usable: impl Fn(&Path) -> bool) -> Option<&'a str> {
+    candidates.iter().copied().find(|c| usable(Path::new(c)))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// The Git the tests run; a missing Git fails the test, it is never skipped.
+pub fn git_executable() -> &'static str {
+    static SELECTED: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    SELECTED.get_or_init(|| {
+        select_git(&GIT_CANDIDATES, is_executable_file)
+            .unwrap_or_else(|| panic!("no Git found at any of {GIT_CANDIDATES:?}"))
+    })
+}
 
 pub fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new(GIT)
+    let out = Command::new(git_executable())
         .arg("-C")
         .arg(dir)
         .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
@@ -36,11 +62,17 @@ pub struct Central {
     pub grants: Arc<Mutex<std::collections::HashMap<Uuid, Grant>>>,
     /// The next receive-pack is applied, then its reply is cut off.
     pub drop_push: Arc<AtomicBool>,
+    /// Every smart-HTTP request is refused with 403 (a lost grant or claim).
+    pub refuse: Arc<AtomicBool>,
     _runtime: tokio::runtime::Runtime,
 }
 
 impl Central {
     pub fn start() -> Self {
+        Self::start_with(Router::new())
+    }
+    /// Also serves `extra` (a caller's double of other server routes) on the same origin.
+    pub fn start_with(extra: Router) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let remote = dir.path().join("remote.git");
         git(
@@ -61,6 +93,7 @@ impl Central {
             &["push", "--quiet", "origin", "HEAD:refs/heads/main"],
         );
         let (seen, drop_push) = (Arc::default(), Arc::new(AtomicBool::new(false)));
+        let refuse = Arc::new(AtomicBool::new(false));
         let grants: Arc<Mutex<std::collections::HashMap<Uuid, Grant>>> = Arc::default();
         let served = Arc::clone(&grants);
         let grant = move |UrlPath(attempt): UrlPath<Uuid>, h: HeaderMap| async move {
@@ -77,8 +110,10 @@ impl Central {
             dir.path().to_owned(),
             Arc::clone(&seen),
             Arc::clone(&drop_push),
+            Arc::clone(&refuse),
         )
-        .route("/v1/git/grants/{attempt}", axum::routing::get(grant));
+        .route("/v1/git/grants/{attempt}", axum::routing::get(grant))
+        .merge(extra);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
             .enable_all()
@@ -97,6 +132,7 @@ impl Central {
             seen,
             grants,
             drop_push,
+            refuse,
             _runtime: runtime,
         }
     }
@@ -104,7 +140,7 @@ impl Central {
         self.dir.path().join("remote.git")
     }
     pub fn head(&self, r: &str) -> Option<String> {
-        let out = Command::new(GIT)
+        let out = Command::new(git_executable())
             .arg("-C")
             .arg(self.remote())
             .args(["rev-parse", "--verify", "--quiet", r])
@@ -152,20 +188,85 @@ impl Central {
     }
 }
 
-fn smart_http(root: PathBuf, seen: Arc<Mutex<Vec<String>>>, drop_push: Arc<AtomicBool>) -> Router {
+fn smart_http(
+    root: PathBuf,
+    seen: Arc<Mutex<Vec<String>>>,
+    drop_push: Arc<AtomicBool>,
+    refuse: Arc<AtomicBool>,
+) -> Router {
     let handler = move |method: axum::http::Method,
-                        UrlPath((_repository, rest)): UrlPath<(Uuid, String)>,
+                        UrlPath(fields): UrlPath<std::collections::HashMap<String, String>>,
                         uri: axum::http::Uri,
                         h: HeaderMap,
                         body: Bytes| async move {
+<<<<<<< HEAD
+=======
+        let rest = fields["rest"].as_str();
+        let text = |name: &str| {
+            let value = h.get(name).and_then(|v| v.to_str().ok());
+            value.unwrap_or_default().to_string()
+        };
+        // The header aq-server spec 0017 names; a literal so the double needs no feature.
+        let job = text("aq-environment-job");
+>>>>>>> refs/remotes/central/main
         seen.lock().unwrap().push(format!(
-            "{method} {rest}{} {} {}",
+            "{method} {rest}{} {} {}{}",
             uri.query().map(|q| format!("?{q}")).unwrap_or_default(),
+<<<<<<< HEAD
             header_text(&h, "authorization"),
             header_text(&h, transport::ATTEMPT_HEADER)
         ));
         let output = git_http_backend(&root, &method, &rest, &uri, &h, body);
         let (response, body) = cgi_response(&output);
+=======
+            text("authorization"),
+            text(transport::ATTEMPT_HEADER),
+            if job.is_empty() {
+                job
+            } else {
+                format!(" job={job}")
+            }
+        ));
+        if refuse.load(Ordering::SeqCst) {
+            return axum::http::StatusCode::FORBIDDEN.into_response();
+        }
+        let mut child = Command::new(git_executable())
+            .arg("http-backend")
+            .env("GIT_PROJECT_ROOT", &root)
+            .env("GIT_HTTP_EXPORT_ALL", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("PATH_INFO", format!("/remote.git/{rest}"))
+            .env("REQUEST_METHOD", method.as_str())
+            .env("QUERY_STRING", uri.query().unwrap_or_default())
+            .env("CONTENT_TYPE", text("content-type"))
+            .env("CONTENT_LENGTH", body.len().to_string())
+            .env("HTTP_CONTENT_ENCODING", text("content-encoding"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        let writer = std::thread::spawn(move || {
+            let _ = std::io::Write::write_all(&mut stdin, &body);
+        });
+        let out = child.wait_with_output().unwrap();
+        writer.join().unwrap();
+        let cut = out
+            .stdout
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .unwrap();
+        let mut response = axum::http::Response::builder();
+        for line in std::str::from_utf8(&out.stdout[..cut]).unwrap().lines() {
+            let (name, value) = line.split_once(": ").unwrap();
+            response = if name == "Status" {
+                response.status(value[..3].parse::<u16>().unwrap())
+            } else {
+                response.header(name, value)
+            };
+        }
+        let body = out.stdout[cut + 4..].to_vec();
+>>>>>>> refs/remotes/central/main
         if rest == "git-receive-pack" && drop_push.swap(false, Ordering::SeqCst) {
             // Applied, but the connection ends before the client reads its status.
             let cut: std::io::Result<Bytes> = Err(std::io::ErrorKind::ConnectionReset.into());
@@ -176,7 +277,12 @@ fn smart_http(root: PathBuf, seen: Arc<Mutex<Vec<String>>>, drop_push: Arc<Atomi
         }
         response.body(axum::body::Body::from(body)).unwrap()
     };
-    Router::new().route("/v1/git/{repository}/{*rest}", any(handler))
+    Router::new()
+        .route("/v1/git/{repository}/{*rest}", any(handler.clone()))
+        .route(
+            "/v1/git/workspaces/{project}/{repository}/{*rest}",
+            any(handler),
+        )
 }
 
 fn header_text(headers: &HeaderMap, name: &str) -> String {
@@ -241,7 +347,7 @@ fn cgi_response(output: &[u8]) -> (axum::http::response::Builder, Vec<u8>) {
 pub fn config(root: &Path) -> Config {
     Config {
         repositories: root.join("repositories"),
-        git: GIT.into(),
+        git: git_executable().into(),
         author_name: "AQ node".into(),
         author_email: "node@aq.invalid".into(),
         command_timeout_ms: 60_000,

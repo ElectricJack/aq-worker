@@ -15,7 +15,9 @@ use tokio::sync::watch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
+    Pass,
     FailBefore(u16),
+    StallBeforeApply,
     DropReplyAfterApply,
     LieOkWithoutApply,
 }
@@ -211,6 +213,12 @@ impl ScriptedDocker {
         let container = state.containers.get_mut(name).expect("container");
         edit(&mut container.body["Labels"]);
     }
+    pub fn has_image(&self, image: &str) -> bool {
+        self.state.lock().unwrap().images.contains(image)
+    }
+    pub fn remove_container(&self, name: &str) {
+        self.state.lock().unwrap().containers.remove(name);
+    }
     pub fn set_status(&self, name: &str, status: &'static str) {
         self.state
             .lock()
@@ -256,6 +264,7 @@ impl DockerTransport for ScriptedDocker {
         };
         let response = match effect {
             Some(Effect::FailBefore(status)) => error(status, "scripted failure"),
+            Some(Effect::StallBeforeApply) => std::future::pending().await,
             Some(Effect::LieOkWithoutApply) => DockerResponse {
                 status: match request.method {
                     DockerMethod::Get | DockerMethod::Put => 200,
@@ -268,7 +277,7 @@ impl DockerTransport for ScriptedDocker {
                 self.handle(&request);
                 return Err(TransportError::io("connection reset after apply"));
             }
-            None => self.handle(&request),
+            Some(Effect::Pass) | None => self.handle(&request),
         };
         if response.body.len() > request.max_response_bytes {
             return Err(TransportError {
@@ -299,6 +308,14 @@ fn empty(status: u16) -> DockerResponse {
     }
 }
 
+#[path = "docker_double/archives.rs"]
+mod archives;
+#[path = "docker_double/containers.rs"]
+mod containers;
+#[path = "docker_double/engine.rs"]
+mod engine;
+#[path = "docker_double/volumes.rs"]
+mod volumes;
 fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
     let Some(rest) = request.path.strip_prefix("/v1.44/") else {
         return error(400, "unsupported API version");
@@ -325,287 +342,56 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
             false => error(404, "no such image"),
         };
     }
+    // An image a container uses is refused with 409, as the daemon does.
+    if let Some(image) = path
+        .strip_prefix("images/")
+        .filter(|_| request.method == Delete)
+    {
+        if state.containers.values().any(|c| c.body["Image"] == image) {
+            return error(409, "image is in use by a container");
+        }
+        return match state.images.remove(image) {
+            true => ok_json(200, json!([{ "Untagged": image }])),
+            false => error(404, "no such image"),
+        };
+    }
     match (request.method, segments.as_slice()) {
-        (Get, ["info"]) => {
-            let mut options = vec![json!("name=seccomp,profile=default")];
-            if state.rootless {
-                options.push(json!("name=rootless"));
-            }
-            let mut info = json!({ "SecurityOptions": options });
-            if let Some(driver) = state.cgroup_driver {
-                info["CgroupDriver"] = json!(driver);
-            }
-            if let Some(version) = state.cgroup_version {
-                info["CgroupVersion"] = json!(version);
-            }
-            if let Some(root) = &state.root_dir {
-                info["DockerRootDir"] = json!(root);
-            }
-            info["DriverStatus"] = json!([["Backing Filesystem", state.backing_fs]]);
-            ok_json(200, info)
-        }
-        (Get, ["system", "df"]) => {
-            let volumes: Vec<Value> = state
-                .volumes
-                .keys()
-                .map(|name| {
-                    let size = state.volume_sizes.get(name).copied().unwrap_or(-1);
-                    json!({ "Name": name, "UsageData": { "Size": size, "RefCount": 1 } })
-                })
-                .collect();
-            ok_json(200, json!({ "Volumes": volumes }))
-        }
-        (Post, ["images", "create"]) => {
-            if let Some(image) = query.get("fromImage") {
-                state.images.insert(image.clone());
-            }
-            empty(200)
-        }
-        (Get, ["containers", "json"]) => {
-            let labels = filter_labels(&query);
-            let list: Vec<Value> = state
+        (Get, ["info"]) => state.info(),
+        (Get, ["system", "df"]) => state.disk_usage(),
+        (Post, ["images", "create"]) => state.pull_image(&query),
+        (Get, ["containers", "json"]) => state.list_containers(&query),
+        (Post, ["containers", "create"]) => state.create_container(&query, &request.body),
+        (Get, ["containers", name, "json"]) => state.inspect_container(name, &query),
+        (Put, ["containers", name, "archive"]) => state.put_archive(name, &query, &request.body),
+        (Get, ["containers", name, "archive"]) => state.get_archive(name, &query),
+        (Post, ["containers", name, "start"]) => state.start_container(name),
+        (Post, ["containers", name, "exec"]) => {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            if state
                 .containers
-                .iter()
-                .filter(|(_, c)| labels_match(&c.body["Labels"], &labels))
-                .map(|(name, c)| {
-                    let mut entry = json!({
-                        "Id": c.id,
-                        "Names": [format!("/{name}")],
-                        "Image": c.body["Image"],
-                        "Labels": c.body["Labels"],
-                        "State": c.status,
-                    });
-                    if query.get("size").is_some_and(|size| size == "true") {
-                        entry["SizeRw"] =
-                            json!(state.container_sizes.get(name).copied().unwrap_or(0));
-                    }
-                    entry
-                })
-                .collect();
-            ok_json(200, Value::Array(list))
+                .get(*name)
+                .is_none_or(|c| c.status != "running")
+                || body["User"] != "agent"
+                || body["Privileged"] != false
+                || body["Cmd"][2] != aq_sandbox_archive::task_postgres::BOOTSTRAP
+            {
+                return error(400, "expected fixed unprivileged task service");
+            }
+            ok_json(201, json!({"Id": "1".repeat(64)}))
         }
-        (Post, ["containers", "create"]) => {
-            let Some(name) = query.get("name").cloned() else {
-                return error(400, "name required");
-            };
-            if state.containers.contains_key(&name) {
-                return error(409, "container name already in use");
+        (Post, ["exec", id, "start"]) if *id == "1".repeat(64) => {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            if body["Detach"] != true || body["Tty"] != false {
+                return error(400, "expected detached non-tty service");
             }
-            let Ok(body) = serde_json::from_slice::<Value>(&request.body) else {
-                return error(400, "invalid body");
-            };
-            for mount in mounts(&body) {
-                if mount["Type"] == "volume" {
-                    let source = mount["Source"].as_str().unwrap_or_default().to_string();
-                    state.volumes.entry(source).or_insert(Volume {
-                        labels: json!({}),
-                        files: BTreeMap::new(),
-                    });
-                }
-            }
-            let id = format!("{:064x}", state.next_id);
-            state.next_id += 1;
-            state.containers.insert(
-                name,
-                Container {
-                    id: id.clone(),
-                    body,
-                    status: "created",
-                    layer: BTreeMap::new(),
-                    exit_code: 0,
-                },
-            );
-            ok_json(201, json!({ "Id": id, "Warnings": [] }))
+            ok_json(200, json!({}))
         }
-        (Get, ["containers", name, "json"]) => match state.containers.get(*name) {
-            None => error(404, "no such container"),
-            Some(c) => {
-                let running = c.status == "running";
-                let size_rw = (query.get("size").map(String::as_str) == Some("true"))
-                    .then(|| state.container_sizes.get(*name).copied());
-                let mut body = json!({
-                    "Id": c.id,
-                    "Name": format!("/{name}"),
-                    "Config": {
-                        "Image": c.body["Image"],
-                        "Labels": c.body["Labels"],
-                        "Cmd": c.body["Cmd"],
-                        "Env": c.body["Env"],
-                        "WorkingDir": c.body["WorkingDir"],
-                    },
-                    "HostConfig": c.body["HostConfig"],
-                    "State": {
-                        "Status": c.status,
-                        "Running": running,
-                        "Paused": false,
-                        "Pid": if running { 4242 } else { 0 },
-                        "ExitCode": c.exit_code,
-                    },
-                });
-                if let Some(Some(size)) = size_rw {
-                    body["SizeRw"] = json!(size);
-                }
-                ok_json(200, body)
-            }
-        },
-        (Put, ["containers", name, "archive"]) => {
-            if !state.containers.contains_key(*name) {
-                return error(404, "no such container");
-            }
-            let base = query.get("path").cloned().unwrap_or_default();
-            let Some(entries) = parse_tar(&request.body) else {
-                return error(400, "invalid archive");
-            };
-            for (entry_path, file) in entries {
-                let full = format!("{}/{}", base.trim_end_matches('/'), entry_path);
-                write_file(state, name, &full, file);
-            }
-            empty(200)
-        }
-        (Get, ["containers", name, "archive"]) => {
-            let path = query.get("path").cloned().unwrap_or_default();
-            match read_file(state, name, &path) {
-                // A directory: every file below it, as `<dir name>/<relative path>`.
-                Err(response) if response.status == 404 => {
-                    let files = files_under(state, name, &path);
-                    if files.is_empty() {
-                        return response;
-                    }
-                    let base = path
-                        .trim_end_matches('/')
-                        .rsplit('/')
-                        .next()
-                        .unwrap_or_default();
-                    let mut body = Vec::new();
-                    for (rel, file) in files {
-                        body.extend(tar_entry(&format!("{base}/{rel}"), &file));
-                    }
-                    body.extend_from_slice(&[0u8; 1024]);
-                    DockerResponse { status: 200, body }
-                }
-                Err(response) => response,
-                Ok(file) => {
-                    let base = path.rsplit('/').next().unwrap_or_default();
-                    DockerResponse {
-                        status: 200,
-                        body: tar_file(base, &file),
-                    }
-                }
-            }
-        }
-        (Post, ["containers", name, "start"]) => {
-            let runner = state.runner;
-            let material_path = state.material_path.clone();
-            let Some(container) = state.containers.get_mut(*name) else {
-                return error(404, "no such container");
-            };
-            if container.status == "running" {
-                return empty(304);
-            }
-            let has_material = container
-                .layer
-                .get(&material_path)
-                .is_some_and(|file| !file.data.is_empty());
-            container.status = match runner {
-                Runner::Exits | Runner::ExitsWith(_) => "exited",
-                Runner::StaysRunning => "running",
-            };
-            container.exit_code = match runner {
-                Runner::ExitsWith(code) => code,
-                _ => 0,
-            };
-            if has_material {
-                let output = File {
-                    data: b"fixture-complete\n".to_vec(),
-                    mode: 0o644,
-                    uid: 0,
-                    gid: 0,
-                };
-                write_file(state, name, "/aq/work/fixture-output", output);
-                for (path, data) in state.start_files.clone() {
-                    let file = File {
-                        data,
-                        mode: 0o644,
-                        uid: 0,
-                        gid: 0,
-                    };
-                    write_file(state, name, &path, file);
-                }
-            }
-            empty(204)
-        }
-        (Post, ["containers", name, "stop"]) => match state.containers.get_mut(*name) {
-            None => error(404, "no such container"),
-            Some(c) if c.status != "running" => empty(304),
-            Some(c) => {
-                c.status = "exited";
-                empty(204)
-            }
-        },
-        (Delete, ["containers", name]) => match state.containers.get(*name) {
-            None => error(404, "no such container"),
-            Some(c) if c.status == "running" => error(409, "container is running"),
-            Some(_) => {
-                state.containers.remove(*name);
-                empty(204)
-            }
-        },
-        (Get, ["volumes"]) => {
-            let labels = filter_labels(&query);
-            let list: Vec<Value> = state
-                .volumes
-                .iter()
-                .filter(|(_, v)| labels_match(&v.labels, &labels))
-                .map(|(name, v)| json!({ "Name": name, "Labels": v.labels, "Driver": "local" }))
-                .collect();
-            ok_json(200, json!({ "Volumes": list, "Warnings": [] }))
-        }
-        (Post, ["volumes", "create"]) => {
-            let Ok(body) = serde_json::from_slice::<Value>(&request.body) else {
-                return error(400, "invalid body");
-            };
-            let name = body["Name"].as_str().unwrap_or_default().to_string();
-            if state.volumes.contains_key(&name) {
-                return error(409, "volume already exists");
-            }
-            let labels = body.get("Labels").cloned().unwrap_or(json!({}));
-            if let Some(opts) = body.get("DriverOpts") {
-                state.volume_opts.insert(name.clone(), opts.clone());
-            }
-            state.volumes.insert(
-                name.clone(),
-                Volume {
-                    labels: labels.clone(),
-                    files: BTreeMap::new(),
-                },
-            );
-            ok_json(
-                201,
-                json!({ "Name": name, "Labels": labels, "Driver": "local" }),
-            )
-        }
-        (Get, ["volumes", name]) => match state.volumes.get(*name) {
-            None => error(404, "no such volume"),
-            Some(v) => ok_json(
-                200,
-                json!({ "Name": name, "Labels": v.labels, "Driver": "local" }),
-            ),
-        },
-        (Delete, ["volumes", name]) => {
-            if !state.volumes.contains_key(*name) {
-                return error(404, "no such volume");
-            }
-            let in_use = state.containers.values().any(|c| {
-                mounts(&c.body)
-                    .iter()
-                    .any(|m| m["Type"] == "volume" && m["Source"] == *name)
-            });
-            if in_use {
-                return error(409, "volume is in use");
-            }
-            state.volumes.remove(*name);
-            empty(204)
-        }
+        (Post, ["containers", name, "stop"]) => state.stop_container(name),
+        (Delete, ["containers", name]) => state.delete_container(name),
+        (Get, ["volumes"]) => state.list_volumes(&query),
+        (Post, ["volumes", "create"]) => state.create_volume(&request.body),
+        (Get, ["volumes", name]) => state.inspect_volume(name),
+        (Delete, ["volumes", name]) => state.delete_volume(name),
         _ => error(404, "page not found"),
     }
 }

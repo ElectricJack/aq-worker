@@ -44,26 +44,36 @@ def token(value):
             and all(33 <= ord(c) <= 126 for c in value))
 
 
-def validate(material):
-    """Return `openai.expires` (epoch ms) or raise ValueError."""
-    if not 0 < len(material) <= MAX_AUTH_BYTES:
-        raise ValueError('login size')
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def validate_oauth(entry):
+    reason = 'openai entry must be a ChatGPT OAuth login'
+    require(isinstance(entry, dict) and set(entry) <= OAUTH_FIELDS, reason)
+    require(entry.get('type') == 'oauth', reason)
+    require(all(token(entry.get(key)) for key in ('refresh', 'access')), reason)
+    account = entry.get('accountId')
+    require(account is None or token(account), reason)
+
+
+def oauth_entry(material):
+    require(0 < len(material) <= MAX_AUTH_BYTES, 'login size')
     try:
         auth = json.loads(material.decode('utf-8'), object_pairs_hook=unique_object)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError('login JSON') from error
-    if not isinstance(auth, dict) or set(auth) != {'openai'}:
-        raise ValueError('login must hold only the openai entry')
-    entry = auth['openai']
-    if (not isinstance(entry, dict) or not set(entry) <= OAUTH_FIELDS
-            or entry.get('type') != 'oauth'
-            or not token(entry.get('refresh')) or not token(entry.get('access'))
-            or ('accountId' in entry and entry['accountId'] is not None
-                and not token(entry['accountId']))):
-        raise ValueError('openai entry must be a ChatGPT OAuth login')
+    require(isinstance(auth, dict) and set(auth) == {'openai'}, 'login must hold only the openai entry')
+    return auth['openai']
+
+
+def validate(material):
+    """Return `openai.expires` (epoch ms) or raise ValueError."""
+    entry = oauth_entry(material)
+    validate_oauth(entry)
     expires = entry.get('expires')
-    if type(expires) is not int or not 0 < expires < 2**63:
-        raise ValueError('login expiry')
+    require(type(expires) is int and 0 < expires < 2**63, 'login expiry')
     return expires
 
 

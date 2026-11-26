@@ -15,31 +15,33 @@ pub(super) fn refuse(
     super::usage_err(disposition)
 }
 
+fn diagnostic_cause(cause: &(dyn std::error::Error + 'static)) -> String {
+    // Parser errors can quote private input, even before WorkerConfig loads.
+    if cause.is::<toml::de::Error>() {
+        "invalid TOML configuration (input redacted)".to_string()
+    } else if let Some(error) = cause.downcast_ref::<serde_json::Error>() {
+        format!(
+            "invalid JSON {:?} at line {} column {} (input redacted)",
+            error.classify(),
+            error.line(),
+            error.column()
+        )
+    } else if let Some(error) = cause.downcast_ref::<reqwest::Error>() {
+        // A request URL can contain authentication in userinfo or query.
+        let text = error.to_string();
+        match error.url() {
+            Some(url) => text.replace(url.as_str(), "<redacted URL>"),
+            None => text,
+        }
+    } else {
+        cause.to_string()
+    }
+}
+
 fn message(error: &anyhow::Error, worker: Option<&WorkerConfig>) -> String {
     let mut message = error
         .chain()
-        .map(|cause| {
-            // Parser errors can quote private input, even before WorkerConfig loads.
-            if cause.is::<toml::de::Error>() {
-                "invalid TOML configuration (input redacted)".to_string()
-            } else if let Some(error) = cause.downcast_ref::<serde_json::Error>() {
-                format!(
-                    "invalid JSON {:?} at line {} column {} (input redacted)",
-                    error.classify(),
-                    error.line(),
-                    error.column()
-                )
-            } else if let Some(error) = cause.downcast_ref::<reqwest::Error>() {
-                // A request URL can contain authentication in userinfo or query.
-                let text = error.to_string();
-                match error.url() {
-                    Some(url) => text.replace(url.as_str(), "<redacted URL>"),
-                    None => text,
-                }
-            } else {
-                cause.to_string()
-            }
-        })
+        .map(diagnostic_cause)
         .collect::<Vec<_>>()
         .join(": ");
     if let Some(worker) = worker {

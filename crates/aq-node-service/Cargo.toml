@@ -27,6 +27,10 @@ url = "2"
 uuid.workspace = true
 zeroize = "1"
 
+[features]
+# spec 0017 (sandbox environments), off by default; aq-worker's feature turns it on.
+project_environments = []
+
 [dev-dependencies]
 aq-machine-load = { path = "../aq-machine-load" }
 axum.workspace = true

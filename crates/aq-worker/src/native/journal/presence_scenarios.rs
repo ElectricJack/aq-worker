@@ -80,6 +80,7 @@ async fn inventory(
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn actual_private_read_publishes_exact_initial_scope_without_global_installation_claim() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup().await;
     let ack = inventory(&producer).await;
     assert_eq!(ack.receipt().inventory.sequence, 2);
@@ -149,6 +150,7 @@ async fn expire(deadline: u64) {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn formatted_definition_is_accepted_and_pipeline_publisher_cannot_be_reset() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, _grant) = setup().await;
     let (formatted, adapter) = profile(true);
     assert!(
@@ -170,6 +172,7 @@ async fn formatted_definition_is_accepted_and_pipeline_publisher_cannot_be_reset
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadline() {
+    let clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, _grant) = setup().await;
     // A 400 is final, not retried: one send fails, the retry of the same operation succeeds.
     h.scoped_mode.store(6, Ordering::SeqCst);
@@ -178,7 +181,7 @@ async fn inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadl
     assert!(producer.publish_inventory(&operation).await.is_err());
     let after_failure = boot_ns().unwrap();
     assert!(producer.begin_inventory(1000).is_err());
-    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    clock.advance_to(after_failure + 20_000_000);
     h.scoped_mode.store(0, Ordering::SeqCst);
     let ack = producer.publish_inventory(&operation).await.unwrap();
     assert!(ack.deadline_ns() <= after_failure + 1_000_000_000);
@@ -196,6 +199,7 @@ async fn inventory_lost_ack_keeps_original_operation_seed_and_conservative_deadl
 /// #121 answers lock timeouts with 503: an inventory report is resent until acknowledged.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn overloaded_inventory_report_is_resent_then_acknowledged_or_fails_bounded() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, _grant) = setup().await;
     let calls = || h.scoped_calls.lock().unwrap().clone();
     let sent = || calls().iter().filter(|(p, _)| p == "inventory").count();
@@ -222,6 +226,7 @@ async fn overloaded_inventory_report_is_resent_then_acknowledged_or_fails_bounde
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn exact_presence_retry_never_recaptures_private_bytes_or_extends_observation() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup().await;
     let ack = inventory(&producer).await;
     let operation = producer.begin_presence(&grant, &ack, 1000).unwrap();
@@ -259,6 +264,7 @@ async fn exact_presence_retry_never_recaptures_private_bytes_or_extends_observat
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unsafe_or_absent_private_members_never_become_positive() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     use std::os::unix::fs::symlink;
     for mode in 0..5 {
         let (h, _git, producer, grant) = setup().await;
@@ -309,6 +315,7 @@ async fn unsafe_or_absent_private_members_never_become_positive() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn changed_installation_record_is_negative_without_serializing_untrusted_record() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup().await;
     let ack = inventory(&producer).await;
     let path = material(&h).await.with_file_name("record.json");
@@ -361,6 +368,7 @@ async fn positive_cannot_survive_expiry_during_read_but_scoped_missing_can() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_actual_read_remains_owned_and_is_published_only_by_explicit_retry() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup().await;
     let producer = Arc::new(producer);
     let ack = inventory(&producer).await;
@@ -403,6 +411,7 @@ async fn cancelled_actual_read_remains_owned_and_is_published_only_by_explicit_r
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wrong_or_oversized_receipts_fail_closed_and_keep_identical_operation() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for mode in [3, 4] {
         let (h, _git, producer, grant) = setup().await;
         let ack = inventory(&producer).await;
@@ -422,6 +431,7 @@ async fn wrong_or_oversized_receipts_fail_closed_and_keep_identical_operation() 
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failed_factory_does_not_burn_singleton_and_old_inventory_cannot_name_new_report() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let h = Inputs::new(synthetic()).await;
     let (q, _) = profile(false);
     assert!(h.pipeline().scoped_presence(q, vec![], 1).await.is_err());
@@ -439,6 +449,7 @@ async fn failed_factory_does_not_burn_singleton_and_old_inventory_cannot_name_ne
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_network_publication_keeps_original_body_for_exact_retry() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup().await;
     let producer = Arc::new(producer);
     let ack = inventory(&producer).await;
@@ -491,6 +502,7 @@ async fn expired_initial_token_never_reads_or_publishes_positive() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn namespace_replacement_during_actual_read_is_never_positive_even_with_same_bytes() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     for member in ["material.bin", "record.json", "directory"] {
         let (h, _git, producer, grant) = setup().await;
         let producer = Arc::new(producer);
@@ -563,6 +575,7 @@ async fn full_read_interval_is_bounded_even_with_a_still_live_initial_grant() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn historical_private_files_and_received_grant_cannot_construct_a_new_positive_producer() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (mut h, _git, producer, grant) = setup().await;
     let state = h.pipeline().snapshot().await.unwrap();
     let receipt = state.attempts[&h.id]
@@ -596,6 +609,7 @@ async fn historical_private_files_and_received_grant_cannot_construct_a_new_posi
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn opaque_token_and_inventory_from_other_pipeline_cannot_be_rebound() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, grant) = setup().await;
     let (_h2, _git2, producer2, grant2) = setup().await;
     let ack = inventory(&producer).await;
@@ -612,6 +626,7 @@ async fn opaque_token_and_inventory_from_other_pipeline_cannot_be_rebound() {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saturated_bulk_reads_do_not_consume_scoped_control_publication() {
+    let _clock = crate::native::http::test_clock::TestClock::new();
     let (h, _git, producer, _grant) = setup().await;
     h.mode.store(4, Ordering::SeqCst);
     let pipeline = h.pipeline().clone();

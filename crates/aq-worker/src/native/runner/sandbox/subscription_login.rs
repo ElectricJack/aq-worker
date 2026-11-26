@@ -355,13 +355,13 @@ fn install(
             );
             let stamp = stamp(issued.kind, &issued.material)?;
             let home = login_home.context("Codex login requires a private CODEX_HOME")?;
-            place(home, AUTH_FILE, &issued.material, fresh, owner)?;
+            place((home, AUTH_FILE), &issued.material, fresh, owner)?;
             (Secret::Codex(home.to_owned()), stamp)
         }
         LoginKind::GeminiOauthCreds => {
             let stamp = stamp(issued.kind, &issued.material)?;
             let dir = login_home.context("Gemini login requires a private state directory")?;
-            place(dir, GEMINI_OAUTH_FILE, &issued.material, fresh, owner)?;
+            place((dir, GEMINI_OAUTH_FILE), &issued.material, fresh, owner)?;
             (Secret::Gemini(dir.to_owned()), stamp)
         }
         LoginKind::OpenCodeChatgptAuth => {
@@ -371,7 +371,7 @@ fn install(
             );
             let stamp = stamp(issued.kind, &issued.material)?;
             let dir = login_home.context("OpenCode login requires a private data directory")?;
-            place(dir, AUTH_FILE, &issued.material, fresh, owner)?;
+            place((dir, AUTH_FILE), &issued.material, fresh, owner)?;
             (Secret::OpenCode(dir.to_owned()), stamp)
         }
     };
@@ -388,8 +388,7 @@ fn install(
 /// Write the login file into a fresh owner-only directory, or replace it in
 /// the existing one on a relaunch.
 fn place(
-    dir: &Path,
-    name: &str,
+    (dir, name): (&Path, &str),
     bytes: &[u8],
     fresh: bool,
     owner: Option<AgentIdentity>,
@@ -473,26 +472,22 @@ impl SubscriptionLogin {
         service: &mut impl LoginService,
         harness: &mut impl Harness,
     ) -> Result<AttemptOutcome> {
-        let mut retried = false;
-        loop {
-            match harness.launch(&self.installed).await? {
-                HarnessExit::AuthenticationFailed if !retried => {
-                    retried = true;
-                    let newest = service.fetch_newest(self.installed.kind).await?;
-                    if newest.kind != self.installed.kind
-                        || newest.version <= self.installed.version
-                    {
-                        return Ok(AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID));
-                    }
-                    let home = self.installed.login_dir().map(Path::to_owned);
-                    self.installed = install(newest, home.as_deref(), false, self.owner)?;
-                }
-                HarnessExit::AuthenticationFailed => {
-                    return Ok(AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID));
-                }
-                exit => return Ok(AttemptOutcome::Exited(exit)),
-            }
+        let first = harness.launch(&self.installed).await?;
+        if first != HarnessExit::AuthenticationFailed {
+            return Ok(AttemptOutcome::Exited(first));
         }
+        let newest = service.fetch_newest(self.installed.kind).await?;
+        if newest.kind != self.installed.kind || newest.version <= self.installed.version {
+            return Ok(AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID));
+        }
+        let home = self.installed.login_dir().map(Path::to_owned);
+        self.installed = install(newest, home.as_deref(), false, self.owner)?;
+        Ok(match harness.launch(&self.installed).await? {
+            HarnessExit::AuthenticationFailed => {
+                AttemptOutcome::Failed(LoginFailure::CREDENTIAL_INVALID)
+            }
+            exit => AttemptOutcome::Exited(exit),
+        })
     }
 
     /// Before any teardown: write a refreshed Codex, Gemini or OpenCode login back, then wipe the
@@ -527,31 +522,8 @@ impl SubscriptionLogin {
                 .flatten()
         {
             receipt.content_digest = Some(Digest::of(&refreshed));
-            match upload(service, &installed, &refreshed, deadline).await {
-                Some(WriteBack::Accepted { version, replayed }) => {
-                    receipt.outcome = if replayed {
-                        ReceiptOutcome::Replayed
-                    } else {
-                        ReceiptOutcome::Accepted
-                    };
-                    receipt.version = Some(version);
-                }
-                Some(WriteBack::Superseded { version }) => {
-                    receipt.outcome = ReceiptOutcome::Superseded;
-                    receipt.version = Some(version);
-                }
-                other => {
-                    receipt.outcome = match other {
-                        Some(_) => ReceiptOutcome::NotRenewable,
-                        None => ReceiptOutcome::DeadlineExceeded,
-                    };
-                    // Never dropped silently: keep it only in runner-only state.
-                    match files.write_secret(RETAINED_FILE, &refreshed) {
-                        Ok(()) => receipt.retained = true,
-                        Err(e) => failure = Some(e.context("retain refreshed login")),
-                    }
-                }
-            }
+            let reply = upload(service, &installed, &refreshed, deadline).await;
+            failure = receipt.record_reply(reply, files, &refreshed).err();
         }
         if let Err(e) = wipe(installed, owner) {
             failure.get_or_insert(e);
@@ -564,6 +536,42 @@ impl SubscriptionLogin {
             Some(e) => Err(e),
             None => Ok(receipt),
         }
+    }
+}
+
+impl WriteBackReceipt {
+    fn record_reply(
+        &mut self,
+        reply: Option<WriteBack>,
+        files: &RunnerFiles,
+        refreshed: &[u8],
+    ) -> Result<()> {
+        match reply {
+            Some(WriteBack::Accepted { version, replayed }) => {
+                self.outcome = if replayed {
+                    ReceiptOutcome::Replayed
+                } else {
+                    ReceiptOutcome::Accepted
+                };
+                self.version = Some(version);
+            }
+            Some(WriteBack::Superseded { version }) => {
+                self.outcome = ReceiptOutcome::Superseded;
+                self.version = Some(version);
+            }
+            other => {
+                self.outcome = match other {
+                    Some(_) => ReceiptOutcome::NotRenewable,
+                    None => ReceiptOutcome::DeadlineExceeded,
+                };
+                // Never dropped silently: keep it only in runner-only state.
+                files
+                    .write_secret(RETAINED_FILE, refreshed)
+                    .context("retain refreshed login")?;
+                self.retained = true;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -614,35 +622,29 @@ async fn upload(
     }
 }
 
+fn removed(result: std::io::Result<()>, label: &str) -> Result<()> {
+    match result {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => bail!("{label}: {e}"),
+        _ => Ok(()),
+    }
+}
 fn wipe(installed: InstalledLogin, owner: Option<AgentIdentity>) -> Result<()> {
     match installed.secret {
         // Zeroizing clears the token on drop.
         Secret::Claude(token) => drop(token),
-        Secret::Codex(home) => as_owner(owner, || match fs::remove_dir_all(&home) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                bail!("wipe Codex login home: {e}")
-            }
-            _ => Ok(()),
+        Secret::Codex(home) => as_owner(owner, || {
+            removed(fs::remove_dir_all(&home), "wipe Codex login home")
         })?,
-        // The state directory keeps the session recording for the reader.
+        // Keep the session recording beside the two login files.
         Secret::Gemini(dir) => as_owner(owner, || {
             for name in GEMINI_LOGIN_FILES {
-                match fs::remove_file(dir.join(name)) {
-                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                        bail!("wipe Gemini login: {e}")
-                    }
-                    _ => {}
-                }
+                removed(fs::remove_file(dir.join(name)), "wipe Gemini login")?;
             }
             Ok(())
         })?,
-        // Only the login: OpenCode's session store beside it is the
-        // transcript source and is torn down with the private home.
-        Secret::OpenCode(dir) => as_owner(owner, || match fs::remove_file(dir.join(AUTH_FILE)) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
-                bail!("wipe OpenCode login: {e}")
-            }
-            _ => Ok(()),
+        // The OpenCode session store remains beside the login.
+        Secret::OpenCode(dir) => as_owner(owner, || {
+            removed(fs::remove_file(dir.join(AUTH_FILE)), "wipe OpenCode login")
         })?,
     }
     Ok(())

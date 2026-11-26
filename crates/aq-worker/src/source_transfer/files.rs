@@ -31,32 +31,48 @@ fn artifact_directory(
             }
             dir.sync_all()?;
         }
-        let fd = unsafe {
-            libc::openat(
-                dir.as_raw_fd(),
-                c.as_ptr(),
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            )
-        };
-        if fd < 0 {
-            return Err(std::io::Error::last_os_error())
-                .context("artifact directory unavailable or unsafe");
-        }
-        dir = unsafe { File::from_raw_fd(fd) };
+        dir = child_directory(&dir, &c).context("artifact directory unavailable or unsafe")?;
     }
     Ok(dir)
+}
+fn child_directory(parent: &File, name: &std::ffi::CStr) -> std::io::Result<File> {
+    let fd = unsafe {
+        libc::openat(
+            parent.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+#[derive(Clone, Copy)]
+pub(crate) enum ArtifactAccess {
+    Retained,
+    #[cfg(feature = "synthetic-runtime")]
+    ReadIncoming,
+    #[cfg(feature = "synthetic-runtime")]
+    WriteIncoming,
 }
 pub(crate) fn artifact_file(
     root: &Path,
     artifact: Uuid,
-    incoming: bool,
     name: &str,
-    write: bool,
+    access: ArtifactAccess,
 ) -> Result<File> {
     ensure!(
         !artifact.is_nil() && matches!(name, "manifest.json" | "objects.bundle"),
         "invalid artifact member"
     );
+    let (incoming, write) = match access {
+        ArtifactAccess::Retained => (false, false),
+        #[cfg(feature = "synthetic-runtime")]
+        ArtifactAccess::ReadIncoming => (true, false),
+        #[cfg(feature = "synthetic-runtime")]
+        ArtifactAccess::WriteIncoming => (true, true),
+    };
     let dir = artifact_directory(root, Some(artifact), incoming, write)?;
     let c = std::ffi::CString::new(name)?;
     let flags = if write {
@@ -100,44 +116,40 @@ pub(crate) fn discard_incoming(root: &Path, artifact: Uuid) -> Result<()> {
         Err(e) => return Err(e),
     };
     let name = std::ffi::CString::new(artifact.to_string())?;
-    let fd = unsafe {
-        libc::openat(
-            parent.as_raw_fd(),
-            name.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-        )
+    let dir = match child_directory(&parent, &name) {
+        Ok(dir) => dir,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).context("unsafe input retirement directory"),
     };
-    if fd < 0 {
-        let e = std::io::Error::last_os_error();
-        if e.kind() == std::io::ErrorKind::NotFound {
-            return Ok(());
-        }
-        return Err(e).context("unsafe input retirement directory");
-    }
-    let dir = unsafe { File::from_raw_fd(fd) };
     for member in [c"manifest.json", c"objects.bundle"] {
-        let rc = unsafe { libc::unlinkat(dir.as_raw_fd(), member.as_ptr(), 0) };
-        if rc != 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound {
-            return Err(std::io::Error::last_os_error().into());
-        }
+        unlink(&dir, member, 0)?;
     }
     dir.sync_all()?;
-    let rc = unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), libc::AT_REMOVEDIR) };
-    if rc != 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::NotFound {
-        return Err(std::io::Error::last_os_error())
-            .context("input retirement has unexpected members");
-    }
+    unlink(&parent, &name, libc::AT_REMOVEDIR)
+        .context("input retirement has unexpected members")?;
     parent.sync_all()?;
+    Ok(())
+}
+#[cfg(feature = "synthetic-runtime")]
+fn unlink(dir: &File, name: &std::ffi::CStr, flags: i32) -> std::io::Result<()> {
+    if unsafe { libc::unlinkat(dir.as_raw_fd(), name.as_ptr(), flags) } != 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(error);
+        }
+    }
     Ok(())
 }
 pub(super) fn read_range(
     root: &Path,
-    artifact: Uuid,
+    manifest: &TransferManifest,
     file: &TransferFile,
-    offset: u64,
-    length: usize,
-    size: u64,
+    (offset, length): (u64, usize),
 ) -> Result<Vec<u8>> {
+    let (name, size) = match file {
+        TransferFile::Manifest => ("manifest.json", manifest.manifest_bytes),
+        TransferFile::Bundle => ("objects.bundle", manifest.bundle_bytes),
+    };
     ensure!(
         length <= MAX_CHUNK_BYTES
             && offset
@@ -145,11 +157,7 @@ pub(super) fn read_range(
                 .is_some_and(|end| end <= size),
         "invalid artifact range"
     );
-    let name = match file {
-        TransferFile::Manifest => "manifest.json",
-        TransferFile::Bundle => "objects.bundle",
-    };
-    let mut f = artifact_file(root, artifact, false, name, false)?;
+    let mut f = artifact_file(root, manifest.artifact_id, name, ArtifactAccess::Retained)?;
     ensure!(
         f.metadata()?.len() == size,
         "retained artifact length changed"

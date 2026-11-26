@@ -34,7 +34,21 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
     )
     .unwrap();
     let source = SourceFile::open(permit.clone()).unwrap();
-    let normal = Normalizer::new(
+    let root = temp.path().join("spool");
+    let mut spool = support::initialize(&root, node(), Limits::default());
+    spool.attach_file(fixture_normalizer(), permit).unwrap();
+    spool
+        .collect(Uuid::from_u128(8), &source, 100, OverflowPolicy::Hold)
+        .unwrap();
+    drop(spool);
+    let normal = populate_old_state(&root.join("spool.json"));
+    let spool = Spool::open(&root, node(), Limits::default()).unwrap();
+    let plan = replay_plan(&normal, &bytes, spool.cursor(Uuid::from_u128(8)).unwrap());
+    (spool, source, bytes, plan)
+}
+
+fn fixture_normalizer() -> Normalizer {
+    Normalizer::new(
         Source {
             binding: binding(),
             source_id: Uuid::from_u128(8),
@@ -47,18 +61,14 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
         },
         128,
     )
-    .unwrap();
-    let root = temp.path().join("spool");
-    let mut spool = support::initialize(&root, node(), Limits::default());
-    spool.attach_file(normal, permit).unwrap();
-    spool
-        .collect(Uuid::from_u128(8), &source, 100, OverflowPolicy::Hold)
-        .unwrap();
-    drop(spool);
+    .unwrap()
+}
+
+fn populate_old_state(path: &std::path::Path) -> Normalizer {
     // Synthetic durable old producer: same verified native bytes, but a parser bug
     // reported output7 rather than native5. Private metadata checksum is rebuilt.
-    let path = root.join("spool.json");
-    let mut envelope: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+
+    let mut envelope: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let old_parser = ArtifactRef {
         id: Text::new("synthetic-old-parser-error").unwrap(),
         version: Text::new("0.0.0").unwrap(),
@@ -101,10 +111,10 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
     }
     envelope["digest"] = json!(json_digest(&envelope["state"]));
     std::fs::write(path, serde_json::to_vec(&envelope).unwrap()).unwrap();
-    let spool = Spool::open(&root, node(), Limits::default()).unwrap();
-    let normal: Normalizer =
-        serde_json::from_value(envelope["state"]["sources"][&source_key]["normalizer"].clone())
-            .unwrap();
+    serde_json::from_value(envelope["state"]["sources"][&source_key]["normalizer"].clone()).unwrap()
+}
+
+fn replay_plan(normal: &Normalizer, bytes: &[u8], retained_cursor: Cursor) -> ReparsePlan {
     let known = normal
         .seen
         .iter()
@@ -113,12 +123,12 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
                 key.clone(),
                 ReplayFact {
                     prior: seen.event.clone(),
-                    selected_record_digest: Digest::of(&bytes),
+                    selected_record_digest: Digest::of(bytes),
                 },
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let plan = ReparsePlan {
+    ReparsePlan {
         operation_id: Uuid::from_u128(200),
         source_id: normal.source.source_id,
         source_generation: normal.source.generation,
@@ -126,7 +136,7 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
         binding: binding(),
         old_parser: normal.parser.clone(),
         new_parser: normal.source.parser(),
-        retained_cursor: spool.cursor(Uuid::from_u128(8)).unwrap(),
+        retained_cursor,
         transcript: RetentionReceipt {
             receipt_id: Uuid::from_u128(300),
             owner: Text::new("fake-retention-owner").unwrap(),
@@ -134,7 +144,7 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
             artifact: ArtifactRef {
                 id: Text::new("synthetic-retained-native-prefix").unwrap(),
                 version: Text::new("1").unwrap(),
-                digest: Digest::of(&bytes),
+                digest: Digest::of(bytes),
             },
             role: ArtifactRole::Transcript,
             bytes: bytes.len() as u64,
@@ -142,8 +152,7 @@ fn fixture(temp: &tempfile::TempDir) -> (Spool, SourceFile, Vec<u8>, ReparsePlan
             retained_until_ms: 10000,
         },
         known,
-    };
-    (spool, source, bytes, plan)
+    }
 }
 struct Owner(Digest);
 impl ReplayAuthority for Owner {
@@ -198,7 +207,10 @@ fn explicit_verified_reparse_corrects_only_known_fact_and_finishes_without_dupli
             .facts_added,
         0
     );
-    let packet = spool.prepare_packet().unwrap().unwrap();
+    assert_corrected_usage(spool.prepare_packet().unwrap().unwrap());
+}
+
+fn assert_corrected_usage(packet: Packet) {
     let Message::Batch(batch) = packet.body.message else {
         panic!()
     };

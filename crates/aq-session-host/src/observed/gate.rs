@@ -65,6 +65,36 @@ pub(crate) struct Owner {
     baseline: Option<BlankBaselineRecord>,
     released: bool,
 }
+pub(crate) struct GateTurn<'a> {
+    pub(crate) config: &'a SealedLaunch,
+    pub(crate) host: &'a HostObservation,
+    pub(crate) directory: &'a Path,
+    pub(crate) readers: &'a reader_lease::Owner,
+    pub(crate) guard: &'a terminal_io::DirectoryGuard,
+}
+struct Admission {
+    guardian: GuardianIdentity,
+    peer_pid: u32,
+    fd: Option<std::os::fd::OwnedFd>,
+}
+struct Hello {
+    guardian: GuardianIdentity,
+    process: ProcessEvidence,
+    columns: u16,
+    rows: u16,
+    peer_pid: u32,
+    no_fd: bool,
+}
+impl Hello {
+    fn matches_pane(&self, pane: &PaneIdentity, spec: &Spec) -> Result<bool> {
+        Ok(self.process == pane.pane
+            && self.peer_pid == self.process.pid
+            && ownership::process_evidence(self.process.pid)? == self.process
+            && self.columns == spec.columns
+            && self.rows == spec.rows)
+    }
+}
+
 impl Owner {
     pub(crate) fn new(directory: &Path) -> Result<Self> {
         let path = directory.join(NAME);
@@ -102,16 +132,10 @@ impl Owner {
     pub(crate) fn closed_ready(&self) -> Option<&ClosedReady> {
         self.ready.as_ref()
     }
-    pub(crate) fn tick(
-        &mut self,
-        config: &SealedLaunch,
-        host: &HostObservation,
-        directory: &Path,
-        readers: &reader_lease::Owner,
-        guard: &terminal_io::DirectoryGuard,
-    ) -> Result<bool> {
-        guard.verify()?;
-        let spec = config
+    pub(crate) fn tick(&mut self, turn: &GateTurn<'_>) -> Result<bool> {
+        turn.guard.verify()?;
+        let spec = turn
+            .config
             .observed
             .as_ref()
             .context("missing observed specification")?;
@@ -124,8 +148,8 @@ impl Owner {
             "observed gate socket replaced"
         );
         ensure!(
-            ownership::raw_boot_ms() < host.permit_deadline_boot_ms
-                && ownership::raw_boot_ms() < config.wall_deadline()?,
+            ownership::raw_boot_ms() < turn.host.permit_deadline_boot_ms
+                && ownership::raw_boot_ms() < turn.config.wall_deadline()?,
             "observed gate authority expired"
         );
         if self.released {
@@ -133,6 +157,22 @@ impl Owner {
             let helper = self.helper.as_ref().context("released helper missing")?;
             return released(helper, pane, &spec.program);
         }
+        self.accept(turn, spec)?;
+        self.control(turn, spec)?;
+        // The helper stays blocked here. EOF, client loss and every malformed
+        // packet fail closed; the guardian's independent stop path reaps it.
+        if !self.released
+            && let Some(helper) = self.helper.as_ref()
+        {
+            ensure!(
+                helper.receive()?.is_none(),
+                "unexpected closed helper packet"
+            );
+        }
+        Ok(false)
+    }
+
+    fn accept(&mut self, turn: &GateTurn<'_>, spec: &Spec) -> Result<()> {
         if self.pending.is_none() {
             self.pending = self.listener.accept()?;
         }
@@ -142,21 +182,15 @@ impl Owner {
             let peer = socket.credentials()?;
             match serde_json::from_slice::<Request>(&packet.bytes)? {
                 Request::Admit { guardian } => {
-                    ensure!(
-                        guardian == host.guardian
-                            && peer.pid as u32 == spec.owner.pid
-                            && ownership::process_evidence(spec.owner.pid)? == spec.owner
-                            && self.control.is_none()
-                            && self.image.is_none()
-                            && host.phase == HostPhase::Waiting,
-                        "observed program owner/admission mismatch"
-                    );
-                    let file =
-                        File::from(packet.fd.context("observed program descriptor missing")?);
-                    executable::verify_file(&file, &spec.program)?;
-                    socket.send(&Response::Admitted, None)?;
-                    self.image = Some(file);
-                    self.control = self.pending.take();
+                    self.admit(
+                        turn,
+                        spec,
+                        Admission {
+                            guardian,
+                            peer_pid: peer.pid as u32,
+                            fd: packet.fd,
+                        },
+                    )?;
                 }
                 Request::Hello {
                     guardian,
@@ -164,36 +198,82 @@ impl Owner {
                     columns,
                     rows,
                 } => {
-                    let pane = host
-                        .pane
-                        .as_ref()
-                        .context("observed pane not established")?;
-                    ensure!(
-                        packet.fd.is_none()
-                            && guardian == host.guardian
-                            && host.phase == HostPhase::Starting
-                            && self.image.is_some()
-                            && self.helper.is_none()
-                            && process == pane.pane
-                            && peer.pid as u32 == process.pid
-                            && ownership::process_evidence(process.pid)? == process
-                            && columns == spec.columns
-                            && rows == spec.rows,
-                        "observed helper identity/geometry mismatch"
-                    );
-                    self.ready = Some(ClosedReady {
-                        guardian,
-                        pane: pane.clone(),
-                        baseline_id: spec.baseline_id,
-                        columns,
-                        rows,
-                        helper_ready_boot_ms: ownership::raw_boot_ms(),
-                    });
-                    self.helper = self.pending.take();
+                    self.hello(
+                        turn,
+                        spec,
+                        Hello {
+                            guardian,
+                            process,
+                            columns,
+                            rows,
+                            peer_pid: peer.pid as u32,
+                            no_fd: packet.fd.is_none(),
+                        },
+                    )?;
                 }
                 _ => bail!("observed gate first packet refused"),
             }
         }
+        Ok(())
+    }
+    fn admit(&mut self, turn: &GateTurn<'_>, spec: &Spec, registration: Admission) -> Result<()> {
+        let Admission {
+            guardian,
+            peer_pid,
+            fd,
+        } = registration;
+        ensure!(
+            guardian == turn.host.guardian
+                && peer_pid == spec.owner.pid
+                && ownership::process_evidence(spec.owner.pid)? == spec.owner
+                && self.control.is_none()
+                && self.image.is_none()
+                && turn.host.phase == HostPhase::Waiting,
+            "observed program owner/admission mismatch"
+        );
+        let file = File::from(fd.context("observed program descriptor missing")?);
+        executable::verify_file(&file, &spec.program)?;
+        self.pending
+            .as_ref()
+            .context("admission socket absent")?
+            .send(&Response::Admitted, None)?;
+        self.image = Some(file);
+        self.control = self.pending.take();
+        Ok(())
+    }
+    fn hello(&mut self, turn: &GateTurn<'_>, spec: &Spec, hello: Hello) -> Result<()> {
+        let pane = turn
+            .host
+            .pane
+            .as_ref()
+            .context("observed pane not established")?;
+        ensure!(
+            hello.no_fd
+                && hello.guardian == turn.host.guardian
+                && turn.host.phase == HostPhase::Starting
+                && self.image.is_some()
+                && self.helper.is_none()
+                && hello.matches_pane(pane, spec)?,
+            "observed helper identity/geometry mismatch"
+        );
+        let Hello {
+            guardian,
+            columns,
+            rows,
+            ..
+        } = hello;
+        self.ready = Some(ClosedReady {
+            guardian,
+            pane: pane.clone(),
+            baseline_id: spec.baseline_id,
+            columns,
+            rows,
+            helper_ready_boot_ms: ownership::raw_boot_ms(),
+        });
+        self.helper = self.pending.take();
+        Ok(())
+    }
+    fn control(&mut self, turn: &GateTurn<'_>, spec: &Spec) -> Result<()> {
         if let Some(socket) = self.control.as_ref()
             && let Some(packet) = socket.receive()?
         {
@@ -218,83 +298,90 @@ impl Owner {
                     )?;
                 }
                 Request::Confirm { baseline_id } => {
-                    ensure!(
-                        baseline_id == spec.baseline_id,
-                        "observed baseline mismatch"
-                    );
-                    let ready = self.ready.as_ref().context("closed helper missing")?;
-                    verify_closed(config, host, ready, directory)?;
-                    if !readers.drained_after(ready.helper_ready_boot_ms) {
-                        socket.send(&Response::Waiting, None)?;
-                    } else {
-                        let baseline = self.baseline.get_or_insert_with(|| BlankBaselineRecord {
-                            ready: ready.clone(),
-                            terminal: spec.terminal.clone(),
-                            renderer: spec.renderer.clone(),
-                            configuration_digest: host.guardian.intent.configuration_digest.clone(),
-                        });
-                        socket.send(
-                            &Response::Baseline {
-                                baseline: baseline.clone(),
-                            },
-                            None,
-                        )?;
-                    }
+                    self.confirm(turn, spec, baseline_id)?;
                 }
                 Request::Release { baseline_digest } => {
-                    let ready = self.ready.as_ref().context("closed helper missing")?;
-                    verify_closed(config, host, ready, directory)?;
-                    let baseline = self.baseline.as_ref().context("baseline not confirmed")?;
-                    ensure!(
-                        Digest::of(&serde_json::to_vec(baseline)?) == baseline_digest
-                            && readers.drained_after(ready.helper_ready_boot_ms),
-                        "baseline release digest/read lease mismatch"
-                    );
-                    guard.verify()?;
-                    durable_new(
-                        &directory.join("pane-exec.claim"),
-                        &serde_json::to_vec(baseline)?,
-                    )?;
-                    guard.verify()?;
-                    verify_closed(config, host, ready, directory)?;
-                    ensure!(
-                        readers.drained_after(ready.helper_ready_boot_ms),
-                        "reader lost during release persistence"
-                    );
-                    self.released = true; // No second release even if delivery/ACK is uncertain.
-                    self.helper
-                        .as_ref()
-                        .context("closed helper missing")?
-                        .send(
-                            &Response::Execute {
-                                guardian: host.guardian.clone(),
-                                baseline_id: spec.baseline_id,
-                            },
-                            Some(
-                                self.image
-                                    .as_ref()
-                                    .context("sealed image missing")?
-                                    .as_raw_fd(),
-                            ),
-                        )?;
-                    socket.send(&Response::Released, None)?;
-                    #[cfg(feature = "test-support")]
-                    supervisor::fault_point(directory, "observed-exec-permit")?;
+                    self.release(turn, spec, baseline_digest)?;
                 }
                 _ => bail!("observed control operation refused"),
             }
         }
-        // The helper stays blocked here. EOF, client loss and every malformed
-        // packet fail closed; the guardian's independent stop path reaps it.
-        if !self.released
-            && let Some(helper) = self.helper.as_ref()
-        {
-            ensure!(
-                helper.receive()?.is_none(),
-                "unexpected closed helper packet"
-            );
+        Ok(())
+    }
+    fn confirm(&mut self, turn: &GateTurn<'_>, spec: &Spec, baseline_id: Uuid) -> Result<()> {
+        let socket = self
+            .control
+            .as_ref()
+            .context("observed control socket absent")?;
+        ensure!(
+            baseline_id == spec.baseline_id,
+            "observed baseline mismatch"
+        );
+        let ready = self.ready.as_ref().context("closed helper missing")?;
+        verify_closed(turn.config, turn.host, ready, turn.directory)?;
+        if !turn.readers.drained_after(ready.helper_ready_boot_ms) {
+            socket.send(&Response::Waiting, None)?;
+        } else {
+            let baseline = self.baseline.get_or_insert_with(|| BlankBaselineRecord {
+                ready: ready.clone(),
+                terminal: spec.terminal.clone(),
+                renderer: spec.renderer.clone(),
+                configuration_digest: turn.host.guardian.intent.configuration_digest.clone(),
+            });
+            socket.send(
+                &Response::Baseline {
+                    baseline: baseline.clone(),
+                },
+                None,
+            )?;
         }
-        Ok(false)
+        Ok(())
+    }
+    fn release(&mut self, turn: &GateTurn<'_>, spec: &Spec, baseline_digest: Digest) -> Result<()> {
+        let socket = self
+            .control
+            .as_ref()
+            .context("observed control socket absent")?;
+        let ready = self.ready.as_ref().context("closed helper missing")?;
+        verify_closed(turn.config, turn.host, ready, turn.directory)?;
+        let baseline = self.baseline.as_ref().context("baseline not confirmed")?;
+        let baseline_bytes = serde_json::to_vec(baseline)?;
+        ensure!(
+            Digest::of(&baseline_bytes) == baseline_digest,
+            "baseline release digest mismatch"
+        );
+        ensure!(
+            turn.readers.drained_after(ready.helper_ready_boot_ms),
+            "baseline release reader lease missing or undrained"
+        );
+        turn.guard.verify()?;
+        durable_new(&turn.directory.join("pane-exec.claim"), &baseline_bytes)?;
+        turn.guard.verify()?;
+        verify_closed(turn.config, turn.host, ready, turn.directory)?;
+        ensure!(
+            turn.readers.drained_after(ready.helper_ready_boot_ms),
+            "reader lost during release persistence"
+        );
+        self.released = true; // No second release even if delivery/ACK is uncertain.
+        self.helper
+            .as_ref()
+            .context("closed helper missing")?
+            .send(
+                &Response::Execute {
+                    guardian: turn.host.guardian.clone(),
+                    baseline_id: spec.baseline_id,
+                },
+                Some(
+                    self.image
+                        .as_ref()
+                        .context("sealed image missing")?
+                        .as_raw_fd(),
+                ),
+            )?;
+        socket.send(&Response::Released, None)?;
+        #[cfg(feature = "test-support")]
+        supervisor::fault_point(turn.directory, "observed-exec-permit")?;
+        Ok(())
     }
 }
 /// `Ok(true)` only on helper hang-up plus exec evidence for the sealed image.
@@ -312,12 +399,14 @@ fn released(helper: &Socket, pane: &PaneIdentity, program: &ElfIdentity) -> Resu
 fn released_read(helper: &Socket) -> Result<()> {
     match helper.receive_or_eof()? {
         None => Ok(()),
-        Some(packet) if packet.bytes.is_empty() && packet.fd.is_none() && helper.hung_up()? => {
-            Ok(())
-        }
+        Some(packet) if !packet_has_payload(&packet) && helper.hung_up()? => Ok(()),
         Some(_) => bail!("unexpected released helper packet"),
     }
 }
+fn packet_has_payload(packet: &crate::local_ipc::Packet) -> bool {
+    !packet.bytes.is_empty() || packet.fd.is_some()
+}
+
 fn verify_closed(
     config: &SealedLaunch,
     host: &HostObservation,
@@ -471,6 +560,26 @@ pub(crate) fn wait_closed(
         .observed
         .as_ref()
         .context("observed helper configuration")?;
+    let launch = exec::PaneLaunch {
+        directory,
+        config,
+        guardian,
+        server,
+    };
+    let socket = helper_socket(directory, guardian)?;
+    loop {
+        ensure!(
+            launch.permit_live()?,
+            "observed helper original authority expired"
+        );
+        if let Some(packet) = socket.receive()? {
+            return launch.release(spec, packet);
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn helper_socket(directory: &Path, guardian: &GuardianIdentity) -> Result<Socket> {
     let socket = Socket::connect(&directory.join(NAME))?;
     ensure!(
         socket.credentials()?.pid as u32 == guardian.process.pid
@@ -491,62 +600,47 @@ pub(crate) fn wait_closed(
         },
         None,
     )?;
-    loop {
+    Ok(socket)
+}
+
+impl exec::PaneLaunch<'_> {
+    fn release(&self, spec: &Spec, packet: crate::local_ipc::Packet) -> Result<()> {
+        let Response::Execute {
+            guardian: released,
+            baseline_id,
+        } = serde_json::from_slice(&packet.bytes)?
+        else {
+            bail!("observed helper release operation refused")
+        };
         ensure!(
-            ownership::raw_boot_ms() < config.permit.expires_boot_ms
-                && ownership::raw_boot_ms() < config.wall_deadline()?
-                && !directory.join("stop.request").exists(),
-            "observed helper original authority expired"
+            released == *self.guardian && baseline_id == spec.baseline_id,
+            "observed helper release identity mismatch"
         );
-        if let Some(packet) = socket.receive()? {
-            let Response::Execute {
-                guardian: released,
-                baseline_id,
-            } = serde_json::from_slice(&packet.bytes)?
-            else {
-                bail!("observed helper release operation refused")
-            };
-            ensure!(
-                released == *guardian && baseline_id == spec.baseline_id,
-                "observed helper release identity mismatch"
-            );
-            let file = File::from(
-                packet
-                    .fd
-                    .context("observed helper sealed descriptor missing")?,
-            );
-            executable::verify_file(&file, &spec.program)?;
-            let rendered = config
-                .rendered_startup
-                .as_ref()
-                .context("observed rendered payload missing")?;
-            rendered.verify(
-                config.manifest.task()?,
-                &read_bytes(&directory.join("context-0.bin"), 1_048_576)?,
-            )?;
-            ensure!(
-                ownership::raw_boot_ms() < config.permit.expires_boot_ms
-                    && ownership::raw_boot_ms() < config.wall_deadline()?
-                    && !directory.join("stop.request").exists()
-                    && supervisor::guardian_live(guardian),
-                "authority expired immediately before sealed exec"
-            );
-            ensure!(
-                ownership::pidfd_is_live(&ownership::verified_pidfd(server)?)?,
-                "owned server lost immediately before sealed exec"
-            );
-            let startup_stdin = exec::startup_stdin(config, directory)?;
-            return exec::enter(
-                &file,
-                &spec.program,
-                directory,
-                config,
-                guardian,
-                server,
-                startup_stdin.as_ref(),
-            );
-        }
-        std::thread::sleep(Duration::from_millis(5));
+        let file = File::from(
+            packet
+                .fd
+                .context("observed helper sealed descriptor missing")?,
+        );
+        executable::verify_file(&file, &spec.program)?;
+        let rendered = self
+            .config
+            .rendered_startup
+            .as_ref()
+            .context("observed rendered payload missing")?;
+        rendered.verify(
+            self.config.manifest.task()?,
+            &read_bytes(&self.directory.join("context-0.bin"), 1_048_576)?,
+        )?;
+        ensure!(
+            self.permit_live()? && supervisor::guardian_live(self.guardian),
+            "authority expired immediately before sealed exec"
+        );
+        ensure!(
+            ownership::pidfd_is_live(&ownership::verified_pidfd(self.server)?)?,
+            "owned server lost immediately before sealed exec"
+        );
+        let startup_stdin = exec::startup_stdin(self.config, self.directory)?;
+        self.enter(&file, &spec.program, startup_stdin.as_ref())
     }
 }
 #[cfg(test)]

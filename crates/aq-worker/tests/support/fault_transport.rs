@@ -46,7 +46,8 @@ impl<T: DockerTransport> DockerTransport for FaultTransport<T> {
             index.map(|index| rules.remove(index).effect)
         };
         match effect {
-            None => self.inner.send(request).await,
+            None | Some(Effect::Pass) => self.inner.send(request).await,
+            Some(Effect::StallBeforeApply) => std::future::pending().await,
             Some(Effect::FailBefore(status)) => Ok(DockerResponse {
                 status,
                 body: br#"{"message":"scripted failure"}"#.to_vec(),

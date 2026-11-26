@@ -7,13 +7,12 @@ use aq_worker_protocol::{AttemptRef, MAX_GRANT_MS, NodeIdentity, ProcessOutcome}
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{File, OpenOptions},
-    io::{Read, Write},
+    io::Write,
     os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd},
-        linux::net::SocketAddrExt,
+        fd::OwnedFd,
         unix::{
             fs::OpenOptionsExt,
-            net::{SocketAddr, UnixListener, UnixStream},
+            net::{UnixListener, UnixStream},
         },
     },
     path::{Path, PathBuf},
@@ -23,7 +22,6 @@ use std::{
 use uuid::Uuid;
 
 pub const PROFILE: &str = "linux-subreaper-guardian-v1";
-const MAX_CONTROL: usize = 16 * 1024;
 const TERM_GRACE_MS: u64 = 100;
 const STOP_LIMIT_MS: u64 = 5_000;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -115,13 +113,7 @@ pub fn durable_replace(path: &Path, bytes: &[u8]) -> Result<()> {
     let parent = path.parent().context("state parent")?;
     let temporary = parent.join(format!(".guardian.{}.tmp", Uuid::new_v4()));
     let result = (|| -> Result<()> {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
+        write_new_file(&temporary, bytes)?;
         std::fs::rename(&temporary, path)?;
         File::open(parent)?.sync_all()?;
         Ok(())
@@ -130,6 +122,11 @@ pub fn durable_replace(path: &Path, bytes: &[u8]) -> Result<()> {
     result
 }
 pub fn durable_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    write_new_file(path, bytes)?;
+    File::open(path.parent().unwrap())?.sync_all()?;
+    Ok(())
+}
+fn write_new_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut f = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -137,119 +134,15 @@ pub fn durable_new(path: &Path, bytes: &[u8]) -> Result<()> {
         .open(path)?;
     f.write_all(bytes)?;
     f.sync_all()?;
-    File::open(path.parent().unwrap())?.sync_all()?;
     Ok(())
 }
-fn socket_name(id: Uuid) -> String {
-    format!("aq-worker-guardian-{}-{id}", unsafe { libc::geteuid() })
-}
-fn socket_address(id: Uuid) -> Result<SocketAddr> {
-    Ok(SocketAddr::from_abstract_name(socket_name(id).as_bytes())?)
-}
-fn connect_control(id: Uuid) -> Result<UnixStream> {
-    // Nonblocking connect refuses a full local backlog instead of blocking the
-    // controller. Subsequent reads/writes have absolute exchange deadlines.
-    let fd = unsafe {
-        libc::socket(
-            libc::AF_UNIX,
-            libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
-            0,
-        )
-    };
-    ensure!(
-        fd >= 0,
-        "guardian socket: {}",
-        std::io::Error::last_os_error()
-    );
-    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
-    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-    address.sun_family = libc::AF_UNIX as _;
-    let name = socket_name(id);
-    ensure!(
-        name.len() < address.sun_path.len(),
-        "guardian socket name too long"
-    );
-    for (target, source) in address.sun_path[1..].iter_mut().zip(name.bytes()) {
-        *target = source as _;
-    }
-    let length =
-        (std::mem::offset_of!(libc::sockaddr_un, sun_path) + 1 + name.len()) as libc::socklen_t;
-    ensure!(
-        unsafe {
-            libc::connect(
-                fd.as_raw_fd(),
-                (&address as *const libc::sockaddr_un).cast(),
-                length,
-            )
-        } == 0,
-        "guardian connect refused/busy: {}",
-        std::io::Error::last_os_error()
-    );
-    let stream = UnixStream::from(fd);
-    stream.set_nonblocking(false)?;
-    Ok(stream)
-}
-fn read_bounded(stream: &mut UnixStream, budget: Duration) -> Result<Vec<u8>> {
-    let end = std::time::Instant::now() + budget;
-    let mut bytes = vec![];
-    let mut chunk = [0u8; 1024];
-    loop {
-        let remaining = end
-            .checked_duration_since(std::time::Instant::now())
-            .context("guardian total read deadline")?;
-        stream.set_read_timeout(Some(remaining))?;
-        match stream.read(&mut chunk) {
-            Ok(0) => return Ok(bytes),
-            Ok(n) => {
-                ensure!(bytes.len() + n <= MAX_CONTROL, "oversized guardian control");
-                bytes.extend_from_slice(&chunk[..n]);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-fn write_bounded(stream: &mut UnixStream, bytes: &[u8], budget: Duration) -> Result<()> {
-    let end = std::time::Instant::now() + budget;
-    let mut remaining_bytes = bytes;
-    while !remaining_bytes.is_empty() {
-        let remaining = end
-            .checked_duration_since(std::time::Instant::now())
-            .context("guardian total write deadline")?;
-        stream.set_write_timeout(Some(remaining))?;
-        match stream.write(remaining_bytes) {
-            Ok(0) => bail!("guardian control short write"),
-            Ok(n) => remaining_bytes = &remaining_bytes[n..],
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(())
-}
-fn peer_pid(stream: &UnixStream) -> Result<u32> {
-    let mut value = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let mut length = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: valid ucred buffer and length, owned Unix socket descriptor.
-    let result = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut value as *mut libc::ucred).cast(),
-            &mut length,
-        )
-    };
-    ensure!(
-        result == 0 && value.uid == unsafe { libc::geteuid() },
-        "control peer UID mismatch"
-    );
-    Ok(value.pid as u32)
-}
-use aq_session_host::ownership::{pidfd, signal};
+use aq_session_host::ownership::{
+    guardian::{
+        connect_control, host_identity, peer_pid, probe_subreaper, read_bounded, socket_address,
+        write_bounded,
+    },
+    pidfd, signal,
+};
 pub fn probe_profile() -> Result<()> {
     ensure!(
         cfg!(target_os = "linux"),
@@ -272,42 +165,7 @@ pub fn probe_profile() -> Result<()> {
         std::env::var_os("AQ_WORKER_DISABLE_GUARDIAN").is_none(),
         "unsupported ownership profile: guardian disabled locally"
     );
-    // Only async-signal-safe syscalls run in this post-fork probe child.
-    let child = unsafe { libc::fork() };
-    ensure!(child >= 0, "subreaper probe fork failed");
-    if child == 0 {
-        let mut enabled = 0;
-        let ok = unsafe {
-            libc::prctl(libc::PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
-                && libc::prctl(libc::PR_GET_CHILD_SUBREAPER, &mut enabled, 0, 0, 0) == 0
-                && enabled == 1
-        };
-        let mut status = 0;
-        let wall_ok = unsafe {
-            libc::waitpid(-1, &mut status, libc::WNOHANG | libc::__WALL) == -1
-                && *libc::__errno_location() == libc::ECHILD
-        };
-        let ok = ok && wall_ok;
-        unsafe { libc::_exit(if ok { 0 } else { 41 }) }
-    }
-    let mut status = 0;
-    ensure!(
-        unsafe { libc::waitpid(child, &mut status, 0) } == child
-            && libc::WIFEXITED(status)
-            && libc::WEXITSTATUS(status) == 0,
-        "unsupported ownership profile: subreaper unavailable"
-    );
-    Ok(())
-}
-fn host_identity() -> Result<(String, String)> {
-    Ok((
-        std::fs::read_to_string("/proc/sys/kernel/random/boot_id")?
-            .trim()
-            .into(),
-        std::fs::read_link("/proc/self/ns/pid")?
-            .to_string_lossy()
-            .into_owned(),
-    ))
+    probe_subreaper()
 }
 pub(crate) fn validate_identity(identity: &GuardianIdentity) -> Result<OwnedFd> {
     ensure!(identity.profile == PROFILE, "unsupported guardian profile");
@@ -447,6 +305,7 @@ impl Drop for EmergencyReaper {
         }
     }
 }
+mod runtime;
 pub fn run(directory: &Path) -> Result<()> {
     probe_profile()?;
     ensure!(
@@ -474,8 +333,19 @@ pub fn run(directory: &Path) -> Result<()> {
     ensure!(!token.is_empty(), "empty control token");
     let listener = UnixListener::bind_addr(&socket_address(binding.launch_id)?)?;
     listener.set_nonblocking(true)?;
+    let identity = guardian_identity(&binding)?;
+    let state = waiting_state(&binding, identity);
+    save(directory, &state)?;
+    durable_new(
+        &directory.join("guardian-identity.json"),
+        &serde_json::to_vec(&state.identity)?,
+    )?;
+    let _emergency_reaper = EmergencyReaper;
+    runtime::Guardian::new(directory, binding, state).serve(listener, &token)
+}
+fn guardian_identity(binding: &LaunchBinding) -> Result<GuardianIdentity> {
     let (host, namespace) = host_identity()?;
-    let identity = GuardianIdentity {
+    Ok(GuardianIdentity {
         launch_id: binding.launch_id,
         node_identity: binding.identity.clone(),
         attempt: binding.attempt.clone(),
@@ -485,9 +355,11 @@ pub fn run(directory: &Path) -> Result<()> {
         machine_boot_id: host,
         pid_namespace: namespace,
         profile: PROFILE.into(),
-    };
-    let mut state = GuardianState {
-        identity: identity.clone(),
+    })
+}
+fn waiting_state(binding: &LaunchBinding, identity: GuardianIdentity) -> GuardianState {
+    GuardianState {
+        identity,
         phase: GuardianPhase::Waiting,
         root_process: None,
         root_status: None,
@@ -499,207 +371,5 @@ pub fn run(directory: &Path) -> Result<()> {
         stopped_at_ms: None,
         observed_at_ms: binding.logical_origin_ms,
         clock_uncertain: false,
-    };
-    save(directory, &state)?;
-    durable_new(
-        &directory.join("guardian-identity.json"),
-        &serde_json::to_vec(&identity)?,
-    )?;
-    let _emergency_reaper = EmergencyReaper;
-    let mut root_child: Option<Child> = None;
-    let mut root_pid = None;
-    let mut last_now = 0;
-    let mut stop_started = None;
-    loop {
-        let now = match logical_now(&binding, &mut last_now) {
-            Ok(now) => now,
-            Err(_) => {
-                state.stop_reason = Some(ProcessOutcome::Expired);
-                state.phase = GuardianPhase::Stopping;
-                state.clock_uncertain = true;
-                last_now
-            }
-        };
-        state.observed_at_ms = now;
-        if now >= state.deadline_ms
-            && !matches!(
-                state.phase,
-                GuardianPhase::Stopped | GuardianPhase::Stopping
-            )
-        {
-            state.phase = GuardianPhase::Stopping;
-            state.stop_reason = Some(ProcessOutcome::Expired);
-            save(directory, &state)?;
-        }
-        if reap(&mut state, root_pid)? && state.phase != GuardianPhase::Waiting {
-            state.phase = GuardianPhase::Stopped;
-            state.kernel_wait_echild = true;
-            state.stopped_at_ms = Some(now);
-            save(directory, &state)?;
-            return Ok(());
-        }
-        // A root exiting with surviving descendants is not task completion.
-        // Stop the adopted leftovers before publishing any stopped proof.
-        if state.root_status.is_some() && state.phase == GuardianPhase::Running {
-            state.phase = GuardianPhase::Stopping;
-            state.stop_reason = Some(ProcessOutcome::Failed);
-            save(directory, &state)?;
-        }
-        if state.phase == GuardianPhase::Stopping {
-            // Termination budgets use independent raw BOOTTIME even when the
-            // authority/fixture clock is unreadable or has regressed.
-            let raw_now = crate::clock::raw_boot_ms();
-            let started = *stop_started.get_or_insert(raw_now);
-            let sig = if raw_now.saturating_sub(started) < TERM_GRACE_MS {
-                libc::SIGTERM
-            } else {
-                libc::SIGKILL
-            };
-            signal_children(sig)?;
-            if raw_now.saturating_sub(started) >= STOP_LIMIT_MS {
-                state.phase = GuardianPhase::StopUncertain;
-                save(directory, &state)?;
-                return Ok(());
-            }
-        }
-        for _ in 0..8 {
-            if state.phase == GuardianPhase::Stopping {
-                break;
-            }
-            let fresh = logical_now(&binding, &mut last_now);
-            if fresh.as_ref().map_or(true, |now| *now >= state.deadline_ms) {
-                state.phase = GuardianPhase::Stopping;
-                state.stop_reason = Some(ProcessOutcome::Expired);
-                save(directory, &state)?;
-                break;
-            }
-            if state.phase == GuardianPhase::Stopping {
-                break;
-            }
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    let read_ms = 20;
-                    #[cfg(feature = "test-support")]
-                    let read_ms = std::env::var("AQ_GUARDIAN_TEST_READ_MS")
-                        .ok()
-                        .map(|v| v.parse::<u64>().unwrap().clamp(1, 500))
-                        .unwrap_or(read_ms);
-                    stream.set_read_timeout(Some(Duration::from_millis(read_ms)))?;
-                    #[cfg(feature = "test-support")]
-                    if let Some(path) = std::env::var_os("AQ_GUARDIAN_TEST_READ_MARKER") {
-                        durable_replace(
-                            Path::new(&path),
-                            b"reading control body
-",
-                        )?;
-                    }
-                    stream.set_write_timeout(Some(Duration::from_millis(20)))?;
-                    let received = read_bounded(&mut stream, Duration::from_millis(read_ms));
-                    let Ok(bytes) = received else {
-                        continue;
-                    };
-                    if peer_pid(&stream).is_err() {
-                        continue;
-                    }
-                    let Ok(request) = serde_json::from_slice::<Control>(&bytes) else {
-                        continue;
-                    };
-                    if request.token != token || request.identity != identity {
-                        continue;
-                    }
-                    let result = (|| -> Result<()> {
-                        // A read may stall. Never validate Start/Renew against
-                        // the stale timestamp from before receiving its bytes.
-                        let now = logical_now(&binding, &mut last_now)?;
-                        state.observed_at_ms = now;
-                        match request.operation {
-                            Operation::Status => {}
-                            Operation::Stop { reason } => {
-                                ensure!(
-                                    matches!(
-                                        reason,
-                                        ProcessOutcome::Cancelled
-                                            | ProcessOutcome::Expired
-                                            | ProcessOutcome::Failed
-                                    ),
-                                    "invalid stop reason"
-                                );
-                                state.stop_reason = Some(reason);
-                                state.phase = GuardianPhase::Stopping;
-                                save(directory, &state)?;
-                            }
-                            Operation::Start {
-                                grant_sequence,
-                                deadline_ms,
-                            } => {
-                                ensure!(
-                                    state.phase == GuardianPhase::Waiting && root_pid.is_none(),
-                                    "launch already started or terminal"
-                                );
-                                ensure!(
-                                    now < state.deadline_ms
-                                        && now < deadline_ms
-                                        && deadline_ms <= binding.initial_deadline_ms
-                                        && grant_sequence == binding.initial_grant_sequence,
-                                    "expired/mismatched start grant"
-                                );
-                                state.phase = GuardianPhase::Running;
-                                state.deadline_ms = deadline_ms;
-                                save(directory, &state)?;
-                                let spawn_now = logical_now(&binding, &mut last_now)?;
-                                ensure!(
-                                    spawn_now < state.deadline_ms,
-                                    "grant expired before writer spawn"
-                                );
-                                let child = Command::new(&binding.executable)
-                                    .current_dir(binding.workspace.as_deref().unwrap_or(directory))
-                                    .arg("--launch-dir")
-                                    .arg(directory)
-                                    .stdin(std::process::Stdio::null())
-                                    .stdout(std::process::Stdio::null())
-                                    .stderr(std::process::Stdio::null())
-                                    .spawn()?;
-                                root_pid = Some(child.id());
-                                state.root_process =
-                                    Some(crate::fixture::process_evidence(child.id())?);
-                                root_child = Some(child);
-                                save(directory, &state)?;
-                            }
-                            Operation::Renew {
-                                grant_sequence,
-                                deadline_ms,
-                            } => {
-                                ensure!(
-                                    state.phase == GuardianPhase::Running
-                                        && now < state.deadline_ms
-                                        && now < deadline_ms
-                                        && deadline_ms <= now.saturating_add(MAX_GRANT_MS)
-                                        && grant_sequence > state.grant_sequence,
-                                    "late/stale guardian renewal"
-                                );
-                                state.grant_sequence = grant_sequence;
-                                state.deadline_ms = deadline_ms;
-                                save(directory, &state)?;
-                            }
-                        }
-                        Ok(())
-                    })();
-                    let reply = Reply {
-                        state: state.clone(),
-                        error: result.err().map(|e| e.to_string()),
-                    };
-                    let _ = write_bounded(
-                        &mut stream,
-                        &serde_json::to_vec(&reply)?,
-                        Duration::from_millis(20),
-                    );
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(error) => return Err(error.into()),
-            }
-        }
-        // Keep Child alive for ownership metadata; all reaping uses waitpid.
-        let _ = &root_child;
-        std::thread::sleep(Duration::from_millis(5));
     }
 }

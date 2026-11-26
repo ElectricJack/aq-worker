@@ -14,6 +14,8 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = 'packaging/sandbox/'
+OS_INPUTS = ('git.tar.xz',)
+RUNTIME_INPUTS = ('aq-git', 'aqv2', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz')
 
 
 def git(*args):
@@ -60,53 +62,69 @@ def snapshot_sources(timestamp):
     )
 
 
+def require_format(pattern, value, error):
+    if not re.fullmatch(pattern, value):
+        raise ValueError(error)
+
+
+def validate_pins(pins, inputs):
+    if pins['schema_version'] != 1 or pins['platform'] != 'linux/amd64':
+        raise ValueError('unsupported pins schema/platform')
+    for field in ('base', 'builder'):
+        require_format(r'[a-z0-9./:-]+@sha256:[0-9a-f]{64}', pins[field], f'{field} must be digest-pinned')
+    require_format(r'\d{8}T\d{6}Z', pins['debian_snapshot'], 'invalid Debian snapshot timestamp')
+    validate_inputs(pins['inputs'], inputs)
+
+
+def validate_inputs(pins, inputs):
+    if set(pins) != set(OS_INPUTS + RUNTIME_INPUTS):
+        raise ValueError('unsupported public input set')
+    for name, pin in pins.items():
+        require_format(r'[0-9a-f]{64}', pin['sha256'], f'invalid input SHA-256: {name}')
+        if (inputs / name).is_symlink():
+            raise ValueError(f'not a regular input: {name}')
+
+
+def write_dockerfiles(os_context, runtime, pins, read):
+    replacements = {'@@BASE@@': pins['base'], '@@BUILDER@@': pins['builder']}
+    for kind, context, names in (('os', os_context, OS_INPUTS), ('runtime', runtime, RUNTIME_INPUTS)):
+        definition = read(PACKAGE + 'Dockerfile.' + kind).decode()
+        for token, value in replacements.items():
+            definition = definition.replace(token, value)
+        (context / 'Dockerfile').write_text(definition)
+        (context / 'snapshot.sources').write_text(snapshot_sources(pins['debian_snapshot']))
+        (context / 'SHA256SUMS').write_text(''.join(
+            pins['inputs'][name]['sha256'] + '  ' + name + '\n' for name in names))
+
+
 def package(revision, inputs, destination, *, pins=None):
     if destination.exists():
         raise ValueError('destination already exists; use a fresh context directory')
     revision = git('rev-parse', '--verify', revision + '^{commit}').decode().strip()
     read = lambda path: git('show', revision + ':' + path)
     pins = pins if pins is not None else json.loads(read(PACKAGE + 'pins.json'))
-    if pins['schema_version'] != 1 or pins['platform'] != 'linux/amd64':
-        raise ValueError('unsupported pins schema/platform')
-    for field in ('base', 'builder'):
-        if not re.fullmatch(r'[a-z0-9./:-]+@sha256:[0-9a-f]{64}', pins[field]):
-            raise ValueError(f'{field} must be digest-pinned')
-    if not re.fullmatch(r'\d{8}T\d{6}Z', pins['debian_snapshot']):
-        raise ValueError('invalid Debian snapshot timestamp')
-    required = {'git.tar.xz', 'aq-git', 'aqv2', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz'}
-    if set(pins['inputs']) != required:
-        raise ValueError('unsupported public input set')
-    for name, pin in pins['inputs'].items():
-        if not re.fullmatch(r'[0-9a-f]{64}', pin['sha256']):
-            raise ValueError(f'invalid input SHA-256: {name}')
-        if (inputs / name).is_symlink():
-            raise ValueError(f'not a regular input: {name}')
+    validate_pins(pins, inputs)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.sandbox-', dir=destination.parent) as temporary:
         stage = Path(temporary)
         os_context, runtime = stage / 'os', stage / 'runtime'
         os_context.mkdir()
         runtime.mkdir()
-        for name in sorted(required):
+        for name in sorted(pins['inputs']):
             context = os_context if name == 'git.tar.xz' else runtime
             checked_copy(inputs / name, context / name, pins['inputs'][name]['sha256'])
-        replacements = {'@@BASE@@': pins['base'], '@@BUILDER@@': pins['builder']}
-        for kind, context in (('os', os_context), ('runtime', runtime)):
-            definition = read(PACKAGE + 'Dockerfile.' + kind).decode()
-            for token, value in replacements.items():
-                definition = definition.replace(token, value)
-            (context / 'Dockerfile').write_text(definition)
-            (context / 'snapshot.sources').write_text(snapshot_sources(pins['debian_snapshot']))
-            names = ['git.tar.xz'] if kind == 'os' else ['aq-git', 'aqv2', 'codex', 'claude', 'opencode', 'gemini.tgz', 'node.tar.xz']
-            (context / 'SHA256SUMS').write_text(''.join(
-                pins['inputs'][name]['sha256'] + '  ' + name + '\n' for name in names))
+        write_dockerfiles(os_context, runtime, pins, read)
         (runtime / 'pins.json').write_text(json.dumps(pins, sort_keys=True, indent=2) + '\n')
         (runtime / 'bundle_manifest.py').write_bytes(read(PACKAGE + 'bundle_manifest.py'))
         # Git archive exports committed paths only; no worktree traversal or homes.
+        # Older revisions retain their published archive layout.
+        helpers = []
+        if git('ls-tree', '--name-only', revision, '--', PACKAGE + 'template_contract.py'):
+            helpers = [PACKAGE + 'environment_recipe.py', PACKAGE + 'template_contract.py']
         with (runtime / 'worker-source.tar').open('xb') as output:
             subprocess.run(['git', 'archive', '--format=tar', revision, 'Cargo.toml', 'Cargo.lock', 'crates', 'vendor',
                             PACKAGE + 'template_tool.py', PACKAGE + 'credential_scan.py',
-                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission'],
+                            PACKAGE + 'boat_materialize.py', 'protocol/aq-admission', *helpers],
                            cwd=ROOT, stdout=output, check=True)
         archive_digest = digest(runtime / 'worker-source.tar')
         source = {

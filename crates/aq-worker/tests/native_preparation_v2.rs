@@ -80,7 +80,12 @@ async fn handler(
         )
             .into_response();
     }
-    let mut response = if path == "proposal" {
+    let mut response = original_reply(&path, &data, body, nonce);
+    reply_for_mode(&path, mode, &mut response, &data).await;
+    Json(response).into_response()
+}
+fn original_reply(path: &str, data: &Value, body: Value, nonce: Uuid) -> Value {
+    if path == "proposal" {
         assert_eq!(
             body,
             json!({"identity":data["accept"]["original"]["identity"],"binding":data["proposal"]["original"]["offered"]["offer"]["binding"],"negotiation":data["proposal"]["negotiation"]})
@@ -103,49 +108,64 @@ async fn handler(
             delivery: aq_admission::control::DeliveryStamp { nonce, clock },
         })))
         .unwrap()
-    };
+    }
+}
+
+async fn reply_for_mode(path: &str, mode: usize, response: &mut Value, data: &Value) {
     match mode {
-        1 if path == "accept" || path == "prepare" => {
+        1 if matches!(path, "accept" | "prepare") => {
             response["body"]["delivery"]["nonce"] = json!(Uuid::new_v4())
         }
-        2 => response = json!({"kind":"execution_delivery","body":data["delivery"]}),
+        2 => *response = json!({"kind":"execution_delivery","body":data["delivery"]}),
         3 => response["unexpected"] = json!(true),
-        4 if path == "accept" => {
-            response["body"]["receipt"]["lease"]["lease_id"] = json!(Uuid::new_v4())
+        9 if path == "proposal" => {
+            response["body"]["original"]["offered"]["clock"]["server_time_ms"] = json!(1499)
         }
-        5 if path == "accept" => {
+        _ if path == "accept" => adjust_accept(mode, response).await,
+        _ if path == "prepare" => adjust_prepare(mode, response, data).await,
+        _ => {}
+    }
+}
+
+async fn adjust_accept(mode: usize, response: &mut Value) {
+    match mode {
+        4 => response["body"]["receipt"]["lease"]["lease_id"] = json!(Uuid::new_v4()),
+        5 => {
             response["body"]["delivery"]["clock"] =
                 serde_json::to_value(DeliveryClock::new(31499, 31500).unwrap()).unwrap();
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        10 if path == "accept" => {
+        10 => {
             response["body"]["delivery"]["clock"] =
                 json!(DeliveryClock::new(31000, 31500).unwrap());
         }
-        11 if path == "prepare" => {
+        _ => {}
+    }
+}
+
+async fn adjust_prepare(mode: usize, response: &mut Value, data: &Value) {
+    match mode {
+        11 => {
             response["body"]["delivery"]["clock"] =
                 json!(DeliveryClock::new(49999, 50000).unwrap());
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        12 if path == "prepare" => response = json!({"kind":"execution","body":data["execution"]}),
-        13 if path == "prepare" => {
-            response["body"]["receipt"]["grant"]["grant_id"] = json!(Uuid::new_v4())
-        }
-        14 if path == "prepare" => {
+        12 => *response = json!({"kind":"execution","body":data["execution"]}),
+        13 => response["body"]["receipt"]["grant"]["grant_id"] = json!(Uuid::new_v4()),
+        14 => {
             response["body"]["receipt"]["request_digest"] =
                 json!(aq_admission::Digest::of(b"changed"))
         }
-        15 if path == "prepare" => {
+        15 => {
+            // Keep the short real delivery lifetime; the expiry regression
+            // controls its local boot clock instead of racing this window.
             response["body"]["delivery"]["clock"] =
                 json!(DeliveryClock::new(49900, 50000).unwrap());
         }
-        9 if path == "proposal" => {
-            response["body"]["original"]["offered"]["clock"]["server_time_ms"] = json!(1499)
-        }
         _ => {}
     }
-    Json(response).into_response()
 }
+
 struct Server {
     peer: Arc<Peer>,
     client: NativeClient,

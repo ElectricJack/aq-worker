@@ -11,6 +11,29 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const ADMISSION_WAIT_FILE: &str = "admission-wait";
+
+/// Publishes a slot's temporary readiness failure for service status.
+pub fn report_admission_wait(current: &Path, readiness: &Result<()>) {
+    let path = current.join(ADMISSION_WAIT_FILE);
+    let previous = std::fs::read_to_string(&path).ok();
+    let result = match readiness {
+        Ok(()) if previous.is_some() => std::fs::remove_file(&path).map_err(anyhow::Error::from),
+        Ok(()) => return,
+        Err(error) => {
+            let reason = format!("{error:#}");
+            if previous.as_deref() == Some(&reason) {
+                return;
+            }
+            tracing::warn!(%reason, "native sandbox admission deferred; rechecking automatically");
+            write_private(&path, reason.as_bytes())
+        }
+    };
+    if let Err(error) = result {
+        tracing::warn!(%error, "could not update sandbox admission status");
+    }
+}
+
 #[derive(Clone)]
 pub struct Layout {
     /// None for the machine view; Some(index) for one enrolled node.
@@ -99,6 +122,19 @@ fn private_dir(path: &Path) -> Result<()> {
         .mode(0o700)
         .create(path)
         .with_context(|| format!("create {}", path.display()))
+}
+fn wipe_materials(current: &Path) -> Result<()> {
+    let Ok(materials) = std::fs::read_dir(current.join("materials")) else {
+        return Ok(());
+    };
+    for entry in materials.flatten() {
+        match std::fs::remove_file(entry.path().join("material.bin")) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => bail!("wipe material in {}: {e}", entry.path().display()),
+        }
+    }
+    Ok(())
 }
 impl Layout {
     pub fn for_profile(profile: &str) -> Result<Self> {
@@ -271,6 +307,9 @@ impl Layout {
     pub fn held_reason(&self, slot: u32) -> Option<String> {
         std::fs::read_to_string(self.slot_held(slot)).ok()
     }
+    pub fn admission_wait_reason(&self, slot: u32) -> Option<String> {
+        std::fs::read_to_string(self.current(slot).join(ADMISSION_WAIT_FILE)).ok()
+    }
     pub fn machine_json(&self) -> PathBuf {
         self.config_dir.join("machine.json")
     }
@@ -307,15 +346,7 @@ impl Layout {
             self.remove_slot_runtime(slot)?;
             return Ok(None);
         }
-        if let Ok(materials) = std::fs::read_dir(current.join("materials")) {
-            for entry in materials.flatten() {
-                match std::fs::remove_file(entry.path().join("material.bin")) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => bail!("wipe material in {}: {e}", entry.path().display()),
-                }
-            }
-        }
+        wipe_materials(&current)?;
         let archive = self.archive_dir(slot);
         private_dir(&archive)?;
         let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
@@ -368,6 +399,18 @@ mod tests {
     }
     fn mode(p: &Path) -> u32 {
         std::fs::metadata(p).unwrap().permissions().mode() & 0o777
+    }
+    #[test]
+    fn admission_wait_reason_clears_without_an_owner_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let layout = layout(dir.path());
+        let current = layout.fresh_current(1).unwrap();
+        let reason = "sandbox_daemon_unavailable";
+        report_admission_wait(&current, &Err(anyhow::anyhow!(reason)));
+        assert_eq!(layout.admission_wait_reason(1).as_deref(), Some(reason));
+        assert_eq!(layout.held_reason(1), None);
+        report_admission_wait(&current, &Ok(()));
+        assert_eq!(layout.admission_wait_reason(1), None);
     }
     #[test]
     fn two_nodes_with_three_agents_have_six_isolated_roots() {
@@ -508,6 +551,7 @@ mod tests {
         let l = layout(dir.path());
         let current = l.fresh_current(2).unwrap();
         std::fs::create_dir_all(current.join("materials/m1")).unwrap();
+        std::fs::create_dir_all(current.join("materials/missing")).unwrap();
         std::fs::write(current.join("materials/m1/material.bin"), b"login").unwrap();
         std::fs::write(current.join("journal"), b"j").unwrap();
         let kept = l.archive_current(2, false).unwrap().unwrap();
@@ -517,6 +561,21 @@ mod tests {
         let empty = l.archive_current(2, true).unwrap().unwrap();
         assert!(empty.join("EMPTY").exists());
         assert_eq!(l.archive_current(2, true).unwrap(), None);
+    }
+    #[test]
+    fn archive_stops_before_rename_when_material_wipe_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let l = layout(dir.path());
+        let current = l.fresh_current(1).unwrap();
+        // A directory at the material path makes remove_file fail even when running as root.
+        std::fs::create_dir_all(current.join("materials/m1/material.bin")).unwrap();
+
+        let error = l.archive_current(1, true).unwrap_err();
+
+        assert!(error.to_string().contains("wipe material in"));
+        assert!(current.join("materials/m1/material.bin").is_dir());
+        assert!(l.slot_runtime(1).is_dir());
+        assert!(!l.archive_dir(1).exists());
     }
     #[test]
     fn prune_deletes_only_empty_archives() {

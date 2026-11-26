@@ -39,22 +39,13 @@ impl Api {
             timeout_ms: config.api_timeout_ms,
         })
     }
-    pub async fn raw(
-        &self,
-        method: Method,
-        path: &str,
-        body: Option<Value>,
-        idempotency: Option<&str>,
-    ) -> Result<(u16, Vec<u8>), BackendError> {
+    pub fn request(&self, method: Method, path: &str) -> Request {
         let mut request = self
             .client
             .request(method.clone(), format!("{}{path}", self.url))
             .timeout(request_timeout(path, self.timeout_ms))
             .bearer_auth(self.key.expose())
             .header("X-Boat-Org", &self.org);
-        if let Some(key) = idempotency {
-            request = request.header("Idempotency-Key", key);
-        }
         if method == Method::DELETE {
             let id = path
                 .trim_start_matches("/sandboxes/")
@@ -63,13 +54,34 @@ impl Api {
                 .unwrap_or("");
             request = request.header("X-Ascii-Confirm-Delete", id);
         }
-        if let Some(value) = body {
+        Request {
+            transport: request,
+            body: None,
+        }
+    }
+}
+pub(super) struct Request {
+    transport: reqwest::RequestBuilder,
+    body: Option<Value>,
+}
+impl Request {
+    pub fn body(mut self, value: Value) -> Self {
+        self.body = Some(value);
+        self
+    }
+    pub fn idempotency(mut self, key: &str) -> Self {
+        self.transport = self.transport.header("Idempotency-Key", key);
+        self
+    }
+    pub async fn raw(self) -> Result<(u16, Vec<u8>), BackendError> {
+        let mut request = self.transport;
+        if let Some(value) = self.body {
             let bytes = Zeroizing::new(serde_json::to_vec(&value).map_err(|_| unknown())?);
             request = request
                 .header("Content-Type", "application/json")
                 .body(bytes.to_vec());
         }
-        let mut response = request
+        let response = request
             .send()
             .await
             .map_err(|_| unavailable(BackendUnavailable::Transport))?;
@@ -80,51 +92,13 @@ impl Api {
         if status == 429 {
             return Err(unavailable(BackendUnavailable::RateLimited));
         }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| unavailable(BackendUnavailable::Transport))?
-        {
-            if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
-                return Err(unknown());
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        if matches!(status, 400 | 402 | 403 | 409) {
-            let v: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-            let code = v["code"]
-                .as_str()
-                .or_else(|| v["error"]["code"].as_str())
-                .or_else(|| v["error"].as_str())
-                .unwrap_or("");
-            if status == 402
-                || matches!(
-                    code,
-                    "sandbox_limit_reached"
-                        | "sandbox_limit"
-                        | "active_sandbox_limit"
-                        | "active_sandbox_limit_reached"
-                        | "max_sandboxes_reached"
-                        | "limit_reached"
-                        | "concurrent_sandbox_limit"
-                        | "no_ready_machine"
-                        | "start_limit_reached"
-                )
-            {
-                return Err(unavailable(BackendUnavailable::Capacity));
-            }
-        }
+        let bytes = bounded_bytes(response).await?;
+        check_capacity(status, &bytes)?;
         Ok((status, bytes))
     }
-    pub async fn json(
-        &self,
-        method: Method,
-        path: &str,
-        body: Option<Value>,
-        idempotency: Option<&str>,
-    ) -> Result<Value, BackendError> {
-        let (status, bytes) = self.raw(method, path, body, idempotency).await?;
+
+    pub async fn json(self) -> Result<Value, BackendError> {
+        let (status, bytes) = self.raw().await?;
         if status == 404 {
             return Err(BackendError::NotFound);
         }
@@ -138,6 +112,49 @@ impl Api {
         Ok(value)
     }
 }
+async fn bounded_bytes(mut response: reqwest::Response) -> Result<Vec<u8>, BackendError> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| unavailable(BackendUnavailable::Transport))?
+    {
+        if bytes.len() + chunk.len() > 4 * 1024 * 1024 {
+            return Err(unknown());
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn check_capacity(status: u16, bytes: &[u8]) -> Result<(), BackendError> {
+    if matches!(status, 400 | 402 | 403 | 409) {
+        let v: Value = serde_json::from_slice(bytes).unwrap_or(Value::Null);
+        let code = v["code"]
+            .as_str()
+            .or_else(|| v["error"]["code"].as_str())
+            .or_else(|| v["error"].as_str())
+            .unwrap_or("");
+        if status == 402
+            || matches!(
+                code,
+                "sandbox_limit_reached"
+                    | "sandbox_limit"
+                    | "active_sandbox_limit"
+                    | "active_sandbox_limit_reached"
+                    | "max_sandboxes_reached"
+                    | "limit_reached"
+                    | "concurrent_sandbox_limit"
+                    | "no_ready_machine"
+                    | "start_limit_reached"
+            )
+        {
+            return Err(unavailable(BackendUnavailable::Capacity));
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn unavailable(reason: BackendUnavailable) -> BackendError {
     BackendError::Unavailable(reason)
 }

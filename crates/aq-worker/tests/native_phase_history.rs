@@ -1,4 +1,6 @@
 //! Loopback history transport only: no SQL/worker proof or live authority claim.
+#[path = "native_phase_history/refresh.rs"]
+mod refresh;
 use aq_phase_terminal_protocol as wire;
 use aq_worker::{
     config::WorkerConfig,
@@ -29,26 +31,7 @@ struct Peer {
     entered: Semaphore,
     release: Semaphore,
 }
-async fn handler(State(p): State<Arc<Peer>>, headers: HeaderMap, Json(q): Json<Value>) -> Response {
-    assert_eq!(headers["authorization"], "Bearer synthetic-history");
-    assert_eq!(
-        headers
-            .get_all("aq-phase-terminal-api-version")
-            .iter()
-            .count(),
-        1
-    );
-    assert_eq!(headers["aq-phase-terminal-api-version"], "1");
-    assert_eq!(headers["content-type"], "application/json");
-    p.calls.lock().unwrap().push(q);
-    let mode = p.mode.load(Ordering::SeqCst);
-    if mode == 10 {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    }
-    if mode == 11 {
-        p.entered.add_permits(1);
-        let _permit = p.release.acquire().await.unwrap();
-    }
+fn history_reply(mode: usize) -> Value {
     let f = fixture();
     let mut value = f[if mode == 1 {
         "history_absent"
@@ -69,6 +52,29 @@ async fn handler(State(p): State<Arc<Peer>>, headers: HeaderMap, Json(q): Json<V
         }
         _ => {}
     }
+    value
+}
+async fn handler(State(p): State<Arc<Peer>>, headers: HeaderMap, Json(q): Json<Value>) -> Response {
+    assert_eq!(headers["authorization"], "Bearer synthetic-history");
+    assert_eq!(
+        headers
+            .get_all("aq-phase-terminal-api-version")
+            .iter()
+            .count(),
+        1
+    );
+    assert_eq!(headers["aq-phase-terminal-api-version"], "1");
+    assert_eq!(headers["content-type"], "application/json");
+    p.calls.lock().unwrap().push(q);
+    let mode = p.mode.load(Ordering::SeqCst);
+    if mode == 10 {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if mode == 11 {
+        p.entered.add_permits(1);
+        let _permit = p.release.acquire().await.unwrap();
+    }
+    let value = history_reply(mode);
     let mut response = if mode == 9 {
         let mut bytes = serde_json::to_vec(&value).unwrap();
         bytes.resize(wire::MAX_BYTES + 1, b' ');

@@ -4,8 +4,11 @@ use super::*;
 use anyhow::Context;
 use aq_admission::{
     control as wire,
-    startup::NativeOffer,
-    transport::{Accept, DeliveryClock, Poll, PreparationPlan, Prepare, Reconcile, Renew},
+    startup::{Descriptor, NativeOffer},
+    transport::{
+        Accept, Cancellation, DeliveryClock, OfferedLaunch, Poll, PreparationPlan, Prepare,
+        Reconcile, Renew, WorkerIdentity,
+    },
 };
 
 use aq_worker_protocol::git_author::{GitAuthor, POLL_HEADER, decode_poll};
@@ -15,6 +18,7 @@ pub struct PollObservation {
     /// Corresponds by index to page.offers; never an execution permit.
     pub offer_deadlines_ns: Vec<u64>,
     pub git_authors: Vec<Option<GitAuthor>>,
+    pub workspace_required: Vec<bool>,
 }
 /// Opaque construction: a parsed plan cannot manufacture a delivery observation.
 pub struct Preparation {
@@ -24,6 +28,17 @@ pub struct Preparation {
     deadline_ns: u64,
 }
 impl Preparation {
+    fn verify_request(&self, request: &Prepare, offer: &NativeOffer) -> Result<()> {
+        ensure!(
+            request.binding == self.plan().binding
+                && request.binding == offer.offered.offer.binding
+                && request.guardian_id == self.plan().guardian_id
+                && request.launch_id == self.plan().launch_id
+                && same(&request.reservation, &self.plan().reservation)?,
+            "preparation owner differs from accepted plan"
+        );
+        live(self.deadline_ns)
+    }
     pub fn sent_ns(&self) -> u64 {
         self.sent_ns
     }
@@ -53,6 +68,27 @@ pub struct Granted {
     journal_revision: u64,
 }
 impl Granted {
+    fn verify_initial_retry(
+        &self,
+        request: &Prepare,
+        plan: &Preparation,
+        offer: &NativeOffer,
+    ) -> Result<()> {
+        self.initial
+            .validate_for(request, plan.plan(), offer, self.initial.delivery.nonce)?;
+        ensure!(self.current.is_none(), "initial grant retry after renewal");
+        live(self.deadline_ns)
+    }
+    fn verify_initial_replay(&self, message: &wire::InitialGrantDelivery) -> Result<()> {
+        ensure!(
+            same(&message.original, &self.initial.original)?
+                && message.operation_id == self.initial.operation_id
+                && message.versions == self.initial.versions
+                && message.execution_deadline_ms == self.initial.execution_deadline_ms,
+            "initial grant replay changed"
+        );
+        Ok(())
+    }
     pub fn initial_prepare_digest(&self) -> &aq_admission::Digest {
         &self.initial_prepare_digest
     }
@@ -91,10 +127,85 @@ impl std::error::Error for ControlFailure {}
 struct Received {
     reply: wire::ControlReply,
     git_authors: Vec<Option<GitAuthor>>,
+    workspace_required: Vec<bool>,
     nonce: Uuid,
     sent_ns: u64,
     received_ns: u64,
 }
+#[derive(serde::Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "body",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+enum WorkspacePoll {
+    Poll(WorkspacePollPage),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspacePollPage {
+    schema_version: u32,
+    operation_id: Uuid,
+    identity: WorkerIdentity,
+    server_time_ms: u64,
+    offers: Vec<WorkspaceOffer>,
+    cancellations: Vec<Cancellation>,
+    next_after: Option<Uuid>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceOffer {
+    schema_version: u32,
+    offered: OfferedLaunch,
+    startup: Descriptor,
+    git_author: Option<GitAuthor>,
+    #[serde(default)]
+    workspace_required: bool,
+}
+
+type PollExtensions = (Vec<Option<GitAuthor>>, Vec<bool>);
+
+fn decode_workspace_poll(bytes: &[u8]) -> Result<(wire::ControlReply, PollExtensions)> {
+    if let Ok((reply, authors)) = decode_poll(bytes) {
+        let required = vec![false; authors.len()];
+        return Ok((reply, (authors, required)));
+    }
+    let WorkspacePoll::Poll(page) = serde_json::from_slice(bytes)?;
+    let mut offers = Vec::with_capacity(page.offers.len());
+    let mut authors = Vec::with_capacity(page.offers.len());
+    let mut required = Vec::with_capacity(page.offers.len());
+    for entry in page.offers {
+        if let Some(author) = &entry.git_author {
+            author.validate()?;
+        }
+        offers.push(NativeOffer {
+            schema_version: entry.schema_version,
+            offered: entry.offered,
+            startup: entry.startup,
+        });
+        authors.push(entry.git_author);
+        required.push(entry.workspace_required);
+    }
+    ensure!(
+        required.contains(&true),
+        "invalid native workspace_required extension"
+    );
+    let reply = wire::ControlReply::Poll(wire::NativePollPage {
+        schema_version: page.schema_version,
+        operation_id: page.operation_id,
+        identity: page.identity,
+        server_time_ms: page.server_time_ms,
+        offers,
+        cancellations: page.cancellations,
+        next_after: page.next_after,
+    });
+    reply.validate_shape()?;
+    Ok((reply, (authors, required)))
+}
+
 fn prepare_digest(request: &Prepare) -> Result<aq_admission::Digest> {
     let mut value = serde_json::to_value(request)?;
     value.sort_all_objects();
@@ -102,6 +213,17 @@ fn prepare_digest(request: &Prepare) -> Result<aq_admission::Digest> {
 }
 fn same(a: &impl Serialize, b: &impl Serialize) -> Result<bool> {
     Ok(serde_json::to_value(a)? == serde_json::to_value(b)?)
+}
+fn hard_deadline(message: &wire::InitialGrantDelivery, sent: u64, received: u64) -> Result<u64> {
+    // Hard execution may outlast DeliveryClock's two-minute lease bound.
+    // Charge the same full network interval using checked arithmetic.
+    message
+        .execution_deadline_ms
+        .checked_sub(message.delivery.clock.server_time_ms)
+        .and_then(|ms| ms.checked_mul(1_000_000))
+        .and_then(|ns| sent.checked_add(ns))
+        .filter(|end| received >= sent && received < *end)
+        .ok_or_else(|| anyhow::anyhow!("invalid local hard execution deadline"))
 }
 fn live(deadline: u64) -> Result<()> {
     ensure!(boot_ns()? < deadline, "native local authority expired");
@@ -139,10 +261,8 @@ impl NativeClient {
         let mut tries = 0;
         let (response, nonce, sent_ns) = loop {
             let (nonce, sent_ns) = (Uuid::new_v4(), boot_ns()?);
-            let request = client
-                .post(format!("{}/v1/worker/profiled/{path}", self.base))
-                .header(header::AUTHORIZATION, self.credential.clone())
-                .header(header::CONTENT_TYPE, "application/json")
+            let request = self
+                .profiled_post(client, path)
                 .header("aq-delivery-nonce", nonce.to_string())
                 .body(bytes.clone());
             let request = if path == "poll" && self.checkpoint_author {
@@ -150,7 +270,12 @@ impl NativeClient {
             } else {
                 request
             };
-            let sent = self.slot_headers(request, path).send().await;
+            let request = if path == "poll" && self.workspace_expansion {
+                request.header("aq-workspace-expansion", "1")
+            } else {
+                request
+            };
+            let sent = request.send().await;
             let response = sent.map_err(|_| {
                 anyhow::anyhow!("native control transport failed; disposition unknown")
             })?;
@@ -164,10 +289,11 @@ impl NativeClient {
         }
         let bytes = body(response, wire::MAX_REPLY_BYTES).await?;
         let received_ns = boot_ns()?;
-        let (reply, git_authors) = if path == "poll" {
-            decode_poll(&bytes)?
+        let (reply, git_authors, workspace_required) = if path == "poll" {
+            let (reply, (authors, workspace_required)) = decode_workspace_poll(&bytes)?;
+            (reply, authors, workspace_required)
         } else {
-            (wire::decode_reply(&bytes)?, vec![])
+            (wire::decode_reply(&bytes)?, vec![], vec![])
         };
         if let wire::ControlReply::Failure(ref failure) = reply {
             return Err(ControlFailure(failure.code).into());
@@ -175,6 +301,7 @@ impl NativeClient {
         Ok(Received {
             reply,
             git_authors,
+            workspace_required,
             nonce,
             sent_ns,
             received_ns,
@@ -191,8 +318,11 @@ impl NativeClient {
         page.validate_for(request)?;
         ensure!(
             page.offers.len() == got.git_authors.len()
-                && (self.checkpoint_author || got.git_authors.iter().all(Option::is_none)),
-            "native offer author alignment or support"
+                && page.offers.len() == got.workspace_required.len()
+                && (self.checkpoint_author || got.git_authors.iter().all(Option::is_none))
+                && (self.workspace_expansion
+                    || got.workspace_required.iter().all(|required| !required)),
+            "native offer extension alignment or support"
         );
         let offer_deadlines_ns = page
             .offers
@@ -207,6 +337,7 @@ impl NativeClient {
             page,
             offer_deadlines_ns,
             git_authors: got.git_authors,
+            workspace_required: got.workspace_required,
         })
     }
     pub async fn accept(
@@ -264,32 +395,14 @@ impl NativeClient {
         TransportDocument::Prepare(request.clone()).validate()?;
         self.scope(&request.binding)?;
         offer.validate()?;
-        ensure!(
-            request.binding == plan.plan().binding
-                && request.binding == offer.offered.offer.binding
-                && request.guardian_id == plan.plan().guardian_id
-                && request.launch_id == plan.plan().launch_id
-                && same(&request.reservation, &plan.plan().reservation)?,
-            "preparation owner differs from accepted plan"
-        );
-        live(plan.deadline_ns)?;
+        plan.verify_request(request, offer)?;
         let request_digest = prepare_digest(request)?;
         if let Some(previous) = previous {
             ensure!(
                 previous.initial_prepare_digest == request_digest,
                 "initial grant retry request changed"
             );
-            previous.initial.validate_for(
-                request,
-                plan.plan(),
-                offer,
-                previous.initial.delivery.nonce,
-            )?;
-            ensure!(
-                previous.current.is_none(),
-                "initial grant retry after renewal"
-            );
-            live(previous.deadline_ns)?;
+            previous.verify_initial_retry(request, plan, offer)?;
         }
         let _slot = self.control_slots.try_acquire()?;
         let got = self
@@ -300,23 +413,9 @@ impl NativeClient {
         };
         message.validate_for(request, plan.plan(), offer, got.nonce)?;
         if let Some(previous) = previous {
-            ensure!(
-                same(&message.original, &previous.initial.original)?
-                    && message.operation_id == previous.initial.operation_id
-                    && message.versions == previous.initial.versions
-                    && message.execution_deadline_ms == previous.initial.execution_deadline_ms,
-                "initial grant replay changed"
-            );
+            previous.verify_initial_replay(&message)?;
         }
-        // Hard execution may outlast DeliveryClock's two-minute lease bound.
-        // Charge the same full network interval using checked arithmetic.
-        let mut hard_deadline_ns = message
-            .execution_deadline_ms
-            .checked_sub(message.delivery.clock.server_time_ms)
-            .and_then(|ms| ms.checked_mul(1_000_000))
-            .and_then(|ns| got.sent_ns.checked_add(ns))
-            .filter(|end| got.received_ns >= got.sent_ns && got.received_ns < *end)
-            .ok_or_else(|| anyhow::anyhow!("invalid local hard execution deadline"))?;
+        let mut hard_deadline_ns = hard_deadline(&message, got.sent_ns, got.received_ns)?;
         let mut cap = plan.deadline_ns;
         if let Some(previous) = previous {
             hard_deadline_ns = hard_deadline_ns.min(previous.hard_deadline_ns);

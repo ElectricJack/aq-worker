@@ -1,33 +1,10 @@
 use super::*;
-use aq_session_protocol::{ArtifactRef, Capability, Digest, Text};
+use aq_session_protocol::Text;
 
 fn settings(confinement: &str) -> (HarnessSettings, ModelSettings) {
-    let artifact = ArtifactRef {
-        id: Text::new("fixture").unwrap(),
-        version: Text::new("1").unwrap(),
-        digest: Digest::of(b"fixture"),
-    };
-    let caps = ["aq.harness.startup-context", confinement, "aq.harness.stop"]
-        .map(|id| Capability {
-            id: Text::new(id).unwrap(),
-            version: 1,
-        })
-        .to_vec();
     (
-        HarnessSettings {
-            harness: Text::new("claude").unwrap(),
-            cli_version: Text::new(CLAUDE_CLI_VERSION).unwrap(),
-            adapter: artifact.clone(),
-            environment: artifact,
-            required_capabilities: caps,
-        },
-        ModelSettings {
-            provider: Text::new("anthropic").unwrap(),
-            model: Text::new("claude-opus-5").unwrap(),
-            reasoning: Text::new("high").unwrap(),
-            max_output_tokens: 4096,
-            spending_budget: None,
-        },
+        recipe::fixture::harness("claude", CLAUDE_CLI_VERSION, confinement),
+        recipe::fixture::model("anthropic", "claude-opus-5", "high"),
     )
 }
 fn paths() -> ClaudePaths<'static> {

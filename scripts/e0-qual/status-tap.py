@@ -29,34 +29,47 @@ def log(out, **record):
         out.flush()
 
 
-def pump(source, sink, out, connection, direction):
-    pending = None
+class ConnectionLog:
+    def __init__(self, out, connection):
+        self.out = out
+        self.connection = connection
+        self.pending = 0
+
+    def record(self, **fields):
+        log(self.out, c=self.connection, **fields)
+
+    def request(self, data):
+        for match in REQUEST.finditer(data):
+            self.record(method=match[1].decode(), path=match[2].decode())
+
+    def response(self, data):
+        for match in STATUS.finditer(data):
+            self.pending = int(match[1])
+            self.record(status=self.pending)
+        if self.pending >= 400 and self.error_detail(data):
+            self.pending = 0
+
+    def error_detail(self, data):
+        error = ERROR.search(data)
+        message = MESSAGE.search(data)
+        if error or message:
+            self.record(error=error[1].decode() if error else None,
+                        message=message[1].decode('ascii', 'replace') if message else None)
+            return True
+        _, separator, body = data.partition(b'\r\n\r\n')
+        if separator:
+            keys = sorted(set(k.decode() for k in KEY.findall(body)))[:12]
+            if keys:
+                enums = {k.decode(): v.decode() for k, v in ENUM.findall(body)}
+                self.record(body_keys=keys, enums=enums)
+                return True
+        return False
+
+
+def pump(source, sink, observe):
     try:
-        while True:
-            data = source.recv(65536)
-            if not data:
-                break
-            if direction == 'request':
-                for match in REQUEST.finditer(data):
-                    log(out, c=connection, method=match[1].decode(), path=match[2].decode())
-            else:
-                for match in STATUS.finditer(data):
-                    pending = int(match[1])
-                    log(out, c=connection, status=pending)
-                if pending is not None and pending >= 400:
-                    error = ERROR.search(data)
-                    message = MESSAGE.search(data)
-                    if error or message:
-                        log(out, c=connection, error=error[1].decode() if error else None,
-                            message=message[1].decode('ascii', 'replace') if message else None)
-                        pending = None
-                    elif b'\r\n\r\n' in data:
-                        body = data.split(b'\r\n\r\n', 1)[1]
-                        keys = sorted(set(k.decode() for k in KEY.findall(body)))[:12]
-                        if keys:
-                            enums = {k.decode(): v.decode() for k, v in ENUM.findall(body)}
-                            log(out, c=connection, body_keys=keys, enums=enums)
-                            pending = None
+        while data := source.recv(65536):
+            observe(data)
             sink.sendall(data)
     except OSError:
         pass
@@ -80,8 +93,9 @@ def main():
         client, _ = server.accept()
         counter += 1
         backend = socket.create_connection(('127.0.0.1', upstream))
-        threading.Thread(target=pump, args=(client, backend, out, counter, 'request'), daemon=True).start()
-        threading.Thread(target=pump, args=(backend, client, out, counter, 'response'), daemon=True).start()
+        connection = ConnectionLog(out, counter)
+        threading.Thread(target=pump, args=(client, backend, connection.request), daemon=True).start()
+        threading.Thread(target=pump, args=(backend, client, connection.response), daemon=True).start()
 
 
 if __name__ == '__main__':

@@ -85,34 +85,45 @@ def check_codex_layout(pins):
         elf_interpreter(path)
 
 
+def installed_executables():
+    # Check Git's installed helper ELFs too; version alone misses lazy helper dependencies.
+    paths = [IMAGE / name for name in (*PROGRAMS, *CODEX_COMPANIONS)]
+    for path in Path('/opt/aq-git-runtime').rglob('*'):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open('rb') as stream:
+            if stream.read(4) == b'\x7fELF':
+                paths.append(path)
+    return paths
+
+
+def installed_versions(env, build, pins):
+    versions = {}
+    for name in ('aq-worker', 'aq-agent'):
+        versions[name] = command([str(IMAGE / name), '--version'], env,
+                                 f'{name} {build["versions"][name]}')
+    versions['aq-git'] = command([str(IMAGE / 'aq-git'), '--version'], env,
+                                 'aq-git ' + pins['inputs']['aq-git-source.tar.gz']['version'])
+    versions['codex'] = command([str(IMAGE / 'codex'), '--version'], env,
+                                'codex-cli ' + pins['inputs']['codex']['version'])
+    versions['tmux'] = command([str(IMAGE / 'tmux'), '-V'], env, 'tmux 3.4')
+    versions['git'] = command(['/opt/aq-git-runtime/bin/git', '--version'], env, 'git version 2.56.0')
+    return versions
+
+
 def smoke():
     pins = json.loads((METADATA / 'pins.json').read_text())
     check_codex_layout(pins)
     build = json.loads((METADATA / 'build.json').read_text())
     observed = installation()
     require(observed == json.loads((METADATA / 'images.json').read_text()), 'installed bytes changed')
-    # Check Git's installed helper ELFs too; version alone misses lazy helper dependencies.
-    executables = [IMAGE / name for name in (*PROGRAMS, *CODEX_COMPANIONS)]
-    for path in Path('/opt/aq-git-runtime').rglob('*'):
-        if path.is_file() and not path.is_symlink():
-            with path.open('rb') as stream:
-                if stream.read(4) == b'\x7fELF':
-                    executables.append(path)
+    executables = installed_executables()
     with tempfile.TemporaryDirectory(prefix='aq-smoke-', dir=os.environ['HOME']) as home:
         env = {'PATH': os.environ['PATH'], 'HOME': home, 'CODEX_HOME': home,
                'LANG': 'C.UTF-8', 'TERM': 'xterm-256color'}
         for path in executables:
             check_dependencies(path, env)
-        versions = {}
-        for name in ('aq-worker', 'aq-agent'):
-            versions[name] = command([str(IMAGE / name), '--version'], env,
-                                     f'{name} {build["versions"][name]}')
-        versions['aq-git'] = command([str(IMAGE / 'aq-git'), '--version'], env,
-                                     'aq-git ' + pins['inputs']['aq-git-source.tar.gz']['version'])
-        versions['codex'] = command([str(IMAGE / 'codex'), '--version'], env,
-                                    'codex-cli ' + pins['inputs']['codex']['version'])
-        versions['tmux'] = command([str(IMAGE / 'tmux'), '-V'], env, 'tmux 3.4')
-        versions['git'] = command(['/opt/aq-git-runtime/bin/git', '--version'], env, 'git version 2.56.0')
+        versions = installed_versions(env, build, pins)
         for subcommand in ('run-native', 'check-native'):
             command([str(IMAGE / 'aq-worker'), subcommand, '--help'], env, '--native-config')
         for subcommand in ('submit', 'status'):

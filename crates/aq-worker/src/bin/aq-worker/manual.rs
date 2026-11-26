@@ -524,6 +524,39 @@ async fn apply(
     }
     Ok(())
 }
+impl Agent {
+    fn needs_recovery(&self, node_id: Uuid) -> bool {
+        let finished =
+            self.status == "stopped" || (self.status == "failed" && self.sandbox.is_none());
+        self.node_id == node_id && !finished
+    }
+
+    fn login_check_due(&self, period: std::time::Duration) -> bool {
+        self.status == "running"
+            && self.login.is_some()
+            && self
+                .login_checked
+                .is_none_or(|checked| checked.elapsed() >= period)
+    }
+}
+
+fn recover_agents(root: &Path, node_id: Uuid) -> Result<BTreeMap<Uuid, Agent>> {
+    let mut agents = BTreeMap::new();
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path().join("state.json");
+        if !path.exists() {
+            continue;
+        }
+        if let Ok(a) = serde_json::from_slice::<Agent>(&std::fs::read(path)?)
+            && a.needs_recovery(node_id)
+        {
+            agents.insert(a.id, a);
+        }
+    }
+    Ok(agents)
+}
+
 struct Node {
     id: Uuid,
     link: ServerLink,
@@ -562,28 +595,16 @@ pub async fn run(
     let mut conversation_tasks = Vec::new();
     for slot in layout.enrolled_nodes() {
         let enrollment = EnrollmentFile::load(&layout.slot_enrollment(slot))?;
-        let mut agents = BTreeMap::new();
-        for entry in std::fs::read_dir(&root)? {
-            let entry = entry?;
-            let path = entry.path().join("state.json");
-            if !path.exists() {
-                continue;
+        let agents = recover_agents(&root, enrollment.node_id)?;
+        conversation_tasks.push(tokio::spawn(
+            conversation::Archiver {
+                root: root.clone(),
+                node: enrollment.node_id,
+                link: ServerLink::from_enrollment(&enrollment)?,
+                cfg: settings.host.docker_local.clone(),
             }
-            if let Ok(a) = serde_json::from_slice::<Agent>(&std::fs::read(path)?)
-                && a.node_id == enrollment.node_id
-                && a.status != "stopped"
-                && (a.status != "failed" || a.sandbox.is_some())
-            {
-                agents.insert(a.id, a);
-            }
-        }
-        conversation_tasks.push(tokio::spawn(conversation::run(
-            root.clone(),
-            enrollment.node_id,
-            ServerLink::from_enrollment(&enrollment)?,
-            settings.host.docker_local.clone(),
-            shutdown.clone(),
-        )));
+            .run(shutdown.clone()),
+        ));
         nodes.push(Node {
             id: enrollment.node_id,
             link: ServerLink::from_enrollment(&enrollment)?,
@@ -732,10 +753,7 @@ pub async fn run(
                     tracing::warn!(session_id=%id,"manual terminal input is uncertain; bytes will not be replayed");
                 }
                 let docker = &settings.host.docker_local;
-                if a.status == "running"
-                    && a.login.is_some()
-                    && a.login_checked.is_none_or(|at| at.elapsed() >= login_check)
-                {
+                if a.login_check_due(login_check) {
                     a.login_checked = Some(std::time::Instant::now());
                     if let Err(error) = sync_login(&exe, docker, &node.link, a, true).await {
                         tracing::warn!(session_id=%id, %error, "Codex login sync");

@@ -138,6 +138,14 @@ pub fn create_body(
     if let Some((host, target)) = &config.transcript {
         mounts.push(json!({ "Type": "bind", "Source": host, "Target": target, "ReadOnly": false }));
     }
+    for (project, path) in &config.readonly_projects {
+        mounts.push(json!({
+            "Type": "bind",
+            "Source": path,
+            "Target": aq_node_git::workspaces::sandbox_path(*project),
+            "ReadOnly": true,
+        }));
+    }
     let mut body = json!({
         "Image": image,
         "Labels": labels(request),
@@ -168,6 +176,10 @@ pub fn create_body(
             "AutoRemove": false,
         },
     });
+    if request.postgres {
+        use aq_sandbox_archive::task_postgres as postgres;
+        body["HostConfig"]["Tmpfs"] = json!({ (postgres::ROOT): postgres::TMPFS });
+    }
     if config.hard_disk_limit {
         body["HostConfig"]["StorageOpt"] =
             json!({ "size": disk_limit_bytes(config, request).to_string() });
@@ -249,15 +261,4 @@ pub fn labels_match(labels: &Value, expected: &BTreeMap<String, String>) -> bool
         .all(|(key, value)| labels.get(key).and_then(Value::as_str) == Some(value))
 }
 
-/// Percent-encodes everything except RFC 3986 unreserved characters.
-pub fn encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                (byte as char).to_string()
-            }
-            _ => format!("%{byte:02X}"),
-        })
-        .collect()
-}
+pub use super::transport::encode;

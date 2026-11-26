@@ -25,10 +25,12 @@ pub enum Checkpoint {
     Started,
 }
 mod authority;
+mod bootstrap;
 pub mod claude_docker;
 mod control_relay;
 mod native;
 mod output_relay;
+mod registry;
 mod root;
 #[cfg(any(test, feature = "test-support"))]
 mod synthetic;
@@ -68,6 +70,18 @@ struct RegistryEntries {
     entries: BTreeMap<Uuid, Arc<Entry>>,
     fenced: BTreeSet<Uuid>,
 }
+impl RegistryEntries {
+    fn remove_claim(&mut self, entry: &Arc<Entry>) {
+        if !self.fenced.contains(&entry.id)
+            && self
+                .entries
+                .get(&entry.id)
+                .is_some_and(|current| Arc::ptr_eq(current, entry))
+        {
+            self.entries.remove(&entry.id);
+        }
+    }
+}
 struct ClaimGuard {
     registry: Arc<Registry>,
     entry: Arc<Entry>,
@@ -75,15 +89,11 @@ struct ClaimGuard {
 }
 impl Drop for ClaimGuard {
     fn drop(&mut self) {
-        if !self.admitted
-            && let Ok(mut state) = self.registry.entries.lock()
-            && !state.fenced.contains(&self.entry.id)
-            && state
-                .entries
-                .get(&self.entry.id)
-                .is_some_and(|e| Arc::ptr_eq(e, &self.entry))
-        {
-            state.entries.remove(&self.entry.id);
+        if self.admitted {
+            return;
+        }
+        if let Ok(mut state) = self.registry.entries.lock() {
+            state.remove_claim(&self.entry);
         }
     }
 }
@@ -169,197 +179,6 @@ enum Outcome {
     Stopped,
     Unknown,
 }
-impl Registry {
-    pub(super) fn new(state: &State) -> Self {
-        #[cfg(test)]
-        let hook = Arc::new(Mutex::new(None));
-        #[cfg(test)]
-        let fault = Arc::new(Mutex::new(None));
-        let mut entries = BTreeMap::new();
-        for (id, a) in &state.attempts {
-            if let Some(h) = &a.native_host {
-                entries.insert(
-                    *id,
-                    Arc::new(Entry {
-                        #[cfg(test)]
-                        hook: hook.clone(),
-                        #[cfg(test)]
-                        fault: fault.clone(),
-                        id: *id,
-                        scope: None,
-                        result_channel: None,
-                        profile: None,
-                        history: Mutex::new(Some(h.clone())),
-                        stop: AtomicBool::new(true),
-                        physical: Mutex::new(Physical {
-                            handle: None,
-                            observer: None,
-                            pending_output: Vec::new(),
-                            output_taken_without_sequencer: false,
-                            stopped: None,
-                            transport: None,
-                            channel: None,
-                            observation: None,
-                            outcome: Outcome::Unknown,
-                        }),
-                    }),
-                );
-            }
-        }
-        Self {
-            control: Mutex::new(None),
-            #[cfg(test)]
-            hook,
-            #[cfg(test)]
-            fault,
-            output: Arc::new(Mutex::new(output_relay::Outputs::default())),
-            admitted: Mutex::new(state.attempts.keys().copied().collect()),
-            entries: Mutex::new(RegistryEntries {
-                entries,
-                fenced: BTreeSet::new(),
-            }),
-            bootstrap: Arc::new(Semaphore::new(1)),
-            stop_slots: Arc::new(Semaphore::new(1)),
-            #[cfg(any(test, feature = "test-support"))]
-            pool: aq_session_host::observed::SealedElfPool::new(16 * 1024 * 1024, 4)
-                .expect("fixed bounded ELF pool"),
-        }
-    }
-    pub(super) fn admit(&self, id: Uuid) -> Result<()> {
-        let mut admitted = lock(&self.admitted)?;
-        ensure!(
-            admitted.contains(&id) || admitted.len() < 64,
-            "native registry admission capacity"
-        );
-        admitted.insert(id);
-        Ok(())
-    }
-    pub(super) fn result_stopped(
-        &self,
-        scope: &LaunchExecutionScope,
-    ) -> Result<aq_session_host::StoppedProof> {
-        let e = self.entry(scope.id)?;
-        let actual = e
-            .scope
-            .as_ref()
-            .context("reopened host cannot capture result")?;
-        ensure!(
-            actual.digest == scope.digest && actual.inputs.same_owner(&scope.inputs),
-            "result stopped host owner differs"
-        );
-        let p = lock(&e.physical)?;
-        let proof = p
-            .stopped
-            .as_ref()
-            .context("result requires actual retained StoppedProof")?;
-        ensure!(
-            matches!(p.outcome, Outcome::Stopped) && proof.observation().kernel_wait_echild,
-            "result writers not proven stopped"
-        );
-        Ok(proof.clone())
-    }
-    pub(super) fn result_current(&self, scope: &LaunchExecutionScope) -> Result<()> {
-        let e = self.entry(scope.id)?;
-        let actual = e
-            .scope
-            .as_ref()
-            .context("reopened host has no result authority")?;
-        ensure!(
-            actual.digest == scope.digest
-                && actual.inputs.same_owner(&scope.inputs)
-                && !e.stop.load(Ordering::SeqCst),
-            "result host owner differs or stopped"
-        );
-        let physical = lock(&e.physical)?;
-        ensure!(
-            physical.stopped.is_none() && matches!(physical.outcome, Outcome::Running),
-            "result host not live"
-        );
-        let observation = physical
-            .handle
-            .as_ref()
-            .context("result actual host absent")?
-            .observe()?;
-        ensure!(
-            observation.phase == aq_session_host::HostPhase::Running,
-            "result process no longer running"
-        );
-        Ok(())
-    }
-    fn entry(&self, id: Uuid) -> Result<Arc<Entry>> {
-        lock(&self.entries)?
-            .entries
-            .get(&id)
-            .cloned()
-            .context("native host attempt absent")
-    }
-    fn fence(&self, id: Uuid) -> Result<Option<Arc<Entry>>> {
-        ensure!(
-            lock(&self.admitted)?.contains(&id),
-            "native stop not admitted"
-        );
-        let mut state = lock(&self.entries)?;
-        state.fenced.insert(id);
-        let entry = state.entries.get(&id).cloned();
-        if let Some(e) = &entry {
-            e.stop.store(true, Ordering::SeqCst);
-        }
-        drop(state);
-        if let Some(e) = &entry {
-            e.cancel_transport();
-        }
-        Ok(entry)
-    }
-    #[cfg(any(test, feature = "test-support"))]
-    fn claim(
-        &self,
-        scope: LaunchExecutionScope,
-        profile: SyntheticHostProfile,
-    ) -> Result<Arc<Entry>> {
-        self.claim_profile(scope, Profile::Synthetic(Arc::new(profile)), None)
-    }
-    fn claim_profile(
-        &self,
-        scope: LaunchExecutionScope,
-        profile: Profile,
-        result_channel: Option<crate::native::result::VerifiedResultChannel>,
-    ) -> Result<Arc<Entry>> {
-        ensure!(
-            lock(&self.admitted)?.contains(&scope.id),
-            "native host not admitted"
-        );
-        let mut state = lock(&self.entries)?;
-        ensure!(
-            !state.entries.contains_key(&scope.id) && !state.fenced.contains(&scope.id),
-            "native host already claimed; no relaunch"
-        );
-        let e = Arc::new(Entry {
-            #[cfg(test)]
-            hook: self.hook.clone(),
-            #[cfg(test)]
-            fault: self.fault.clone(),
-            id: scope.id,
-            scope: Some(Arc::new(scope)),
-            result_channel: result_channel.map(Arc::new),
-            profile: Some(profile),
-            history: Mutex::new(None),
-            stop: AtomicBool::new(false),
-            physical: Mutex::new(Physical {
-                handle: None,
-                observer: None,
-                pending_output: Vec::new(),
-                output_taken_without_sequencer: false,
-                stopped: None,
-                transport: None,
-                channel: None,
-                observation: None,
-                outcome: Outcome::Pending,
-            }),
-        });
-        state.entries.insert(e.id, e.clone());
-        Ok(e)
-    }
-}
 /// A local real Running receipt; it is neither remote Started ACK nor renewal.
 pub struct LocalPhaseHost {
     entry: Arc<Entry>,
@@ -380,212 +199,10 @@ pub enum NativeStopOutcome {
     StoppedPendingJournal(Box<HostObservation>),
     Unknown,
 }
-impl LocalPhaseHost {
-    pub fn attempt_id(&self) -> Uuid {
-        self.entry.id
-    }
-    pub fn observe(&self) -> Result<HostObservation> {
-        lock(&self.entry.physical)?
-            .handle
-            .as_ref()
-            .context("native physical handle absent")?
-            .observe()
-    }
-    /// Extend the host guardian's local permit (never server authority) up to
-    /// `until_boot_ms`, which the caller bounds by the server grant. Used by
-    /// non-interactive hosts whose local permit is capped at MAX_PERMIT_MS.
-    pub fn renew_local(&self, sequence: u64, until_boot_ms: u64) -> Result<()> {
-        let intent = lock(&self.entry.history)?
-            .as_ref()
-            .map(|h| h.intent.clone())
-            .context("native launch intent absent")?;
-        let now = boot_ns()? / 1_000_000;
-        let permit = ExecutionPermit {
-            session: intent.binding.session.clone(),
-            manifest_digest: intent.binding.launch_manifest_digest.clone(),
-            sequence,
-            issued_boot_ms: now,
-            expires_boot_ms: until_boot_ms
-                .min(now + aq_session_host::MAX_PERMIT_MS - 5_000)
-                .min(intent.hard_deadline_ns.min(intent.deadline_ns) / 1_000_000),
-        };
-        lock(&self.entry.physical)?
-            .handle
-            .as_ref()
-            .context("native physical handle absent")?
-            .renew(&permit)
-    }
-    /// MS1 docker-local: the driver's own exit record (`exit.json` in its
-    /// private directory), written before it submits the claim. None when the
-    /// host is not a Claude docker-local host or the record is absent.
-    pub fn claude_driver_succeeded(&self) -> Option<bool> {
-        driver_exit_success(&self.claude_driver_dir()?.join("exit.json"))
-    }
-    /// MS1 docker-local: the driver's private directory, if this is a Claude
-    /// docker-local host.
-    pub fn claude_driver_dir(&self) -> Option<std::path::PathBuf> {
-        if !matches!(self.entry.profile, Some(Profile::ClaudeDocker(_))) {
-            return None;
-        }
-        let intent = lock(&self.entry.history).ok()?.as_ref()?.intent.clone();
-        Some(claude_driver_dir(&intent.host_root, intent.launch_id))
-    }
-}
-/// `<host_root>/driver-<launch_id>`: the private directory of one launch.
-pub fn claude_driver_dir(host_root: &std::path::Path, launch_id: Uuid) -> std::path::PathBuf {
-    host_root.join(format!("driver-{launch_id}"))
-}
-/// The driver's exit record. Missing, unreadable or malformed is None
-/// (Unknown): only an explicit `{"success": true}` can report Success.
-pub fn driver_exit_success(path: &std::path::Path) -> Option<bool> {
-    let bytes = std::fs::read(path).ok()?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
-    value["success"].as_bool()
-}
-/// MS1 review S3a: after the host stopped, the launch's leased token file is
-/// removed whatever happened to the driver (it normally deleted it itself).
-pub fn wipe_claude_driver_secrets(dir: &std::path::Path) {
-    match std::fs::remove_file(dir.join("token")) {
-        Ok(()) => tracing::warn!(dir = %dir.display(), "removed a leftover leased token file"),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => tracing::warn!(dir = %dir.display(), "leased token file not removed: {e}"),
-    }
-}
-impl LocalPhaseHost {
-    pub fn started_request(&self) -> Result<aq_admission::started::Request> {
-        lock(&self.entry.history)?
-            .as_ref()
-            .and_then(|h| h.running.as_ref())
-            .map(|r| r.request.clone())
-            .context("native Running history absent")
-    }
-}
-impl HeldLaunchHistory {
-    pub fn attempt_id(&self) -> Uuid {
-        self.entry.id
-    }
-}
-impl LocalStoppedHistory {
-    pub fn attempt_id(&self) -> Uuid {
-        self.entry.id
-    }
-}
-impl Entry {
-    fn cancel_transport(&self) {
-        // Safety cancellation remains available if another owner panicked
-        // while holding this mutex. It can revoke IO, never authorize effects.
-        let physical = self
-            .physical
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(transport) = &physical.transport {
-            transport.cancel();
-        }
-        if let Some(channel) = &physical.channel {
-            channel.close();
-        }
-    }
-    #[cfg(test)]
-    fn hook(&self, stage: Checkpoint, journal: &mut Journal) -> Result<()> {
-        let mut fault = lock(&self.fault)?;
-        if fault.as_ref().is_some_and(|(s, _)| *s == stage) {
-            journal.inject_fault(fault.take().unwrap().1);
-        }
-        drop(fault);
-        let mut hook = lock(&self.hook)?;
-        if hook.as_ref().is_some_and(|(s, _)| *s == stage) {
-            journal.set_pause_gate(hook.take().unwrap().1);
-        }
-        Ok(())
-    }
-
-    fn current(&self, owner: &Owned) -> Result<()> {
-        ensure!(
-            !self.stop.load(Ordering::SeqCst),
-            "native host safety stop fenced"
-        );
-        self.profile
-            .as_ref()
-            .context("recovery cannot authorize host")?
-            .root()
-            .verify()?;
-        self.scope
-            .as_ref()
-            .context("recovery has no execution scope")?
-            .check(owner)?;
-        self.profile
-            .as_ref()
-            .context("recovery has no profile")?
-            .root()
-            .verify()?;
-        ensure!(
-            !self.stop.load(Ordering::SeqCst),
-            "native host stopped during current checks"
-        );
-        Ok(())
-    }
-    fn snapshot(&self, journal: &Journal) -> Result<()> {
-        *lock(&self.history)? = Some(
-            journal
-                .state()
-                .attempts
-                .get(&self.id)
-                .and_then(|a| a.native_host.clone())
-                .context("native host history absent")?,
-        );
-        Ok(())
-    }
-    fn stop_now(&self) -> Result<NativeStopOutcome> {
-        self.stop.store(true, Ordering::SeqCst);
-        self.cancel_transport();
-        let h = lock(&self.history)?
-            .clone()
-            .context("native host has no durable intent")?;
-        let intent = h
-            .host_intent
-            .as_ref()
-            .context("native host has no physical configuration")?;
-        let root = RootGuard::open(
-            &h.intent.host_root,
-            Some((h.intent.root_device, h.intent.root_inode)),
-        )?;
-        root.verify()?;
-        let mut handle = SessionHost::recover(&h.intent.host_root, intent)?;
-        handle.wait_stopped(Duration::from_secs(2))?;
-        let proof = handle.stopped_proof()?;
-        let observation = proof.observation().clone();
-        if handle.cleanup_private_inputs(&proof).is_err() {
-            tracing::warn!(attempt_id=%self.id,"stopped private runtime data retained after cleanup refusal");
-        }
-        let mut state = lock(&self.physical)?;
-        state.stopped = Some(proof);
-        state.handle = Some(handle);
-        state.outcome = Outcome::Stopped;
-        Ok(NativeStopOutcome::StoppedPendingJournal(Box::new(
-            observation,
-        )))
-    }
-    async fn finish_stopped_transport(&self) -> Result<()> {
-        let transport = {
-            let mut physical = lock(&self.physical)?;
-            if physical.stopped.is_none() {
-                return Ok(());
-            }
-            drop(physical.channel.take()); // removes the socket directory
-            drop(physical.observation.take());
-            physical.transport.take()
-        };
-        if let Some(transport) = transport {
-            // Cancellation of this wait still aborts the serving task. This
-            // closes local IO; it proves no rollback of upstream effects.
-            let stopped = tokio::time::timeout(Duration::from_secs(1), transport.stop()).await;
-            if !matches!(stopped, Ok(Ok(()))) {
-                tracing::warn!(attempt_id=%self.id,"stopped transport task ended without a clean acknowledgement");
-            }
-        }
-        Ok(())
-    }
-}
+mod host;
+pub use aq_handoff_note::driver_exit_success;
+pub use host::{claude_driver_dir, wipe_claude_driver_secrets};
+mod entry;
 impl InputPipeline {
     pub fn phase_host_history(&self, id: Uuid) -> Result<Option<NativeHostHistory>> {
         let entry = self.launch.entry(id)?;
@@ -631,18 +248,7 @@ impl InputPipeline {
         execution: &DurablePhaseExecution,
         profile: Arc<NativeCodexHostProfile>,
     ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
-        let claimed = self
-            .launch_scope(execution)
-            .and_then(|scope| {
-                self.launch
-                    .claim_profile(scope, Profile::Native(profile), None)
-            })
-            .map(|entry| ClaimGuard {
-                registry: self.launch.clone(),
-                entry,
-                admitted: false,
-            });
-        self.launch_claimed(claimed)
+        self.launch_profile(execution, Profile::Native(profile), None)
     }
     pub fn launch_phase_native_result(
         self: &Arc<Self>,
@@ -650,19 +256,7 @@ impl InputPipeline {
         profile: Arc<NativeCodexHostProfile>,
         channel: crate::native::result::VerifiedResultChannel,
     ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
-        let claimed = self
-            .launch_scope(execution)
-            .and_then(|scope| {
-                channel.check_pipeline(self, &scope)?;
-                self.launch
-                    .claim_profile(scope, Profile::Native(profile), Some(channel))
-            })
-            .map(|entry| ClaimGuard {
-                registry: self.launch.clone(),
-                entry,
-                admitted: false,
-            });
-        self.launch_claimed(claimed)
+        self.launch_profile(execution, Profile::Native(profile), Some(channel))
     }
     /// MS1: the session host runs the docker-local Claude driver with the
     /// attempt's actual result channel.
@@ -672,19 +266,7 @@ impl InputPipeline {
         profile: Arc<claude_docker::ClaudeDockerHostProfile>,
         channel: crate::native::result::VerifiedResultChannel,
     ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
-        let claimed = self
-            .launch_scope(execution)
-            .and_then(|scope| {
-                channel.check_pipeline(self, &scope)?;
-                self.launch
-                    .claim_profile(scope, Profile::ClaudeDocker(profile), Some(channel))
-            })
-            .map(|entry| ClaimGuard {
-                registry: self.launch.clone(),
-                entry,
-                admitted: false,
-            });
-        self.launch_claimed(claimed)
+        self.launch_profile(execution, Profile::ClaudeDocker(profile), Some(channel))
     }
     #[cfg(any(test, feature = "test-support"))]
     pub fn launch_phase_synthetic(
@@ -692,9 +274,22 @@ impl InputPipeline {
         execution: &DurablePhaseExecution,
         profile: SyntheticHostProfile,
     ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
+        self.launch_profile(execution, Profile::Synthetic(Arc::new(profile)), None)
+    }
+    fn launch_profile(
+        self: &Arc<Self>,
+        execution: &DurablePhaseExecution,
+        profile: Profile,
+        channel: Option<crate::native::result::VerifiedResultChannel>,
+    ) -> impl std::future::Future<Output = Result<NativeHostLaunchResult>> + Send + 'static {
         let claimed = self
             .launch_scope(execution)
-            .and_then(|scope| self.launch.claim(scope, profile))
+            .and_then(|scope| {
+                if let Some(channel) = &channel {
+                    channel.check_pipeline(self, &scope)?;
+                }
+                self.launch.claim_profile(scope, profile, channel)
+            })
             .map(|entry| ClaimGuard {
                 registry: self.launch.clone(),
                 entry,
@@ -731,65 +326,13 @@ impl InputPipeline {
                 let result = bootstrap(&owner, &registry, &entry);
                 if let Err(error) = &result {
                     tracing::warn!(attempt_id = %entry.id, "native host bootstrap refused: {error:#}");
-                }
-                if result.is_err() {
-                    let _ = entry.stop_now();
-                    if let Ok(mut owned) = lock(&owner) {
-                        let _ = owned.journal.native_update(entry.id, |h, _, _| {
-                            h.uncertain = Some(LaunchFailure::ExecUnobserved);
-                            Ok(())
-                        });
-                        let proof = lock(&entry.physical)
-                            .ok()
-                            .and_then(|state| state.stopped.clone());
-                        if let Some(proof) = proof {
-                            let _ = owned.journal.native_stopped(entry.id, &proof);
-                        }
-                        let _ = entry.snapshot(&owned.journal);
-                    }
+                    entry.retain_bootstrap_failure(&owner);
                 }
                 result
             })
             .await
             .context("native bootstrap job failed")?;
-            match result {
-                Ok(()) => {
-                    let outcome = lock(&returned.physical)?.outcome;
-                    Ok(match outcome {
-                        Outcome::Running => NativeHostLaunchResult::Running(LocalPhaseHost {
-                            entry: returned,
-                            owner: pipeline.owned.clone(),
-                        }),
-                        Outcome::Stopped => {
-                            NativeHostLaunchResult::StoppedBeforeStarted(LocalStoppedHistory {
-                                entry: returned,
-                            })
-                        }
-                        _ => NativeHostLaunchResult::Unknown(HeldLaunchHistory { entry: returned }),
-                    })
-                }
-                Err(_) => {
-                    let _ = returned.stop_now();
-                    returned.finish_stopped_transport().await?;
-                    let stopped = lock(&returned.history)?
-                        .as_ref()
-                        .is_some_and(|h| h.stopped.is_some() && h.running.is_none());
-                    lock(&returned.physical)?.outcome = if stopped {
-                        Outcome::Stopped
-                    } else {
-                        Outcome::Unknown
-                    };
-                    if stopped {
-                        Ok(NativeHostLaunchResult::StoppedBeforeStarted(
-                            LocalStoppedHistory { entry: returned },
-                        ))
-                    } else {
-                        Ok(NativeHostLaunchResult::Unknown(HeldLaunchHistory {
-                            entry: returned,
-                        }))
-                    }
-                }
-            }
+            returned.launch_result(&pipeline.owned, result).await
         }
     }
     pub fn stop_phase_host(
@@ -901,6 +444,7 @@ fn bootstrap(owner: &Arc<Mutex<Owned>>, _registry: &Registry, entry: &Arc<Entry>
 /// What a launcher pins of its host profile in a launch intent: the root (with its device and
 /// inode), the profile, the executable, helper, tmux and renderer, and the columns and rows.
 pub(super) struct HostPins {
+    pub pid_context: &'static str,
     pub root: (std::path::PathBuf, (u64, u64)),
     pub profile_digest: Digest,
     pub programs: [aq_session_protocol::ArtifactRef; 4],
@@ -912,7 +456,6 @@ pub(super) fn launch_intent(
     revision: u64,
     a: &crate::native::journal::Attempt,
     pins: HostPins,
-    pid_context: &'static str,
 ) -> Result<NativeLaunchIntent> {
     let accepted = a.phase_scope()?;
     let grant = accepted.grant;
@@ -934,7 +477,7 @@ pub(super) fn launch_intent(
         host_root: pins.root.0,
         root_device: pins.root.1.0,
         root_inode: pins.root.1.1,
-        pid_namespace: pid_namespace.to_str().context(pid_context)?.into(),
+        pid_namespace: pid_namespace.to_str().context(pins.pid_context)?.into(),
         profile_digest: pins.profile_digest,
         executable,
         helper,
@@ -951,152 +494,9 @@ pub(super) fn launch_intent(
     })
 }
 #[cfg(any(test, feature = "test-support"))]
-fn bootstrap_synthetic(
-    owner: &Arc<Mutex<Owned>>,
-    registry: &Registry,
-    entry: &Arc<Entry>,
-) -> Result<()> {
-    let scope = entry.scope.as_ref().context("native launch scope absent")?;
-    let Profile::Synthetic(profile) = entry.profile.as_ref().context("native profile absent")?
-    else {
-        anyhow::bail!("synthetic profile required")
-    };
-    {
-        let mut owner = lock(owner)?;
-        entry.current(&owner)?;
-        let state = owner.journal.state();
-        let a = &state.attempts[&entry.id];
-        ensure!(
-            a.reservation.offer.startup.payload_bytes <= 4096,
-            "synthetic startup ceiling"
-        );
-        let c = &profile.config;
-        let [executable, helper, tmux] =
-            [&c.program, &c.helper, &c.tmux].map(|p| p.artifact.clone());
-        let pins = HostPins {
-            root: (c.root.clone(), profile.root.identity()),
-            profile_digest: profile.digest.clone(),
-            programs: [executable, helper, tmux, c.renderer.clone()],
-            size: (c.columns, c.rows),
-        };
-        let intent = launch_intent(scope, state.revision, a, pins, "PID namespace text")?;
-        #[cfg(test)]
-        entry.hook(Checkpoint::Outer, &mut owner.journal)?;
-        owner.journal.begin_native_launch(entry.id, intent)?;
-        entry.snapshot(&owner.journal)?;
-        entry.current(&owner)?;
-    }
-    profile.verify_installation()?;
-    {
-        let owner = lock(owner)?;
-        entry.current(&owner)?;
-    }
-    let h = lock(&entry.history)?.clone().unwrap();
-    let i = &h.intent;
-    let elf = registry.pool.load_verified(
-        &profile.config.program.path,
-        &profile.config.program.artifact,
-    )?;
-    let startup = aq_session_host::observed::ObservedStartup::new(
-        scope.inputs.startup().clone(),
-        i.terminal.clone(),
-        elf,
-        aq_session_host::observed::ObservationProfile::small_elf(
-            profile.config.renderer.clone(),
-            i.columns,
-            i.rows,
-        )?,
-        scope.hard / 1_000_000,
-    )?;
-    let permit = ExecutionPermit {
-        session: i.binding.session.clone(),
-        manifest_digest: i.binding.launch_manifest_digest.clone(),
-        sequence: 1,
-        issued_boot_ms: boot_ns()? / 1_000_000,
-        expires_boot_ms: scope.deadline.min(scope.hard) / 1_000_000,
-    };
-    let credentials = {
-        let owner = lock(owner)?;
-        entry.current(&owner)?;
-        owner.journal.state().attempts[&entry.id]
-            .reservation
-            .offer
-            .offered
-            .offer
-            .manifest
-            .credentials
-            .iter()
-            .map(|c| c.credential_profile.clone())
-            .collect()
-    };
-    let local = aq_session_host::LocalEnvironment {
-        resource_policy: aq_session_host::ResourcePolicy::CallerAdmission(ArtifactRef {
-            id: aq_session_protocol::Text::new("aq.synthetic-admission-only")?,
-            version: aq_session_protocol::Text::new("1")?,
-            digest: Digest::of(b"synthetic host admission; no hard resource enforcement"),
-        }),
-        workspace: scope.inputs.workspace().workspace().path.clone(),
-        helper_executable: profile.config.helper.path.clone(),
-        tmux_executable: profile.config.tmux.path.clone(),
-        tmux_version: "tmux 3.4".into(),
-        credential_profiles: credentials,
-        context_material: vec![],
-    };
-    let adapter = Adapter {
-        profile: profile.clone(),
-        launch_id: i.launch_id,
-    };
-    let mut authority = authority::Authority {
-        owner: owner.clone(),
-        entry: entry.clone(),
-    };
-    let pending = SessionHost::prepare_observed(
-        &profile.config.root,
-        i.launch_id,
-        &startup,
-        permit,
-        &local,
-        &adapter,
-        &mut authority,
-    )?;
-    let (mut observer, baseline) = pending.open_baseline_observer()?;
-    let mut released = pending.release_after_baseline(&baseline, &mut authority)?;
-    let until = Instant::now() + Duration::from_secs(3);
-    let mut bootstrap_output = Vec::new();
-    let mut bootstrap_bytes = 0;
-    loop {
-        let events = observer.poll()?;
-        bootstrap_bytes += events
-            .iter()
-            .map(|e| match e {
-                aq_session_host::terminal_output::ControlEvent::Bytes(bytes) => bytes.len(),
-                _ => 0,
-            })
-            .sum::<usize>();
-        ensure!(
-            bootstrap_bytes <= 65536 && bootstrap_output.len() + events.len() <= 64,
-            "native bootstrap output bound"
-        );
-        bootstrap_output.extend(events);
-        if entry.stop.load(Ordering::SeqCst) {
-            released.stop()?;
-            anyhow::bail!("native host stopped before Running")
-        }
-        if let Some(handle) = released.poll_started(&mut authority)? {
-            let mut state = lock(&entry.physical)?;
-            state.handle = Some(handle);
-            state.observer = Some(observer);
-            state.pending_output = bootstrap_output;
-            state.outcome = Outcome::Running;
-            return Ok(());
-        }
-        ensure!(
-            boot_ns()? < scope.deadline.min(scope.hard) && Instant::now() < until,
-            "native positive exec observation expired"
-        );
-        std::thread::sleep(Duration::from_millis(2));
-    }
-}
+mod synthetic_bootstrap;
+#[cfg(any(test, feature = "test-support"))]
+use synthetic_bootstrap::bootstrap_synthetic;
 
 #[cfg(test)]
 mod scoped_transport_scenarios;

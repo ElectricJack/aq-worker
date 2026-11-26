@@ -1,5 +1,6 @@
 //! Public synthetic history/loopback peer only; never creates a live host permit.
 use super::*;
+use crate::backend::docker_local::tar::TreeEntry;
 use crate::native::{
     journal::launch::NativeStopped, test_support::profile_history::terminal_attempt,
 };
@@ -209,25 +210,169 @@ async fn mixed_execution_history_is_refused_as_inconsistent() {
         .unwrap_err();
     assert!(e.downcast_ref::<RecoveryHold>().is_none(), "{e:#}");
 }
-/// R1 review: only an attempt that failed before journaling Prepare settles as never started.
-/// A journaled Prepare may have been granted (a lost reply), and a granted execution with no
-/// launch needs its closure: both hold with their reason. A launched attempt is replayed.
+/// A journaled Prepare may have been granted despite a lost reply. A durable
+/// local grant and a potentially granted Prepare take different recovery paths.
 #[test]
 fn only_an_attempt_before_prepare_settles_as_never_started() {
-    let reason = |a: &Attempt| match pre_launch(a) {
-        Some(Err(e)) => e.downcast_ref::<RecoveryHold>().map(|h| h.0),
-        other => panic!("not held: {:?}", other.map(|d| d.ok())),
-    };
     let mut a = terminal_attempt(false, false);
     assert!(pre_launch(&a).is_none(), "launched: replayed");
     (a.native_host, a.result) = (None, None);
-    assert_eq!(reason(&a), Some("launch_closure_pending"));
+    assert_eq!(pre_launch(&a), Some(PreLaunch::Granted));
     a.phase_execution = None;
     assert!(a.phase_prepared.is_some());
-    assert_eq!(reason(&a), Some("prepare_disposition_unknown"));
+    assert_eq!(pre_launch(&a), Some(PreLaunch::PrepareUnconfirmed));
     a.phase_prepared = None;
-    let settled = pre_launch(&a).unwrap().unwrap();
-    assert_eq!(settled, ReconcileDisposition::NeverExecuted);
+    assert_eq!(pre_launch(&a), Some(PreLaunch::NeverExecuted));
+}
+
+#[tokio::test]
+async fn unconfirmed_prepare_rechecks_until_the_exact_closure_or_lapsed_grant_release() {
+    use aq_admission::{
+        ArtifactRef, Digest, SessionIdentity, Text,
+        control::{ControlReply, CurrentAuthority, LaunchOwner, ReconcilePage, Versions},
+        transport::WorkerIdentity,
+    };
+    let mut attempt = terminal_attempt(true, false);
+    (
+        attempt.native_host,
+        attempt.result,
+        attempt.refresh_execution,
+    ) = (None, None, None);
+    assert_eq!(pre_launch(&attempt), Some(PreLaunch::PrepareUnconfirmed));
+    let binding = attempt.reservation.offer.offered.offer.binding.clone();
+    let reservation_id = attempt.reservation.reservation_id;
+    let SessionIdentity::Remote {
+        node_id, boot_id, ..
+    } = binding.session
+    else {
+        panic!()
+    };
+    let state = crate::native::journal::State {
+        format: 1,
+        identity: WorkerIdentity { node_id, boot_id },
+        kernel_boot_id: Uuid::new_v4(),
+        revision: 8,
+        attempts: Default::default(),
+    };
+    let calls = Arc::new(AtomicU32::new(0));
+    let server_calls = calls.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let app = Router::new().route(
+        "/v1/worker/profiled/reconcile",
+        post(
+            move |headers: axum::http::HeaderMap, Json(request): Json<Reconcile>| {
+                let binding = binding.clone();
+                let server_calls = server_calls.clone();
+                async move {
+                    let [exact] = request.attempts.as_slice() else {
+                        panic!()
+                    };
+                    assert_eq!(exact.binding, binding);
+                    assert_eq!(exact.last_grant_id, None);
+                    let closure = ArtifactRef {
+                        id: Text::new(format!("aq.never-granted/{}", Uuid::new_v4())).unwrap(),
+                        version: Text::new("1").unwrap(),
+                        digest: Digest::of(b"retained closure"),
+                    };
+                    let (phase, grant_revision) = match server_calls.fetch_add(1, Ordering::SeqCst)
+                    {
+                        0 => (
+                            CurrentPhase::StopRequired {
+                                owner: None,
+                                last_grant_id: None,
+                                execution_deadline_ms: None,
+                                reason: FailureCode::RecoveryRequired,
+                            },
+                            0,
+                        ),
+                        1 => (CurrentPhase::NeverGranted { closure }, 0),
+                        2 => (
+                            CurrentPhase::StopRequired {
+                                owner: Some(LaunchOwner {
+                                    reservation_id,
+                                    guardian_id: exact.guardian_id,
+                                    launch_id: exact.launch_id,
+                                }),
+                                last_grant_id: Some(Uuid::new_v4()),
+                                execution_deadline_ms: Some(10_000),
+                                reason: FailureCode::RecoveryRequired,
+                            },
+                            1,
+                        ),
+                        index => (
+                            CurrentPhase::Released {
+                                release: ArtifactRef {
+                                    id: Text::new(format!(
+                                        "aq.granted-never-started/{}",
+                                        if index == 3 {
+                                            Uuid::new_v4()
+                                        } else {
+                                            binding.attempt_id
+                                        }
+                                    ))
+                                    .unwrap(),
+                                    version: Text::new("1").unwrap(),
+                                    digest: Digest::of(b"released after lapse"),
+                                },
+                            },
+                            1,
+                        ),
+                    };
+                    Json(ControlReply::Reconciled(ReconcilePage {
+                        schema_version: 1,
+                        operation_id: request.operation_id,
+                        identity: request.identity,
+                        delivery_nonce: headers["aq-delivery-nonce"]
+                            .to_str()
+                            .unwrap()
+                            .parse()
+                            .unwrap(),
+                        server_time_ms: 1_000,
+                        next_after: None,
+                        attempts: vec![ReconcileEntry::Current {
+                            authority: Box::new(CurrentAuthority {
+                                binding,
+                                versions: Versions {
+                                    record_revision: 8,
+                                    authority_revision: 4,
+                                    grant_revision,
+                                },
+                                phase,
+                            }),
+                        }],
+                    }))
+                }
+            },
+        ),
+    );
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let client = NativeClient::from_config(&worker(&url, node_id)).unwrap();
+    let waiting = reconcile_prepared(&client, &state, &attempt)
+        .await
+        .unwrap_err();
+    assert!(waiting.downcast_ref::<RecoveryHold>().is_none());
+    assert_eq!(
+        reconcile_prepared(&client, &state, &attempt).await.unwrap(),
+        ReconcileDisposition::NeverExecuted
+    );
+    let issued = reconcile_prepared(&client, &state, &attempt)
+        .await
+        .unwrap_err();
+    assert!(issued.downcast_ref::<RecoveryHold>().is_none());
+    let wrong = reconcile_prepared(&client, &state, &attempt)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        wrong.downcast_ref::<RecoveryHold>().map(|h| h.0),
+        Some("prepare_history_conflict")
+    );
+    assert_eq!(
+        reconcile_prepared(&client, &state, &attempt).await.unwrap(),
+        ReconcileDisposition::NeverExecuted
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 5);
+    server.abort();
 }
 #[tokio::test]
 async fn uncertain_stop_is_preserved_without_reporting_or_admission() {
@@ -369,16 +514,23 @@ fn refresh_profile_unstarted_launch_closes_with_the_refresh_envelope() {
 use crate::native::{journal::salvage_history, result::history::ResultHistory};
 use {ReconcileDisposition as R, SalvageDisposition as S};
 fn salvage_fixture() -> (tempfile::TempDir, ResultHistory, Attempt) {
+    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("kept.txt"), b"base").unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let kept = work.join("kept.txt");
+    std::fs::write(&kept, b"base").unwrap();
+    // Match the fake archive's mode so the host umask cannot add a change.
+    std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o644)).unwrap();
     let mut h = crate::native::result::tests::history();
-    h.scope.workspace.path = dir.path().to_path_buf();
+    h.scope.workspace.path = work;
     let mut a = stopped_attempt(false);
     let t = a.native_host.as_mut().unwrap().terminal.as_mut().unwrap();
     let receipt = fixture(false)["stopped_receipt"].clone();
     t.stopped.as_mut().unwrap().receipt = Some(serde_json::from_value(receipt).unwrap());
     (dir, h, a)
 }
+const CONTAINER_ID: &str = "test-container-id";
 type Files<'a> = &'a [(&'a str, &'a [u8])];
 /// salvage_claim over one FakeBackend sandbox, stopped after it ran, whose /aq/work holds `files`.
 async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission, &'static str> {
@@ -406,6 +558,13 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
     let sandboxes = stopped_sandboxes(&mut backend, node_id, attempt_id)
         .await
         .unwrap();
+    driver::staging::record(
+        &h.scope.workspace.path,
+        &sandbox,
+        CONTAINER_ID,
+        driver::staging::Phase::Started,
+    )
+    .unwrap();
     let file = |&(path, data): &(&str, &[u8])| (path.to_string(), data.to_vec());
     let entry = |(path, data)| TreeEntry::File {
         path,
@@ -413,10 +572,83 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
         data,
     };
     let entries: Vec<_> = files.iter().map(file).map(entry).collect();
-    let archive = tar::tree_archive("work", &entries).unwrap(); // members are work/...
     let restart = (aq_protocol::HandoffReason::Restart, None);
-    let claimed = salvage_claim(h, restart, &sandboxes, 1 << 20, async |_| Ok(archive));
+    let claimed = salvage_claim(h, restart, (&sandboxes, Some(CONTAINER_ID)), async |_| {
+        Ok(entries)
+    });
     claimed.await.unwrap()
+}
+
+#[tokio::test]
+async fn salvage_never_reads_unstaged_source_even_with_a_pending_submission() {
+    let (dir, mut h, _) = salvage_fixture();
+    let (_channel, original) = crate::native::result::tests::pending_submission(&mut h);
+    let sibling = dir.path().join("sibling.txt");
+    std::fs::write(&sibling, b"sibling base").unwrap();
+    let sandbox = SandboxIdentity {
+        kind: crate::backend::BackendKind::DockerLocal,
+        backend_id: "stopped-sandbox".into(),
+        owner: crate::backend::Ownership {
+            node_id: Uuid::new_v4(),
+            boot_id: Uuid::new_v4(),
+            attempt_id: Uuid::new_v4(),
+        },
+    };
+    let restart = (aq_protocol::HandoffReason::Restart, None);
+    let never = async |_: &SandboxIdentity| -> Result<Vec<TreeEntry>> {
+        panic!("would import primary and sibling trees from failed staging")
+    };
+    let sandboxes = std::slice::from_ref(&sandbox);
+    let refused = salvage_claim(&h, restart, (sandboxes, Some(CONTAINER_ID)), never)
+        .await
+        .unwrap();
+    assert_eq!(refused.err(), Some("sandbox_staging_unproven"));
+    driver::staging::record(
+        &h.scope.workspace.path,
+        &sandbox,
+        CONTAINER_ID,
+        driver::staging::Phase::PrepareFailed,
+    )
+    .unwrap();
+    for id in [Some(CONTAINER_ID), None] {
+        let replay = salvage_claim(&h, restart, (sandboxes, id), never)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay, original);
+    }
+    let refused = salvage_claim(
+        &h,
+        restart,
+        (sandboxes, Some("replacement-container-id")),
+        never,
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused.err(), Some("sandbox_staging_unproven"));
+    assert_eq!(
+        std::fs::read(dir.path().join("work/kept.txt")).unwrap(),
+        b"base"
+    );
+    assert_eq!(std::fs::read(sibling).unwrap(), b"sibling base");
+}
+
+#[tokio::test]
+async fn salvage_preserves_an_exact_pending_submission_as_a_failed_result() {
+    let (dir, mut h, a) = salvage_fixture();
+    let (_channel, original) = crate::native::result::tests::pending_submission(&mut h);
+    let saved = claim(&h, &[("notes.txt", b"saved")]).await.unwrap();
+    assert_eq!(saved, original);
+    assert_eq!(
+        std::fs::read(dir.path().join("work/notes.txt")).unwrap(),
+        b"saved"
+    );
+    salvage_history(&a, &mut h, Some(saved), 5).unwrap();
+    assert_eq!(h.claim.as_ref().unwrap().submission().unwrap(), original);
+    assert!(matches!(
+        h.stop.as_ref().unwrap().outcome,
+        aq_admission::transport::ProcessOutcome::Failed
+    ));
 }
 
 #[tokio::test]
@@ -427,7 +659,7 @@ async fn salvage_reports_failed_result_with_saved_workspace() {
     let note = claim(&h, &[("kept.txt", b"base"), ("notes.txt", b"saved")]).await;
     // The checkpoint and export read this workspace: it now holds the sandbox's file.
     assert_eq!(
-        std::fs::read(dir.path().join("notes.txt")).unwrap(),
+        std::fs::read(dir.path().join("work/notes.txt")).unwrap(),
         b"saved"
     );
     salvage_history(&a, &mut h, Some(note.unwrap()), 5).unwrap();
@@ -452,8 +684,12 @@ async fn salvage_reports_failed_result_with_saved_workspace() {
 async fn salvage_is_idempotent_after_report() {
     assert_eq!(settled(R::ResultRecorded), Some(S::AlreadyReported));
     assert_eq!(settled(R::StopReported), None);
-    let (_dir, mut h, a) = salvage_fixture();
+    let (dir, mut h, a) = salvage_fixture();
     let note = claim(&h, &[]).await.unwrap();
+    assert!(
+        !dir.path().join("work/kept.txt").exists(),
+        "a staged empty result is a legitimate deletion"
+    );
     let mut first = h.clone();
     salvage_history(&a, &mut first, Some(note.clone()), 5).unwrap();
     let mut again = first.clone();
@@ -512,10 +748,14 @@ async fn salvage_keeps_a_claim_already_recorded() {
 async fn salvage_without_sandbox_is_unsalvageable() {
     let (dir, mut h, a) = salvage_fixture();
     let restart = (aq_protocol::HandoffReason::Restart, None);
-    let never = async |_: &SandboxIdentity| -> Result<Vec<u8>> { panic!("no sandbox to archive") };
-    let refused = salvage_claim(&h, restart, &[], 1 << 20, never).await;
+    let never =
+        async |_: &SandboxIdentity| -> Result<Vec<TreeEntry>> { panic!("no sandbox to archive") };
+    let refused = salvage_claim(&h, restart, (&[], None), never).await;
     assert_eq!(refused.unwrap().err(), Some("sandbox_absent"));
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    assert_eq!(
+        std::fs::read_dir(dir.path().join("work")).unwrap().count(),
+        1
+    );
     // Nor can the journal record a salvage without a claim or without a stop proof.
     assert!(salvage_history(&a, &mut h, None, 5).is_err());
     let mut no_stop = a.clone();
@@ -535,8 +775,11 @@ async fn salvage_refuses_workspace_holding_agent_credential() {
     .await;
     assert_eq!(refused.err(), Some("credential_in_workspace"));
     // Nothing the sandbox produced reaches the workspace.
-    assert_eq!(std::fs::read(dir.path().join("kept.txt")).unwrap(), b"base");
-    assert!(!dir.path().join("leak.env").exists());
+    assert_eq!(
+        std::fs::read(dir.path().join("work/kept.txt")).unwrap(),
+        b"base"
+    );
+    assert!(!dir.path().join("work/leak.env").exists());
 }
 
 #[tokio::test]
@@ -545,7 +788,7 @@ async fn salvage_refuses_workspace_holding_claude_token_shape() {
     let secret = format!("export T=sk-ant-oat01-{}", "Ab_9-".repeat(8));
     let refused = claim(&h, &[("notes.sh", secret.as_bytes())]).await;
     assert_eq!(refused.err(), Some("credential_in_workspace"));
-    assert!(!dir.path().join("notes.sh").exists());
+    assert!(!dir.path().join("work/notes.sh").exists());
 }
 
 #[test]

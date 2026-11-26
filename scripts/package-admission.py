@@ -51,15 +51,17 @@ def main():
     args = parser.parse_args()
     packed, manifest = publication()
     artifacts = {f"{NAME}.tar.gz": packed, f"{NAME}.json": manifest}
-    if args.check:
-        for name, expected in artifacts.items():
-            if (RELEASE / name).read_bytes() != expected:
-                raise SystemExit(f"publication drift: {name}")
-    else:
+    if not args.check:
         RELEASE.mkdir(exist_ok=True)
-        for name, content in artifacts.items():
-            (RELEASE / name).write_bytes(content)
-    print(f"{NAME}: sha256={json.loads(manifest)['sha256']}, {len(json.loads(manifest)['files'])} files")
+    for name, expected in artifacts.items():
+        path = RELEASE / name
+        if args.check:
+            if path.read_bytes() != expected:
+                raise SystemExit(f"publication drift: {name}")
+        else:
+            path.write_bytes(expected)
+    description = json.loads(manifest)
+    print(f"{NAME}: sha256={description['sha256']}, {len(description['files'])} files")
 
 
 if __name__ == "__main__":

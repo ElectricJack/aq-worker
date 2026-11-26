@@ -30,50 +30,70 @@ pub struct SourceArchive {
 #[derive(Debug)]
 pub struct Unsupported(pub &'static str);
 
+struct Capture<'a> {
+    root: &'a Path,
+    entries: Vec<Entry>,
+    total: u64,
+    directories: Vec<std::path::PathBuf>,
+}
+
+impl Capture<'_> {
+    fn visit(&mut self, child: std::fs::DirEntry) -> Result<Option<Unsupported>> {
+        let path = child.path();
+        let kind = child.file_type()?;
+        if kind.is_dir() {
+            self.directories.push(path);
+            return Ok(None);
+        }
+        if kind.is_symlink() {
+            return Ok(Some(Unsupported("unsupported snapshot content: symlink")));
+        }
+        if !kind.is_file() {
+            return Ok(Some(Unsupported(
+                "unsupported snapshot content: special file",
+            )));
+        }
+        let meta = child.metadata()?;
+        self.total += meta.len();
+        if self.total > MAX_SOURCE_BYTES {
+            return Ok(Some(Unsupported("source snapshot exceeds size bound")));
+        }
+        let rel = path
+            .strip_prefix(self.root)?
+            .to_str()
+            .context("non-UTF-8 path")?;
+        self.entries.push(Entry {
+            path: rel.to_owned(),
+            mode: meta.permissions().mode() & 0o777,
+            data: base64::engine::general_purpose::STANDARD.encode(std::fs::read(&path)?),
+        });
+        Ok(None)
+    }
+}
+
 impl SourceArchive {
     pub fn capture(root: &Path) -> Result<std::result::Result<Self, Unsupported>> {
-        let mut entries = Vec::new();
-        let mut total = 0u64;
-        let mut stack = vec![root.to_path_buf()];
-        while let Some(dir) = stack.pop() {
+        let mut capture = Capture {
+            root,
+            entries: Vec::new(),
+            total: 0,
+            directories: vec![root.to_owned()],
+        };
+        while let Some(dir) = capture.directories.pop() {
             let mut children: Vec<_> = std::fs::read_dir(&dir)
                 .with_context(|| format!("read {}", dir.display()))?
                 .collect::<std::io::Result<_>>()?;
-            children.sort_by_key(|e| e.file_name());
+            children.sort_by_key(|child| child.file_name());
             for child in children {
-                let path = child.path();
-                let kind = child.file_type()?;
-                if kind.is_symlink() {
-                    return Ok(Err(Unsupported("unsupported snapshot content: symlink")));
-                } else if kind.is_dir() {
-                    stack.push(path);
-                } else if kind.is_file() {
-                    let meta = child.metadata()?;
-                    total += meta.len();
-                    if total > MAX_SOURCE_BYTES {
-                        return Ok(Err(Unsupported("source snapshot exceeds size bound")));
-                    }
-                    let rel = path
-                        .strip_prefix(root)?
-                        .to_str()
-                        .context("non-UTF-8 path")?;
-                    entries.push(Entry {
-                        path: rel.to_owned(),
-                        mode: meta.permissions().mode() & 0o777,
-                        data: base64::engine::general_purpose::STANDARD
-                            .encode(std::fs::read(&path)?),
-                    });
-                } else {
-                    return Ok(Err(Unsupported(
-                        "unsupported snapshot content: special file",
-                    )));
+                if let Some(reason) = capture.visit(child)? {
+                    return Ok(Err(reason));
                 }
             }
         }
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
+        capture.entries.sort_by(|a, b| a.path.cmp(&b.path));
         Ok(Ok(Self {
             format: FORMAT.to_owned(),
-            entries,
+            entries: capture.entries,
         }))
     }
 

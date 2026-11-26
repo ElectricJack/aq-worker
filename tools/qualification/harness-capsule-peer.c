@@ -85,12 +85,7 @@ static void close_except(int keep) {
     if (keep > 3) REQUIRE(syscall(SYS_close_range, 3u, (unsigned)keep - 1, 0) == 0);
     REQUIRE(syscall(SYS_close_range, (unsigned)keep + 1, ~0u, 0) == 0);
 }
-static int harness(int argc, char **argv) {
-    REQUIRE(argc == 10); int control = atoi(argv[2]);
-    pid_t parent = atoi(argv[3]), tid = atoi(argv[4]); int sourcefd = atoi(argv[5]);
-    const char *source = argv[6]; unsigned long long dev = strtoull(argv[7], NULL, 10), ino = strtoull(argv[8], NULL, 10);
-    REQUIRE(getuid() == (uid_t)atoi(argv[9]) && getpid() != 1);
-    REQUIRE(getenv("AQ_CAPSULE_PARENT_CANARY") == NULL && getenv("AQ_SESSION_DIRECTORY") == NULL);
+static void check_hidden_source(const char *source, pid_t parent, pid_t tid, int sourcefd) {
     no_read(source); no_read("/var/lib/aq-node/private-material"); no_read("/home/operator/.profile");
     char path[4096];
     pid_t ids[] = {parent, tid};
@@ -102,6 +97,9 @@ static int harness(int argc, char **argv) {
     snprintf(path, sizeof(path), "/proc/self/root%s", source); no_read(path);
     snprintf(path, sizeof(path), "/proc/thread-self/root%s", source); no_read(path);
     snprintf(path, sizeof(path), "/proc/1/root%s", source); no_read(path);
+}
+static void check_processes_and_fds(unsigned long long dev, unsigned long long ino) {
+    char path[4096];
     DIR *processes = opendir("/proc"); REQUIRE(processes != NULL); struct dirent *process;
     while ((process = readdir(processes))) {
         char *end; long pid = strtol(process->d_name, &end, 10);
@@ -115,12 +113,16 @@ static int harness(int argc, char **argv) {
         REQUIRE(stat(path, &st) == 0); REQUIRE((unsigned long long)st.st_dev != dev || (unsigned long long)st.st_ino != ino);
     }
     REQUIRE(closedir(fds) == 0);
+}
+static void check_filesystem_access(void) {
     exact_file("/auth/auth.json", "derived-capability-canary\n");
     REQUIRE(open("/auth/auth.json", O_WRONLY | O_CLOEXEC) < 0 && errno == EROFS);
     exact_file("/allowed/item", "allowed-folder-canary\n");
     exact_file("/git-metadata/item", "internal-git-canary\n");
     int out = open("/workspace/result", O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600); REQUIRE(out >= 0); REQUIRE(close(out) == 0);
     REQUIRE(mount(NULL, "/", NULL, MS_REMOUNT, NULL) < 0 && errno == EPERM);
+}
+static void check_no_default_route(void) {
     FILE *route = fopen("/proc/net/route", "r"); REQUIRE(route != NULL); char route_line[256];
     REQUIRE(fgets(route_line, sizeof(route_line), route) != NULL);
     /* A new network namespace has no default route, not merely a CLI endpoint flag. */
@@ -128,6 +130,17 @@ static int harness(int argc, char **argv) {
         char iface[32]; unsigned destination; REQUIRE(sscanf(route_line, "%31s %x", iface, &destination) == 2 && destination != 0);
     }
     REQUIRE(fclose(route) == 0);
+}
+static int harness(int argc, char **argv) {
+    REQUIRE(argc == 10); int control = atoi(argv[2]);
+    pid_t parent = atoi(argv[3]), tid = atoi(argv[4]); int sourcefd = atoi(argv[5]);
+    const char *source = argv[6]; unsigned long long dev = strtoull(argv[7], NULL, 10), ino = strtoull(argv[8], NULL, 10);
+    REQUIRE(getuid() == (uid_t)atoi(argv[9]) && getpid() != 1);
+    REQUIRE(getenv("AQ_CAPSULE_PARENT_CANARY") == NULL && getenv("AQ_SESSION_DIRECTORY") == NULL);
+    check_hidden_source(source, parent, tid, sourcefd);
+    check_processes_and_fds(dev, ino);
+    check_filesystem_access();
+    check_no_default_route();
     /* The sending task is already in its final namespaces. No claimed PID field is trusted. */
     send_packet(control, 'H', 0, -1);
     int ready[2]; REQUIRE(pipe2(ready, O_CLOEXEC) == 0);
