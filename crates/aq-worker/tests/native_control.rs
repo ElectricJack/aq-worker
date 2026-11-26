@@ -578,3 +578,23 @@ async fn preparation_outlasts_a_three_second_server_outage() {
 #[cfg(feature = "test-support")]
 #[path = "native_control/slot_journals.rs"]
 mod slot_journals;
+
+#[tokio::test]
+async fn poll_requires_negotiated_frozen_workspace_marker() {
+    let mut extended = fixture();
+    extended["replies"][0]["body"]["offers"][0]["workspace_required"] = json!(true);
+    let mut server = Server::with_fixture(extended.clone()).await;
+    assert!(server.client.poll(&request("poll")).await.is_err());
+    server.client = server.client.clone().with_workspace_expansion(true);
+    let offered = server.client.poll(&request("poll")).await.unwrap();
+    assert_eq!(offered.workspace_required, [true]);
+    assert_eq!(
+        serde_json::to_value(&offered.page.offers[0]).unwrap(),
+        fixture()["replies"][0]["body"]["offers"][0],
+    );
+
+    extended["replies"][0]["body"]["offers"][0]["workspace_required"] = json!("true");
+    let mut malformed = Server::with_fixture(extended).await;
+    malformed.client = malformed.client.clone().with_workspace_expansion(true);
+    assert!(malformed.client.poll(&request("poll")).await.is_err());
+}

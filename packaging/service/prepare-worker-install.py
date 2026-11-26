@@ -248,6 +248,7 @@ def set_bundle_paths(native, host):
         native["node_git"]["repositories"] = "/bundle/node_git"
     host["root"] = "/bundle/host"
     host["docker_local"]["socket"] = "/bundle/podman.sock"
+    host["docker_local"].pop("workspace_bind_paths", None)
 
 
 def stage_runtime(args, stage):

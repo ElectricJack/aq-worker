@@ -27,6 +27,56 @@ struct CodexDriverRun {
 async fn run_codex_driver(final_message: &str, extra: &[(&str, Vec<u8>)]) -> CodexDriverRun {
     run_codex_driver_on(final_message, extra, b"codex tui\r\n", b"").await
 }
+
+#[tokio::test]
+async fn bound_failure_preserves_primary_source_and_never_starts_or_reads_work() {
+    let result = run_driver("must never run", &[], (b"", b""), |config| {
+        config.max_workspace_bytes = 1;
+    }).await;
+    assert_eq!(result.code, 3);
+    assert_eq!(std::fs::read(result.dir.path().join("work/README.md")).unwrap(), b"# scratch\n");
+    let requests = result.docker.requests();
+    assert!(requests.iter().all(|(_, path)| !path.ends_with("/start")));
+    assert!(requests.iter().all(|(method, path)| *method != DockerMethod::Get || !path.contains("%2Faq%2Fwork")));
+}
+
+#[tokio::test]
+async fn sibling_upload_failure_after_home_staging_cannot_start_or_copy_back() {
+    use aq_node_git::workspaces::{Access, Project, Workspaces, checkout_path};
+    use uuid::Uuid;
+    let project_id = Uuid::new_v4();
+    let repository_id = Uuid::new_v4();
+    let result = run_driver_with_docker("must never run", &[], (b"", b""), |config, docker| {
+        let sibling = checkout_path(&config.workspace, project_id);
+        std::fs::create_dir_all(&sibling).unwrap();
+        std::fs::write(sibling.join("sibling.txt"), b"sibling base").unwrap();
+        let base = "b".repeat(40);
+        let plan = Workspaces {
+            workspaces: vec![Project {
+                project_id, project_revision: 1, binding_generation: 1, access: Access::Write,
+                checkout_head: base.clone(),
+                git: aq_node_git::Grant {
+                    endpoint: format!("/v1/git/workspaces/{project_id}/{repository_id}"),
+                    repository_id, base, task_ref: "refs/heads/aq/staging-fixture".into(),
+                    lease: None, update_from_main: false,
+                },
+            }],
+            services: vec![],
+        };
+        std::fs::write(config.workspace.with_extension("workspaces.json"), serde_json::to_vec(&plan).unwrap()).unwrap();
+        for effect in [Effect::Pass, Effect::Pass, Effect::FailBefore(500)] {
+            docker.script(Rule { method: DockerMethod::Put, path_prefix: "/v1.44/containers/".into(), effect });
+        }
+    }).await;
+    assert_eq!(result.code, 3);
+    assert!(result.attach.is_empty());
+    let primary = result.dir.path().join("work");
+    assert_eq!(std::fs::read(primary.join("README.md")).unwrap(), b"# scratch\n");
+    assert_eq!(std::fs::read(checkout_path(&primary, project_id).join("sibling.txt")).unwrap(), b"sibling base");
+    let requests = result.docker.requests();
+    assert_eq!(requests.iter().filter(|(method, _)| *method == DockerMethod::Put).count(), 3);
+    assert!(requests.iter().all(|(method, path)| !path.ends_with("/start") && (*method != DockerMethod::Get || !path.contains("/archive?"))));
+}
 async fn run_codex_driver_on(
     final_message: &str,
     extra: &[(&str, Vec<u8>)],
@@ -41,6 +91,15 @@ async fn run_driver(
     extra: &[(&str, Vec<u8>)],
     streams: (&[u8], &[u8]),
     prepare: impl FnOnce(&mut aq_worker::sandbox_driver::DriverConfig),
+) -> CodexDriverRun {
+    run_driver_with_docker(final_message, extra, streams, |config, _| prepare(config)).await
+}
+
+async fn run_driver_with_docker(
+    final_message: &str,
+    extra: &[(&str, Vec<u8>)],
+    streams: (&[u8], &[u8]),
+    prepare: impl FnOnce(&mut aq_worker::sandbox_driver::DriverConfig, &ScriptedDocker),
 ) -> CodexDriverRun {
     use aq_worker::sandbox_driver::DriverHarness;
     use std::os::unix::fs::PermissionsExt;
@@ -75,7 +134,7 @@ async fn run_driver(
     write_private_fixture(&token_file, &auth);
 
     let mut config = fixture_driver_config(docker_local, work, token_file.clone());
-    prepare(&mut config);
+    prepare(&mut config, &docker);
     let config_file = dir.path().join("private/driver.json");
     write_private_fixture(&config_file, &serde_json::to_vec(&config).unwrap());
     let session = dir.path().join("session");
@@ -168,6 +227,7 @@ fn fixture_driver_config(
         result_dir: None,
         max_workspace_bytes: 1 << 20,
         agent_channel: false,
+        postgres: false,
         conversation_outbox: None,
         transcript_bound: None,
         harness: DriverHarness::Codex,

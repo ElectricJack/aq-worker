@@ -4,10 +4,15 @@ pub mod build_cache;
 pub mod codex_runtime;
 pub mod conversation;
 pub mod docker_engine;
+pub mod inputs;
 pub mod pane;
+pub mod placement_api;
+pub mod projects;
 pub mod query_replies;
 pub mod redact;
+pub mod staging;
 pub mod tar;
+pub mod task_postgres;
 pub mod workspace;
 
 use anyhow::{Result, ensure};

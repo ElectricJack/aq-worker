@@ -27,7 +27,7 @@ impl State {
     ) -> DockerResponse {
         let path = query.get("path").cloned().unwrap_or_default();
         match read_file(self, name, &path) {
-            // A directory: every file below it, as `<dir name>/<relative path>`.
+            // A directory archive starts with the root, then its files.
             Err(response) if response.status == 404 => {
                 let files = files_under(self, name, &path);
                 if files.is_empty() {
@@ -38,7 +38,7 @@ impl State {
                     .rsplit('/')
                     .next()
                     .unwrap_or_default();
-                let mut body = Vec::new();
+                let mut body = directory_entry(base);
                 for (rel, file) in files {
                     body.extend(tar_entry(&format!("{base}/{rel}"), &file));
                 }
@@ -55,4 +55,21 @@ impl State {
             }
         }
     }
+}
+
+fn directory_entry(name: &str) -> Vec<u8> {
+    let mut header = tar_entry(
+        name,
+        &File {
+            data: Vec::new(),
+            mode: 0o755,
+            uid: 0,
+            gid: 0,
+        },
+    );
+    header[156] = b'5';
+    header[148..156].fill(b' ');
+    let checksum: u32 = header.iter().map(|byte| u32::from(*byte)).sum();
+    header[148..156].copy_from_slice(format!("{checksum:06o}\0 ").as_bytes());
+    header
 }

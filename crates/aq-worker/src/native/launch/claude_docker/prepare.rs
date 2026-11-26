@@ -147,6 +147,10 @@ impl Launch<'_> {
             .as_ref()
             .map(|channel| channel.root().to_owned());
         let template = admission.template;
+        let workspace = self.scope.inputs.workspace().workspace().path.clone();
+        let postgres = aq_node_git::workspaces::load(&workspace)?
+            .services
+            .contains(&aq_node_git::workspaces::Service::Postgres);
         #[cfg_attr(not(feature = "project_environments"), allow(unused_mut))]
         let mut driver = crate::sandbox_driver::DriverConfig {
             docker_local,
@@ -163,7 +167,7 @@ impl Launch<'_> {
                 pids: m.resources.process_limit,
                 disk_bytes: None,
             },
-            workspace: self.scope.inputs.workspace().workspace().path.clone(),
+            workspace,
             token_file,
             executable: launch.executable,
             arguments: launch.arguments,
@@ -172,6 +176,7 @@ impl Launch<'_> {
             result_dir,
             max_workspace_bytes: self.profile.config.max_workspace_bytes,
             agent_channel: admission.agent_channel,
+            postgres,
             conversation_outbox: self.profile.conversation_outbox.clone(),
             transcript_bound: self.profile.transcript_bound,
             harness: launch.harness,
@@ -228,6 +233,7 @@ impl Launch<'_> {
             offer,
         } = *self;
         let mut docker_local = profile.config.docker_local.clone();
+        docker_local.workspace_bind_paths = docker_local.project_bind_paths();
         let template = profile.config.template.clone();
         #[cfg(feature = "project_environments")]
         let template = docker_local

@@ -167,9 +167,53 @@ async fn sandbox_driver_runs_codex_in_the_docker_local_sandbox() {
     assert_private_material(&run, &container);
 }
 
+#[tokio::test]
+async fn task_postgres_is_started_only_for_the_declared_sandbox() {
+    let run = run_driver(
+        "Done.\nChanges: fixture-output; Checks: none; Limits: none",
+        &[],
+        (b"codex tui\r\n", b""),
+        |config| config.postgres = true,
+    )
+    .await;
+    assert_eq!(run.code, 0);
+    let name = run.docker.container_names().remove(0);
+    let container = run.docker.container(&name).unwrap();
+    let config = &container.body["HostConfig"];
+    assert_eq!(
+        config["Tmpfs"]["/run/aq-postgres"],
+        aq_sandbox_archive::task_postgres::TMPFS
+    );
+    assert_eq!(config["CapDrop"], json!(["ALL"]));
+    assert_eq!(config["PortBindings"], json!({}));
+    assert!(
+        container.body["Cmd"][2]
+            .as_str()
+            .unwrap()
+            .contains("/run/aq-postgres/status")
+    );
+    let args = std::str::from_utf8(&container.layer["/aq/in/args"].data).unwrap();
+    assert!(args.contains("shell_environment_policy.set.PGHOST="));
+    let requests = run.docker.requests();
+    let order = |suffix: &str| {
+        requests
+            .iter()
+            .position(|(method, path)| *method == DockerMethod::Post && path.ends_with(suffix))
+            .unwrap()
+    };
+    assert!(
+        order(&format!("/containers/{name}/start")) < order(&format!("/containers/{name}/exec"))
+    );
+    assert!(
+        order(&format!("/containers/{name}/exec"))
+            < order(&format!("/exec/{}/start", "1".repeat(64)))
+    );
+}
+
 fn assert_workspace_evidence(container: &Container, work: &std::path::Path) {
     // Of Codex's home only `sessions` is mounted; the transcript written there is not
     // part of the workspace that is copied back.
+    assert!(container.body["HostConfig"]["Tmpfs"].is_null());
     let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
     let targets: Vec<_> = mounts
         .iter()
@@ -418,4 +462,77 @@ async fn sandbox_driver_names_the_claude_session_after_the_attempt() {
     let mounts = container.body["HostConfig"]["Mounts"].as_array().unwrap();
     assert_eq!(mounts[1]["Target"], "/aq/home/projects/-aq-work");
     assert_eq!(mounts.len(), 2);
+}
+
+#[tokio::test]
+async fn sandbox_driver_isolates_related_projects_and_copies_only_writable_outputs() {
+    use aq_node_git::workspaces::{checkout_path, readonly_path, sandbox_path};
+    let read = Uuid::from_u128(41);
+    let write = Uuid::from_u128(42);
+    let target = |project| format!("{}/a.txt", sandbox_path(project));
+    let read_target = target(read);
+    let write_target = target(write);
+    let run = run_driver(
+        DONE,
+        &[(&read_target, b"ignore this".to_vec()), (&write_target, b"returned write".to_vec())],
+        (b"", b""),
+        |config| {
+            config.postgres = true;
+            let root = config.workspace.parent().unwrap().to_path_buf();
+            config.docker_local.workspace_bind_paths = Some(
+                aq_sandbox_archive::docker_engine::WorkspaceBindPaths {
+                    worker_root: root.clone(),
+                    daemon_root: root,
+                },
+            );
+            let grant = |project: Uuid, access: &str| json!({
+                "project_id": project, "project_revision": 4, "binding_generation": 2,
+                "repository_id": project, "endpoint": format!("/v1/git/workspaces/{project}/{project}"),
+                "access": access, "base": "a".repeat(40), "checkout_head":"a".repeat(40),
+                "task_ref":"refs/heads/aq/fixture",
+                "lease":null, "update_from_main":false,
+            });
+            let plan = json!({"workspaces":[grant(read, "read"), grant(write, "write")]});
+            std::fs::write(config.workspace.with_extension("workspaces.json"), serde_json::to_vec(&plan).unwrap()).unwrap();
+            for project in [read, write] {
+                let worktree = checkout_path(&config.workspace, project);
+                std::fs::create_dir_all(&worktree).unwrap();
+                std::fs::write(worktree.join("a.txt"), "starting source").unwrap();
+                std::fs::write(worktree.join(".git"), "gitdir: node-private").unwrap();
+            }
+        },
+    ).await;
+    assert_eq!(run.code, 0);
+    let work = run.dir.path().join("work");
+    let names = run.docker.container_names();
+    let container = run.docker.container(&names[0]).unwrap();
+    let host = &container.body["HostConfig"];
+    assert_eq!(
+        host["Tmpfs"]["/run/aq-postgres"],
+        aq_sandbox_archive::task_postgres::TMPFS
+    );
+    assert_eq!(host["PortBindings"], json!({}));
+    assert_eq!(host["CapDrop"], json!(["ALL"]));
+    let postgres_gate = aq_sandbox_archive::task_postgres::command("");
+    assert_eq!(container.body["Cmd"][2], postgres_gate[2].as_str());
+    let mounts = host["Mounts"].as_array().unwrap();
+    assert!(
+        mounts
+            .iter()
+            .any(|mount| mount["Target"] == sandbox_path(read) && mount["ReadOnly"] == true)
+    );
+    assert_eq!(
+        std::fs::read(checkout_path(&work, read).join("a.txt")).unwrap(),
+        b"starting source"
+    );
+    assert!(!readonly_path(&work, read).join(".git").exists());
+    assert_eq!(
+        std::fs::read(checkout_path(&work, write).join("a.txt")).unwrap(),
+        b"returned write"
+    );
+    assert!(
+        !container
+            .layer
+            .contains_key(&format!("{}/.git", sandbox_path(write)))
+    );
 }

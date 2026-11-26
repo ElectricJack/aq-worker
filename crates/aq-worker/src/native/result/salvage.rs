@@ -126,13 +126,17 @@ pub async fn finish_salvage(
         git,
     };
     if super::source::push(&owner).await? {
-        return super::report::record_report(&owner, client).await;
+        let receipt = super::report::record_report(&owner, client).await?;
+        super::source::cleanup(&owner).await;
+        return Ok(receipt);
     }
     super::source::capture(&owner).await?;
     let bound = super::source::transfer_bound(&super::source::snapshot(&owner).await?)?;
     for _ in 0..bound {
         if super::source::transfer_step(&owner, transfer).await? {
-            return super::report::record_report(&owner, client).await;
+            let receipt = super::report::record_report(&owner, client).await?;
+            super::source::cleanup(&owner).await;
+            return Ok(receipt);
         }
     }
     anyhow::bail!("salvage source transfer step bound exhausted")

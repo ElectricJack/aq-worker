@@ -47,6 +47,7 @@ pub struct NativeClient {
     fetch_deadline_ns: u64,
     node_slot: Option<(u32, u32)>,
     checkpoint_author: bool,
+    workspace_expansion: bool,
 }
 pub use aq_node_service::native_transport::{
     FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
@@ -208,6 +209,7 @@ impl NativeClient {
             fetch_deadline_ns: u64::MAX,
             node_slot: None,
             checkpoint_author: false,
+            workspace_expansion: false,
         })
     }
     /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
@@ -220,6 +222,11 @@ impl NativeClient {
         self.checkpoint_author = supported;
         self
     }
+    pub fn with_workspace_expansion(mut self, supported: bool) -> Self {
+        self.workspace_expansion = supported;
+        self
+    }
+
     fn slot_headers(
         &self,
         request: reqwest::RequestBuilder,
