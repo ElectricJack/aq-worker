@@ -11,10 +11,36 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-pub const GIT: &str = "/usr/bin/git";
+/// Where the supported images keep Git, in preference order: the pinned sandbox OS
+/// (`packaging/sandbox/Dockerfile.os`), the native runtime image
+/// (`packaging/native-runtime/Dockerfile`), then a system Git.
+pub const GIT_CANDIDATES: [&str; 3] = [
+    "/opt/git/bin/git",
+    "/opt/aq-git-runtime/bin/git",
+    "/usr/bin/git",
+];
+
+/// The first candidate for which `usable` holds; `None` if there is none.
+pub fn select_git<'a>(candidates: &[&'a str], usable: impl Fn(&Path) -> bool) -> Option<&'a str> {
+    candidates.iter().copied().find(|c| usable(Path::new(c)))
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// The Git the tests run; a missing Git fails the test, it is never skipped.
+pub fn git_executable() -> &'static str {
+    static SELECTED: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    SELECTED.get_or_init(|| {
+        select_git(&GIT_CANDIDATES, is_executable_file)
+            .unwrap_or_else(|| panic!("no Git found at any of {GIT_CANDIDATES:?}"))
+    })
+}
 
 pub fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new(GIT)
+    let out = Command::new(git_executable())
         .arg("-C")
         .arg(dir)
         .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
@@ -114,7 +140,7 @@ impl Central {
         self.dir.path().join("remote.git")
     }
     pub fn head(&self, r: &str) -> Option<String> {
-        let out = Command::new(GIT)
+        let out = Command::new(git_executable())
             .arg("-C")
             .arg(self.remote())
             .args(["rev-parse", "--verify", "--quiet", r])
@@ -194,7 +220,7 @@ fn smart_http(
         if refuse.load(Ordering::SeqCst) {
             return axum::http::StatusCode::FORBIDDEN.into_response();
         }
-        let mut child = Command::new(GIT)
+        let mut child = Command::new(git_executable())
             .arg("http-backend")
             .env("GIT_PROJECT_ROOT", &root)
             .env("GIT_HTTP_EXPORT_ALL", "1")
@@ -251,7 +277,7 @@ fn smart_http(
 pub fn config(root: &Path) -> Config {
     Config {
         repositories: root.join("repositories"),
-        git: GIT.into(),
+        git: git_executable().into(),
         author_name: "AQ node".into(),
         author_email: "node@aq.invalid".into(),
         command_timeout_ms: 60_000,
