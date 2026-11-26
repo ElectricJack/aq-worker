@@ -7,9 +7,17 @@
 FROM rust:1.96.1-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663 AS build
 WORKDIR /src
 COPY . .
+# .git is not in the context: CI stamps the revision (crates/aq-worker/build.rs).
+# The target cache is shared by every tree on the host: the touch makes this
+# context newer than any cached artifact of the path crates (AGENTS.md).
+ARG AQ_SOURCE_REVISION=
+# Compile-time epic flags, e.g. project_environments.
+ARG CARGO_FEATURES=
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,sharing=locked \
-    cargo build --locked --release -p aq-worker --bin aq-worker \
+    find crates vendor protocol tools -type f -exec touch {} + \
+    && AQ_SOURCE_REVISION="$AQ_SOURCE_REVISION" cargo build --locked --release -p aq-worker --bin aq-worker \
+      ${CARGO_FEATURES:+--features $CARGO_FEATURES} \
     && install -Dm755 target/release/aq-worker /out/aq-worker
 
 FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
