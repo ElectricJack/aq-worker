@@ -82,6 +82,9 @@ pub struct NodeSession {
     /// Wakes the slots waiting in `room` when capacity may have been freed.
     freed: tokio::sync::Notify,
     retired: AtomicBool,
+    /// The node's limits from the last control reply (the server's Settings); every slot's
+    /// sandbox configuration shares this cell.
+    pub limits: Arc<std::sync::RwLock<Option<aq_protocol::NodeLimits>>>,
 }
 /// The Register being sent (its operation id and count are kept across retries).
 #[derive(Default)]
@@ -113,6 +116,7 @@ impl Default for NodeSession {
             occupancy: Mutex::default(),
             freed: tokio::sync::Notify::new(),
             retired: AtomicBool::new(false),
+            limits: Arc::default(),
         }
     }
 }
@@ -134,6 +138,10 @@ impl NodeSession {
             Ordering::SeqCst,
         );
         self.slots.store(reply.node_slots(), Ordering::SeqCst);
+        *self
+            .limits
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = reply.limits;
         self.freed.notify_waiters();
         Ok(())
     }

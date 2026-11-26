@@ -21,7 +21,7 @@
       "expires_at_ms": 1762586400000
     }
   },
-  "control_response_slots": {"schema_version": 2, "machine_key": "desktop", "desired": "running", "generation": 3, "handoff": [], "slots": 8},
+  "control_response_slots": {"schema_version": 2, "machine_key": "desktop", "desired": "running", "generation": 3, "handoff": [], "slots": 8, "limits": {"sandbox_headroom_bytes": 34359738368, "build_cache_keys_kept": 2}},
   "handoff_notice": {"schema_version": 1, "attempt_id": "33333333-3333-4333-8333-333333333333", "reason": "owner_stop"},
   "measurement_submission": {
     "schema_version": 1,
