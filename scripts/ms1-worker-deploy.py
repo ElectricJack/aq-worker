@@ -217,7 +217,7 @@ class Deployer:
     def load(self):
         if self.path.exists():
             return json.loads(self.path.read_text())
-        return {"published": [], "failed": {}, "requests": {}, "held": {}}
+        return {"published": [], "failed": {}, "requests": {}, "held": {}, "drained": []}
 
     def save(self, state):
         staged = self.path.with_suffix(".next")
@@ -317,6 +317,9 @@ class Deployer:
         before = next(n["worker_version"] for n in machine["nodes"] if n["node"]["id"] == node)
         drained = machine["control"]["desired"] == "running"
         if drained:
+            # Recorded first, so a run that dies here is followed by one that restores admission.
+            state["drained"] = sorted({*state.get("drained", []), mid})
+            self.save(state)
             self.host.admission("drain", mid, machine["control"]["generation"])
             log(f"{mid}: drained")
         held = False
@@ -340,10 +343,19 @@ class Deployer:
                 raise Failure(f"{mid}: update failed and was rolled back: {error}") from None
         finally:
             if drained and not held:
-                with contextlib.suppress(Failure):
-                    current, _ = self.machine(mid)
-                    self.host.admission("start", mid, current["control"]["generation"])
-                    log(f"{mid}: admission restored")
+                self.restore_admission(state, mid)
+
+    def restore_admission(self, state, mid):
+        try:
+            current, _ = self.machine(mid)
+            if current["control"]["desired"] != "running":
+                self.host.admission("start", mid, current["control"]["generation"])
+            log(f"{mid}: admission restored")
+        except Failure as error:
+            log(f"{mid}: admission not restored yet ({error}); the next run tries again")
+            return
+        state["drained"] = [m for m in state.get("drained", []) if m != mid]
+        self.save(state)
 
     # -------------------------------------------------------------- apply
 
@@ -355,6 +367,9 @@ class Deployer:
         revision = (info["Config"]["Labels"] or {}).get(REVISION, "")
         if not re.fullmatch(r"[0-9a-f]{40}", revision):
             raise Failure(f"{ref} has no source revision label")
+        for mid in state.get("drained", []):
+            if mid not in state["held"]:
+                self.restore_admission(state, mid)
         if revision in state["failed"] and not retry_failed:
             log(f"skipping {revision[:12]}: it failed here before ({state['failed'][revision]})")
             return

@@ -242,3 +242,14 @@ def test_pruning_keeps_recent_publications_and_the_manifest():
     published = [{"installer_sha256": f"i{n}", "bundle_sha256": f"b{n}"} for n in range(4)]
     manifest = {"installer_sha256": "i0", "bundle_sha256": "b0"}
     assert wd.bundles_to_prune(published, 2, manifest) == ["i1.sh", "b1.tar.gz"]
+
+
+def test_a_run_that_died_with_a_machine_drained_restores_it(cfg):
+    d, host = deployer(cfg)
+    d.apply()
+    state = d.load()
+    state["drained"] = ["laptop"]
+    d.save(state)
+    host.machines["laptop"]["control"]["desired"] = "draining"
+    d.apply()
+    assert host.machines["laptop"]["control"]["desired"] == "running" and d.load()["drained"] == []
