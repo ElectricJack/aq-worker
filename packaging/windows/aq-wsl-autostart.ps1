@@ -52,9 +52,38 @@ if ([string]::IsNullOrWhiteSpace($Distro) -or $Distro -match '["\x00-\x1f]') {
 
 function Get-AqTask { Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
 
+function Register-DockerDesktopTask {
+  if ($NoDockerDesktop) { return }
+  if (-not (Test-Path $DockerDesktop)) {
+    "Docker Desktop not found at $DockerDesktop; make sure the distro's container engine starts at boot"
+    return
+  }
+  $dsettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable
+  Register-ScheduledTask -TaskName $DockerTaskName -Action (New-ScheduledTaskAction -Execute $DockerDesktop) `
+    -Trigger $dockerTrigger -Settings $dsettings -Principal $principal `
+    -Description "Starts Docker Desktop (the AQ worker container's engine) at logon (E6a)" -Force | Out-Null
+  "registered task '$DockerTaskName'"
+}
+
+function Install-StartupLauncher {
+  $vbs = 'CreateObject("WScript.Shell").Run """' + $Wsl + '"" -d ""' + $Distro + '"" --exec sleep infinity", 0, False'
+  Set-Content -Path $Launcher -Value $vbs -Encoding Unicode
+  "wrote $Launcher"
+  if ($StartNow) {
+    Start-Process -WindowStyle Hidden -FilePath $Wsl -ArgumentList "-d `"$Distro`" --exec sleep infinity"
+    "started keepalive"
+  }
+}
+
 if ($Status) {
   $t = Get-AqTask
-  if ($t) { "task: $($t.State)"; ($t | Get-ScheduledTaskInfo | Select-Object LastRunTime, LastTaskResult | Format-List | Out-String).Trim() } else { "task: not registered" }
+  if ($t) {
+    "task: $($t.State)"
+    ($t | Get-ScheduledTaskInfo | Select-Object LastRunTime, LastTaskResult | Format-List | Out-String).Trim()
+  } else {
+    "task: not registered"
+  }
   $d = Get-ScheduledTask -TaskName $DockerTaskName -ErrorAction SilentlyContinue
   "docker desktop task: $(if ($d) { $d.State } else { 'not registered' })"
   "startup launcher: $(if (Test-Path $Launcher) { $Launcher } else { 'absent' })"
@@ -62,9 +91,19 @@ if ($Status) {
 }
 
 if ($Uninstall) {
-  if (Get-AqTask) { Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue; Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false; "removed task '$TaskName'" }
-  if (Get-ScheduledTask -TaskName $DockerTaskName -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName $DockerTaskName -Confirm:$false; "removed task '$DockerTaskName'" }
-  if (Test-Path $Launcher) { Remove-Item $Launcher; "removed $Launcher" }
+  if (Get-AqTask) {
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    "removed task '$TaskName'"
+  }
+  if (Get-ScheduledTask -TaskName $DockerTaskName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $DockerTaskName -Confirm:$false
+    "removed task '$DockerTaskName'"
+  }
+  if (Test-Path $Launcher) {
+    Remove-Item $Launcher
+    "removed $Launcher"
+  }
   "the running keepalive (if any) ends with: wsl.exe -d $Distro --exec pkill -x -f 'sleep infinity'"
   exit 0
 }
@@ -88,21 +127,12 @@ try {
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($trigger, $repeat) -Settings $settings `
     -Principal $principal -Description "Keeps WSL distro $Distro running for the AQ worker (E6a)" -Force | Out-Null
   "registered task '$TaskName' (logon trigger, distro $Distro)"
-  if ($StartNow) { Start-ScheduledTask -TaskName $TaskName; "started task" }
-  if (-not $NoDockerDesktop) {
-    if (Test-Path $DockerDesktop) {
-      $dsettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-        -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable
-      Register-ScheduledTask -TaskName $DockerTaskName -Action (New-ScheduledTaskAction -Execute $DockerDesktop) `
-        -Trigger $dockerTrigger -Settings $dsettings -Principal $principal `
-        -Description "Starts Docker Desktop (the AQ worker container's engine) at logon (E6a)" -Force | Out-Null
-      "registered task '$DockerTaskName'"
-    } else { "Docker Desktop not found at $DockerDesktop; make sure the distro's container engine starts at boot" }
+  if ($StartNow) {
+    Start-ScheduledTask -TaskName $TaskName
+    "started task"
   }
+  Register-DockerDesktopTask
 } catch {
   "Task Scheduler refused registration ($($_.Exception.Message)); using the Startup folder instead"
-  $vbs = 'CreateObject("WScript.Shell").Run """' + $Wsl + '"" -d ""' + $Distro + '"" --exec sleep infinity", 0, False'
-  Set-Content -Path $Launcher -Value $vbs -Encoding Unicode
-  "wrote $Launcher"
-  if ($StartNow) { Start-Process -WindowStyle Hidden -FilePath $Wsl -ArgumentList "-d `"$Distro`" --exec sleep infinity"; "started keepalive" }
+  Install-StartupLauncher
 }
