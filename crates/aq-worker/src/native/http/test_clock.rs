@@ -23,7 +23,8 @@ pub struct TestClock {
 }
 
 impl TestClock {
-    pub(crate) fn new() -> Self {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         let runtime = Handle::current().id();
         assert!(now().is_none(), "test clock already installed");
         // Keep historical boot namespaces valid by starting from the kernel.
@@ -40,12 +41,6 @@ impl TestClock {
     }
 }
 
-impl Default for TestClock {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Drop for TestClock {
     fn drop(&mut self) {
         clocks().lock().unwrap().remove(&self.runtime).unwrap();
@@ -55,13 +50,9 @@ impl Drop for TestClock {
 /// Cross an existing cap, or wait for the real kernel cap in unmodified tests.
 #[cfg(test)]
 pub(crate) async fn expire(deadline: u64) {
-    let runtime = Handle::current().id();
-    {
-        let mut clocks = clocks().lock().unwrap();
-        if let Some(now) = clocks.get_mut(&runtime) {
-            *now = (*now).max(deadline.checked_add(1).unwrap());
-            return;
-        }
+    if let Some(now) = clocks().lock().unwrap().get_mut(&Handle::current().id()) {
+        *now = (*now).max(deadline.checked_add(1).unwrap());
+        return;
     }
     while super::boot_ns().unwrap() <= deadline {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

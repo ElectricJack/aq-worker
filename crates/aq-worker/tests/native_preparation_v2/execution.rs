@@ -116,7 +116,7 @@ async fn execution_refuses_wrong_nonce_kind_history_late_large_redirect_and_chan
 #[tokio::test]
 async fn expired_execution_observation_never_resurrects_on_retry() {
     // Freeze before proposal setup too: its 500 ms cap must not race scheduling.
-    let clock = aq_worker::native::http::test_clock::TestClock::default();
+    let clock = aq_worker::native::http::test_clock::TestClock::new();
     let s = Server::new().await;
     let p = s.propose().await;
     let a = s.request();
