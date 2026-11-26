@@ -134,7 +134,7 @@ pub fn note(primary: &Path) -> Result<String> {
         )?;
     }
     if !note.is_empty() {
-        note.insert(0, '\n');
+        note.insert_str(0, "\nSibling checkouts are mounted separately from Home (/aq/work). Run each project's checks in its own checkout.\n");
     }
     Ok(note)
 }

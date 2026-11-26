@@ -41,7 +41,7 @@ pub fn entries(config: &LaunchInputs<'_>, prompt: &[u8]) -> Result<Vec<TreeEntry
     // the sandbox the node driver submits the claim from the final message.
     let mut prompt = prompt.to_vec();
     prompt.extend(
-        aq_node_git::conflict_note(config.workspace)
+        aq_node_git::checkout_note(config.workspace)
             .unwrap_or_default()
             .bytes(),
     );

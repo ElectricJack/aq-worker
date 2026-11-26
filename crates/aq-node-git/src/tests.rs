@@ -368,7 +368,10 @@ fn a_returned_task_starts_from_its_branch_head_without_main() {
         std::fs::read_to_string(path.join("a.txt")).unwrap(),
         "one\n"
     );
-    assert!(wt.conflicts.is_empty() && conflict_note(&path).is_none());
+    assert!(wt.conflicts.is_empty());
+    let note = checkout_note(&path).unwrap();
+    assert!(note.contains(wt.grant.lease.as_deref().unwrap()));
+    assert!(note.contains("did not integrate current main"));
     node.end(&wt).unwrap();
 }
 
@@ -407,7 +410,7 @@ fn update_from_main_commits_a_clean_merge_of_the_main_head() {
         [lease.as_str(), &main]
     );
     assert!(wt.conflicts.is_empty());
-    let note = conflict_note(&path).unwrap();
+    let note = checkout_note(&path).unwrap();
     assert!(note.contains("The merge was clean") && note.contains("AQ handles Git publication"));
     assert_eq!(
         std::fs::read_to_string(path.join("a.txt")).unwrap(),
@@ -444,7 +447,7 @@ fn update_from_main_leaves_conflict_markers_committed_and_lists_the_paths() {
     let parents = git(&path, &["rev-list", "--parents", "-n1", "HEAD"]);
     assert_eq!(parents.split(' ').count(), 3, "the merge is committed");
     assert_eq!(git(&path, &["status", "--porcelain"]), "");
-    assert!(conflict_note(&path).unwrap().contains("a.txt"));
+    assert!(checkout_note(&path).unwrap().contains("a.txt"));
     node.end(&wt).unwrap();
 }
 
