@@ -38,23 +38,42 @@ $Out = Join-Path $OutDir "host-load.json"
 $CopyDir = Join-Path $env:LOCALAPPDATA "agent-q"
 $Copy = Join-Path $CopyDir "aq-host-load.ps1"
 
-function Write-Sample {
-  $cpu  = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
-  $os   = Get-CimInstance Win32_OperatingSystem
+function Get-HostSample {
+  $cpu = (Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'").PercentProcessorTime
+  $os = Get-CimInstance Win32_OperatingSystem
   $cpus = (Get-CimInstance Win32_Processor | Measure-Object -Property NumberOfLogicalProcessors -Sum).Sum
   $disk = Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='$($env:SystemDrive)'"
-  $total = [uint64]$os.TotalVisibleMemorySize * 1024; $free = [uint64]$os.FreePhysicalMemory * 1024
-  $s = [ordered]@{ schema = "aq-host-load-1"; observed_at_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();
-    logical_cpus = [int]$cpus; cpu_busy_bps = [int][Math]::Min(10000, [Math]::Max(0, [int]$cpu * 100));
-    memory_total_bytes = $total; memory_used_bytes = $total - $free;
-    disk_total_bytes = [uint64]$disk.Size; disk_free_bytes = [uint64]$disk.FreeSpace }
-  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-  $tmp = "$Out.tmp"; [IO.File]::WriteAllText($tmp, ($s | ConvertTo-Json -Compress))
-  # File.Replace is atomic on an existing destination; Move-Item -Force is not on PowerShell 5.1.
-  if (Test-Path $Out) { [IO.File]::Replace($tmp, $Out, $null) } else { Move-Item $tmp $Out }
+  $total = [uint64]$os.TotalVisibleMemorySize * 1024
+  $free = [uint64]$os.FreePhysicalMemory * 1024
+  [ordered]@{
+    schema = "aq-host-load-1"
+    observed_at_ms = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    logical_cpus = [int]$cpus
+    cpu_busy_bps = [int][Math]::Min(10000, [Math]::Max(0, [int]$cpu * 100))
+    memory_total_bytes = $total
+    memory_used_bytes = $total - $free
+    disk_total_bytes = [uint64]$disk.Size
+    disk_free_bytes = [uint64]$disk.FreeSpace
+  }
 }
 
-if ($Once) { Write-Sample; exit 0 }
+function Write-Sample {
+  $sample = Get-HostSample
+  New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+  $tmp = "$Out.tmp"
+  [IO.File]::WriteAllText($tmp, ($sample | ConvertTo-Json -Compress))
+  # File.Replace is atomic on an existing destination; Move-Item -Force is not on PowerShell 5.1.
+  if (Test-Path $Out) {
+    [IO.File]::Replace($tmp, $Out, $null)
+  } else {
+    Move-Item $tmp $Out
+  }
+}
+
+if ($Once) {
+  Write-Sample
+  exit 0
+}
 
 if ($Status) {
   $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -89,4 +108,7 @@ if ($Install) {
 }
 
 # Default (the task's action): sample every 5 seconds until the task ends.
-while ($true) { try { Write-Sample } catch { }; Start-Sleep -Seconds 5 }
+while ($true) {
+  try { Write-Sample } catch { }
+  Start-Sleep -Seconds 5
+}
