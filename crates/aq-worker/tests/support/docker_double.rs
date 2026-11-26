@@ -15,6 +15,7 @@ use tokio::sync::watch;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effect {
+    Pass,
     FailBefore(u16),
     StallBeforeApply,
     DropReplyAfterApply,
@@ -276,7 +277,7 @@ impl DockerTransport for ScriptedDocker {
                 self.handle(&request);
                 return Err(TransportError::io("connection reset after apply"));
             }
-            None => self.handle(&request),
+            Some(Effect::Pass) | None => self.handle(&request),
         };
         if response.body.len() > request.max_response_bytes {
             return Err(TransportError {
@@ -364,6 +365,27 @@ fn route(state: &mut State, request: &DockerRequest) -> DockerResponse {
         (Put, ["containers", name, "archive"]) => state.put_archive(name, &query, &request.body),
         (Get, ["containers", name, "archive"]) => state.get_archive(name, &query),
         (Post, ["containers", name, "start"]) => state.start_container(name),
+        (Post, ["containers", name, "exec"]) => {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            if state
+                .containers
+                .get(*name)
+                .is_none_or(|c| c.status != "running")
+                || body["User"] != "agent"
+                || body["Privileged"] != false
+                || body["Cmd"][2] != aq_sandbox_archive::task_postgres::BOOTSTRAP
+            {
+                return error(400, "expected fixed unprivileged task service");
+            }
+            ok_json(201, json!({"Id": "1".repeat(64)}))
+        }
+        (Post, ["exec", id, "start"]) if *id == "1".repeat(64) => {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            if body["Detach"] != true || body["Tty"] != false {
+                return error(400, "expected detached non-tty service");
+            }
+            ok_json(200, json!({}))
+        }
         (Post, ["containers", name, "stop"]) => state.stop_container(name),
         (Delete, ["containers", name]) => state.delete_container(name),
         (Get, ["volumes"]) => state.list_volumes(&query),

@@ -7,11 +7,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use aq_sandbox_archive::docker_engine::MAIN_DAEMON_SOCKETS;
 use aq_sandbox_archive::docker_engine::{
     HostStatvfs, PlacementRefusal, UnixSocketTransport, check_placement, container_path_ok,
     exposes_daemon_socket, parent, under, validate_socket,
 };
+pub use aq_sandbox_archive::docker_engine::{MAIN_DAEMON_SOCKETS, WorkspaceBindPaths};
 use std::time::Duration;
 /// The per-attempt work volume is always mounted here.
 pub const WORK_TARGET: &str = "/aq/work";
@@ -93,6 +93,12 @@ pub struct DockerLocalConfig {
     /// The attempt's build-cache binds; set by the driver, never read from a file.
     #[serde(skip)]
     pub cache_binds: Vec<String>,
+    /// Operator-owned mapping for projects mounted from a containerized worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_bind_paths: Option<WorkspaceBindPaths>,
+    /// Runtime-only, source-only snapshots of approved read-only projects.
+    #[serde(skip)]
+    pub(crate) readonly_projects: BTreeMap<uuid::Uuid, PathBuf>,
     /// Spec 0017: the admitted environments this node pulled; set by the service.
     #[cfg(feature = "project_environments")]
     #[serde(skip)]
@@ -142,6 +148,8 @@ impl DockerLocalConfig {
             channel_root: None,
             transcript: None,
             cache_binds: Vec::new(),
+            workspace_bind_paths: None,
+            readonly_projects: BTreeMap::new(),
             #[cfg(feature = "project_environments")]
             environments: Default::default(),
         }
@@ -166,6 +174,12 @@ impl DockerLocalConfig {
             &HostStatvfs,
         )
         .await
+    }
+
+    pub(crate) fn project_bind_paths(&self) -> Option<WorkspaceBindPaths> {
+        self.workspace_bind_paths
+            .clone()
+            .or_else(WorkspaceBindPaths::managed)
     }
 
     pub fn validate(&self) -> Result<(), BackendError> {
@@ -210,7 +224,10 @@ impl DockerLocalConfig {
                     "mount alias exposes a daemon socket",
                 ));
             }
-            if !container_path_ok(&alias.target)
+            let project_overlap = self.project_bind_paths().is_some()
+                && (under(&alias.target, "/aq/projects") || under("/aq/projects", &alias.target));
+            if project_overlap
+                || !container_path_ok(&alias.target)
                 || under(&alias.target, WORK_TARGET)
                 || under(&alias.target, CHANNEL_TARGET)
                 || under(CHANNEL_TARGET, &alias.target)

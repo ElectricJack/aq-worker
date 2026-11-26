@@ -115,6 +115,8 @@ async fn execution_refuses_wrong_nonce_kind_history_late_large_redirect_and_chan
 }
 #[tokio::test]
 async fn expired_execution_observation_never_resurrects_on_retry() {
+    // Freeze before proposal setup too: its 500 ms cap must not race scheduling.
+    let clock = aq_worker::native::http::test_clock::TestClock::new();
     let s = Server::new().await;
     let p = s.propose().await;
     let a = s.request();
@@ -126,15 +128,23 @@ async fn expired_execution_observation_never_resurrects_on_retry() {
         .prepare_execution(&p, &a, &accepted, &q, None)
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    assert_eq!(first.received_ns(), first.sent_ns());
+    assert_eq!(first.deadline_ns(), first.sent_ns() + 100_000_000);
+    assert_eq!(s.peer.sends.load(Ordering::SeqCst), 3);
+    // Expire this exact observation at the exclusive deadline, while the
+    // accepted preparation still permits a first send and the peer offers
+    // a fresh full-length execution delivery.
+    assert!(first.deadline_ns() < accepted.deadline_ns());
+    clock.advance_to(first.deadline_ns());
     s.peer.mode.store(0, Ordering::SeqCst);
     let sends = s.peer.sends.load(Ordering::SeqCst);
-    assert!(
-        s.client
-            .prepare_execution(&p, &a, &accepted, &q, Some(&first))
-            .await
-            .is_err()
-    );
+    let error = s
+        .client
+        .prepare_execution(&p, &a, &accepted, &q, Some(&first))
+        .await
+        .err()
+        .expect("expired execution observation must be refused");
+    assert_eq!(error.to_string(), "phase local observation expired");
     assert_eq!(s.peer.sends.load(Ordering::SeqCst), sends);
 }
 #[tokio::test]

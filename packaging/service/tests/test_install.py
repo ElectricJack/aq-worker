@@ -230,6 +230,8 @@ def test_existing_sandbox_socket_also_gets_an_enabled_service(host):
 
 def test_downloadable_bundle_installs_windows_startup_without_a_checkout(host, monkeypatch):
     archive, extracted, codex_composite = downloadable_bundle(host, monkeypatch)
+    template = json.loads((extracted / "native.json").read_text())
+    assert "workspace_bind_paths" not in template["executor"]["settings"]["host"]["docker_local"]
     work = host["tmp"] / "prepared"
     work.mkdir()
     monkeypatch.setenv("HOME", str(host["home"]))
@@ -422,6 +424,30 @@ def run_config(tmp_path, *args):
         [sys.executable, str(SCRIPT.with_name("worker-install-config.py")), *map(str, args)],
         capture_output=True, text=True, timeout=20, env={**os.environ, "HOME": str(tmp_path / "home")},
     )
+
+
+def test_hosted_workspace_mapping_uses_the_actual_profile_state(tmp_path, monkeypatch):
+    helper = login_helper()
+    package, config, _ = hosted_profile(tmp_path, "a" * 64)
+    source = json.loads((package / "native.json").read_text())
+    source["node_git"] = {"repositories": "/bundle/node_git"}
+    docker = source["executor"]["settings"]["host"]["docker_local"]
+    docker["workspace_bind_paths"] = {"worker_root": "/builder", "daemon_root": "/builder"}
+    (package / "native.json").write_text(json.dumps(source))
+    state_home = tmp_path / "custom-state-home"
+    monkeypatch.setenv("XDG_STATE_HOME", str(state_home))
+
+    def mapping():
+        template, _ = helper.prepared_template(package, config, "https://worker.example", tmp_path / "podman.sock")
+        return template["executor"]["settings"]["host"]["docker_local"].get("workspace_bind_paths")
+
+    expected = str(state_home / "agent-q/service" / config.name)
+    assert mapping() == {"worker_root": expected, "daemon_root": expected}
+    state = str(tmp_path / "existing-custom-state")
+    (config / "service.toml").write_text(f"state_root = {json.dumps(state)}\n")
+    assert mapping() == {"worker_root": state, "daemon_root": state}
+    (config / "service.toml").write_text('state_root = "/"\n')
+    assert mapping() is None
 
 
 def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_path):

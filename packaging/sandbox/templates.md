@@ -163,6 +163,21 @@ adversary-proof or cryptographically signed database. Launch enforcement
 belongs to C2/C7. The file is bounded to 1 MiB/1024 entries; backend metadata
 is bounded to 64 KiB per entry. A version already admitted must be bumped.
 
+## PostgreSQL for task workspaces
+
+A project environment recipe can declare `postgres` in `provides`. Install
+PostgreSQL server and client tools in that recipe. The builder requires
+`pg_config --bindir` to locate `initdb`, `pg_ctl`, `postgres`, and `psql` and
+records the server and client versions in the toolchain check results.
+
+When AQ approves PostgreSQL for a DockerLocal task, the worker creates a fresh
+cluster in that attempt's bounded temporary filesystem. It starts PostgreSQL
+as the image's unprivileged `agent` account and requires a successful SQL query
+before starting the harness. The harness receives `DATABASE_URL` and the
+standard `PGHOST`, `PGPORT`, `PGUSER`, and `PGDATABASE` variables. Connections use
+the in-sandbox Unix socket. The database runs within the task's resource
+limits and its data is discarded when the sandbox stops, including on handoff.
+
 ## Reusable scanner
 
 `aq-worker template scan <image.oci.tar>` emits image digest, installed bundle

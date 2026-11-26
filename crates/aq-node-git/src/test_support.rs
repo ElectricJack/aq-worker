@@ -195,10 +195,11 @@ fn smart_http(
     refuse: Arc<AtomicBool>,
 ) -> Router {
     let handler = move |method: axum::http::Method,
-                        UrlPath((_repository, rest)): UrlPath<(Uuid, String)>,
+                        UrlPath(fields): UrlPath<std::collections::HashMap<String, String>>,
                         uri: axum::http::Uri,
                         h: HeaderMap,
                         body: Bytes| async move {
+        let rest = fields["rest"].as_str();
         let text = |name: &str| {
             let value = h.get(name).and_then(|v| v.to_str().ok());
             value.unwrap_or_default().to_string()
@@ -265,7 +266,12 @@ fn smart_http(
         }
         response.body(axum::body::Body::from(body)).unwrap()
     };
-    Router::new().route("/v1/git/{repository}/{*rest}", any(handler))
+    Router::new()
+        .route("/v1/git/{repository}/{*rest}", any(handler.clone()))
+        .route(
+            "/v1/git/workspaces/{project}/{repository}/{*rest}",
+            any(handler),
+        )
 }
 
 pub fn config(root: &Path) -> Config {

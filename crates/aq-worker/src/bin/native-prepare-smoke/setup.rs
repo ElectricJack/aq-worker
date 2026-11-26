@@ -129,7 +129,8 @@ impl SmokeRun {
             .context("reservation deadline overflow")?
             .min(page.offer_deadlines_ns[0]);
         *stage = "reserve";
-        let id = self.journal.reserve(
+        let workspace_required = page.workspace_required.remove(0);
+        let id = self.journal.reserve_with_workspaces(
             aq_worker_protocol::git_author::AttemptOffer {
                 offer: offer.clone(),
                 git_author: page.git_authors.remove(0),
@@ -140,6 +141,7 @@ impl SmokeRun {
             },
             deadline,
             self.disk,
+            workspace_required,
         )?;
         Ok(Reserved {
             run: self,

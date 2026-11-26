@@ -2,7 +2,7 @@
 //! are built in one pre-sized zeroizing buffer, so no reallocation leaves a copy.
 use zeroize::Zeroizing;
 mod reader;
-pub use reader::{read_tree, read_workspace_tree, single_file};
+pub use reader::{read_named_tree, read_tree, read_workspace_tree, single_file};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("{0}")]

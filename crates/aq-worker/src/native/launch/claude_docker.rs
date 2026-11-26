@@ -282,9 +282,25 @@ fn try_checkpoint(
                 let (Some(sandbox), None) = (running.next(), running.next()) else {
                     anyhow::bail!("no single running sandbox for the attempt");
                 };
+                let container_id = backend
+                    .container_id(&sandbox.sandbox)
+                    .await?
+                    .context("sandbox container absent")?;
+                crate::sandbox_driver::staging::require_started(
+                    &workspace,
+                    &sandbox.sandbox,
+                    &container_id,
+                )?;
                 let bound = usize::try_from(max)?.saturating_mul(2);
-                let archive = backend.get_archive(&sandbox.sandbox, dl::WORK_TARGET, bound);
-                anyhow::Ok(dl::tar::read_tree(&archive.await?, max)?)
+                let archive = backend
+                    .get_archive(&sandbox.sandbox, dl::WORK_TARGET, bound)
+                    .await?;
+                ensure!(
+                    backend.container_id(&sandbox.sandbox).await?.as_deref()
+                        == Some(container_id.as_str()),
+                    "sandbox container changed during checkpoint"
+                );
+                anyhow::Ok(dl::tar::read_tree(&archive, max)?)
             };
             let failed = |error: anyhow::Error| {
                 tracing::warn!(attempt_id = %attempt, error = %format!("{error:#}"), "try checkpoint failed");

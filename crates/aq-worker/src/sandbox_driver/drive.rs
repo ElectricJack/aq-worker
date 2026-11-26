@@ -3,9 +3,11 @@ pub(super) struct Drive<'a, T: DockerTransport> {
     pub(super) backend: &'a mut DockerLocalBackend<T>,
     pub(super) config: &'a DriverConfig,
     pub(super) sandbox: &'a SandboxIdentity,
+    pub(super) container_id: &'a str,
     pub(super) login: &'a Login,
     pub(super) handoff: &'a Path,
     pub(super) runner_may_have_started: bool,
+    pub(super) workspace_budget: u64,
     pub(super) cache: Option<&'a aq_sandbox_archive::build_cache::Opened>,
 }
 pub(super) struct Signals {
@@ -29,11 +31,15 @@ impl<T: DockerTransport> Drive<'_, T> {
         AF: std::future::Future<Output = Result<(S, Pane)>>,
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + 'static,
     {
-        let workspace = collect_tree(&self.config.workspace, self.config.max_workspace_bytes)?;
+        let workspace = collect_tree(&self.config.workspace, self.workspace_budget)?;
         let login = self.login;
         let tokens = login.redact.iter().map(|t| t.as_slice()).collect();
         let secrets = Secrets::of_tokens(tokens, workspace.iter().flat_map(tree_bytes));
-        self.stage(prompt, &workspace).await?;
+        let projects = projects::writable_trees(
+            &self.config.workspace,
+            projects::after_tree(self.workspace_budget, &workspace)?,
+        )?;
+        self.stage(prompt, &workspace, &projects).await?;
         // The sandbox's terminal on this pane, from here until the sandbox stops.
         let id = &self.sandbox.backend_id;
         let attach = format!(
@@ -60,7 +66,16 @@ impl<T: DockerTransport> Drive<'_, T> {
             self.sandbox.backend_id,
             stopped.is_confirmed()
         );
-        save_conversation(self.backend, self.config, self.sandbox, &self.login.token).await;
+        if self.runner_may_have_started {
+            save_conversation(self.backend, self.config, self.sandbox, &self.login.token).await;
+        } else if let Err(error) = staging::record(
+            &self.config.workspace,
+            self.sandbox,
+            self.container_id,
+            staging::Phase::PrepareFailed,
+        ) {
+            tracing::warn!(%error, "sandbox preparation failure receipt unavailable");
+        }
         let backend_unavailable = matches!(
             error.downcast_ref::<BackendError>(),
             Some(BackendError::Unavailable(_) | BackendError::Uncertain(_))
@@ -80,7 +95,12 @@ impl<T: DockerTransport> Drive<'_, T> {
         submit_claim(self.config, claim);
         Ok(3)
     }
-    async fn stage(&mut self, prompt: &[u8], workspace: &[TreeEntry]) -> Result<()> {
+    async fn stage(
+        &mut self,
+        prompt: &[u8],
+        workspace: &[TreeEntry],
+        projects: &[projects::ProjectTree],
+    ) -> Result<()> {
         self.backend
             .put_archive(
                 self.sandbox,
@@ -100,6 +120,16 @@ impl<T: DockerTransport> Drive<'_, T> {
             .put_archive(self.sandbox, archive)
             .await
             .context("sandbox workspace upload")?;
+        for tree in projects {
+            let target = aq_node_git::workspaces::sandbox_path(tree.project);
+            self.backend
+                .put_archive(
+                    self.sandbox,
+                    tree_archive(target.trim_start_matches('/'), &tree.entries)?,
+                )
+                .await
+                .context("sandbox related project upload")?;
+        }
         self.backend
             .deliver_private_material(
                 self.sandbox,
@@ -116,6 +146,23 @@ impl<T: DockerTransport> Drive<'_, T> {
             .start_runner(self.sandbox)
             .await
             .context("sandbox runner start")?;
+        ensure!(
+            self.backend.container_id(self.sandbox).await?.as_deref() == Some(self.container_id),
+            "sandbox container changed during staging"
+        );
+        staging::record(
+            &self.config.workspace,
+            self.sandbox,
+            self.container_id,
+            staging::Phase::Started,
+        )
+        .context("record staged sandbox start")?;
+        if self.config.postgres {
+            self.backend
+                .start_task_postgres(self.sandbox)
+                .await
+                .context("start required task PostgreSQL")?;
+        }
         println!("aq-sandbox-harness: runner started");
         Ok(())
     }
@@ -178,6 +225,13 @@ impl<T: DockerTransport> Drive<'_, T> {
         secrets: &Secrets<'_>,
         pane_leak: bool,
     ) -> Result<Drove> {
+        let container_id = self
+            .backend
+            .container_id(self.sandbox)
+            .await?
+            .context("sandbox container absent")?;
+        staging::require_started(&self.config.workspace, self.sandbox, &container_id)
+            .context("verify staged sandbox start")?;
         let Ended {
             exit,
             stream,
@@ -195,12 +249,33 @@ impl<T: DockerTransport> Drive<'_, T> {
             .get_archive(
                 self.sandbox,
                 "/aq/work",
-                usize::try_from(config.max_workspace_bytes)?.saturating_mul(2),
+                usize::try_from(self.workspace_budget)?.saturating_mul(2),
             )
             .await
             .context("workspace copy-back")?;
-        let entries = read_tree(&archive, config.max_workspace_bytes)?;
+        let entries = read_tree(&archive, self.workspace_budget)?;
+        let (backend, sandbox) = (&*self.backend, self.sandbox);
+        let siblings = projects::returned_trees(
+            &config.workspace,
+            projects::after_tree(self.workspace_budget, &entries)?,
+            |project, limit| async move {
+                Ok(backend
+                    .stopped_project_tree(sandbox, project, limit)
+                    .await?)
+            },
+        )
+        .await?;
+        ensure!(
+            self.backend.container_id(self.sandbox).await?.as_deref()
+                == Some(container_id.as_str()),
+            "sandbox container changed during copy-back"
+        );
         let leak = token_leak(&entries, &stream, secrets)
+            .or_else(|| {
+                siblings
+                    .iter()
+                    .find_map(|tree| token_leak(&tree.entries, &[], secrets))
+            })
             .or(pane_leak.then_some("a login secret appeared in the sandbox terminal output"));
         if leak.is_some() {
             // Nothing the sandbox produced is copied back.
@@ -212,7 +287,8 @@ impl<T: DockerTransport> Drive<'_, T> {
                 handoff: None,
             });
         }
-        let changed = sync_tree(&config.workspace, &entries)?;
+        let mut changed = sync_tree(&config.workspace, &entries)?;
+        changed.extend(projects::apply(&siblings)?);
         Ok(Drove {
             rc,
             changed,

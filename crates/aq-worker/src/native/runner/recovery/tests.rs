@@ -514,16 +514,23 @@ fn refresh_profile_unstarted_launch_closes_with_the_refresh_envelope() {
 use crate::native::{journal::salvage_history, result::history::ResultHistory};
 use {ReconcileDisposition as R, SalvageDisposition as S};
 fn salvage_fixture() -> (tempfile::TempDir, ResultHistory, Attempt) {
+    use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("kept.txt"), b"base").unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let kept = work.join("kept.txt");
+    std::fs::write(&kept, b"base").unwrap();
+    // Match the fake archive's mode so the host umask cannot add a change.
+    std::fs::set_permissions(&kept, std::fs::Permissions::from_mode(0o644)).unwrap();
     let mut h = crate::native::result::tests::history();
-    h.scope.workspace.path = dir.path().to_path_buf();
+    h.scope.workspace.path = work;
     let mut a = stopped_attempt(false);
     let t = a.native_host.as_mut().unwrap().terminal.as_mut().unwrap();
     let receipt = fixture(false)["stopped_receipt"].clone();
     t.stopped.as_mut().unwrap().receipt = Some(serde_json::from_value(receipt).unwrap());
     (dir, h, a)
 }
+const CONTAINER_ID: &str = "test-container-id";
 type Files<'a> = &'a [(&'a str, &'a [u8])];
 /// salvage_claim over one FakeBackend sandbox, stopped after it ran, whose /aq/work holds `files`.
 async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission, &'static str> {
@@ -551,6 +558,13 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
     let sandboxes = stopped_sandboxes(&mut backend, node_id, attempt_id)
         .await
         .unwrap();
+    driver::staging::record(
+        &h.scope.workspace.path,
+        &sandbox,
+        CONTAINER_ID,
+        driver::staging::Phase::Started,
+    )
+    .unwrap();
     let file = |&(path, data): &(&str, &[u8])| (path.to_string(), data.to_vec());
     let entry = |(path, data)| TreeEntry::File {
         path,
@@ -559,8 +573,64 @@ async fn claim(h: &ResultHistory, files: Files<'_>) -> Result<local::Submission,
     };
     let entries: Vec<_> = files.iter().map(file).map(entry).collect();
     let restart = (aq_protocol::HandoffReason::Restart, None);
-    let claimed = salvage_claim(h, restart, &sandboxes, async |_| Ok(entries));
+    let claimed = salvage_claim(h, restart, (&sandboxes, Some(CONTAINER_ID)), async |_| {
+        Ok(entries)
+    });
     claimed.await.unwrap()
+}
+
+#[tokio::test]
+async fn salvage_never_reads_unstaged_source_even_with_a_pending_submission() {
+    let (dir, mut h, _) = salvage_fixture();
+    let (_channel, original) = crate::native::result::tests::pending_submission(&mut h);
+    let sibling = dir.path().join("sibling.txt");
+    std::fs::write(&sibling, b"sibling base").unwrap();
+    let sandbox = SandboxIdentity {
+        kind: crate::backend::BackendKind::DockerLocal,
+        backend_id: "stopped-sandbox".into(),
+        owner: crate::backend::Ownership {
+            node_id: Uuid::new_v4(),
+            boot_id: Uuid::new_v4(),
+            attempt_id: Uuid::new_v4(),
+        },
+    };
+    let restart = (aq_protocol::HandoffReason::Restart, None);
+    let never = async |_: &SandboxIdentity| -> Result<Vec<TreeEntry>> {
+        panic!("would import primary and sibling trees from failed staging")
+    };
+    let sandboxes = std::slice::from_ref(&sandbox);
+    let refused = salvage_claim(&h, restart, (sandboxes, Some(CONTAINER_ID)), never)
+        .await
+        .unwrap();
+    assert_eq!(refused.err(), Some("sandbox_staging_unproven"));
+    driver::staging::record(
+        &h.scope.workspace.path,
+        &sandbox,
+        CONTAINER_ID,
+        driver::staging::Phase::PrepareFailed,
+    )
+    .unwrap();
+    for id in [Some(CONTAINER_ID), None] {
+        let replay = salvage_claim(&h, restart, (sandboxes, id), never)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replay, original);
+    }
+    let refused = salvage_claim(
+        &h,
+        restart,
+        (sandboxes, Some("replacement-container-id")),
+        never,
+    )
+    .await
+    .unwrap();
+    assert_eq!(refused.err(), Some("sandbox_staging_unproven"));
+    assert_eq!(
+        std::fs::read(dir.path().join("work/kept.txt")).unwrap(),
+        b"base"
+    );
+    assert_eq!(std::fs::read(sibling).unwrap(), b"sibling base");
 }
 
 #[tokio::test]
@@ -570,7 +640,7 @@ async fn salvage_preserves_an_exact_pending_submission_as_a_failed_result() {
     let saved = claim(&h, &[("notes.txt", b"saved")]).await.unwrap();
     assert_eq!(saved, original);
     assert_eq!(
-        std::fs::read(dir.path().join("notes.txt")).unwrap(),
+        std::fs::read(dir.path().join("work/notes.txt")).unwrap(),
         b"saved"
     );
     salvage_history(&a, &mut h, Some(saved), 5).unwrap();
@@ -589,7 +659,7 @@ async fn salvage_reports_failed_result_with_saved_workspace() {
     let note = claim(&h, &[("kept.txt", b"base"), ("notes.txt", b"saved")]).await;
     // The checkpoint and export read this workspace: it now holds the sandbox's file.
     assert_eq!(
-        std::fs::read(dir.path().join("notes.txt")).unwrap(),
+        std::fs::read(dir.path().join("work/notes.txt")).unwrap(),
         b"saved"
     );
     salvage_history(&a, &mut h, Some(note.unwrap()), 5).unwrap();
@@ -614,8 +684,12 @@ async fn salvage_reports_failed_result_with_saved_workspace() {
 async fn salvage_is_idempotent_after_report() {
     assert_eq!(settled(R::ResultRecorded), Some(S::AlreadyReported));
     assert_eq!(settled(R::StopReported), None);
-    let (_dir, mut h, a) = salvage_fixture();
+    let (dir, mut h, a) = salvage_fixture();
     let note = claim(&h, &[]).await.unwrap();
+    assert!(
+        !dir.path().join("work/kept.txt").exists(),
+        "a staged empty result is a legitimate deletion"
+    );
     let mut first = h.clone();
     salvage_history(&a, &mut first, Some(note.clone()), 5).unwrap();
     let mut again = first.clone();
@@ -676,9 +750,12 @@ async fn salvage_without_sandbox_is_unsalvageable() {
     let restart = (aq_protocol::HandoffReason::Restart, None);
     let never =
         async |_: &SandboxIdentity| -> Result<Vec<TreeEntry>> { panic!("no sandbox to archive") };
-    let refused = salvage_claim(&h, restart, &[], never).await;
+    let refused = salvage_claim(&h, restart, (&[], None), never).await;
     assert_eq!(refused.unwrap().err(), Some("sandbox_absent"));
-    assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    assert_eq!(
+        std::fs::read_dir(dir.path().join("work")).unwrap().count(),
+        1
+    );
     // Nor can the journal record a salvage without a claim or without a stop proof.
     assert!(salvage_history(&a, &mut h, None, 5).is_err());
     let mut no_stop = a.clone();
@@ -698,8 +775,11 @@ async fn salvage_refuses_workspace_holding_agent_credential() {
     .await;
     assert_eq!(refused.err(), Some("credential_in_workspace"));
     // Nothing the sandbox produced reaches the workspace.
-    assert_eq!(std::fs::read(dir.path().join("kept.txt")).unwrap(), b"base");
-    assert!(!dir.path().join("leak.env").exists());
+    assert_eq!(
+        std::fs::read(dir.path().join("work/kept.txt")).unwrap(),
+        b"base"
+    );
+    assert!(!dir.path().join("work/leak.env").exists());
 }
 
 #[tokio::test]
@@ -708,7 +788,7 @@ async fn salvage_refuses_workspace_holding_claude_token_shape() {
     let secret = format!("export T=sk-ant-oat01-{}", "Ab_9-".repeat(8));
     let refused = claim(&h, &[("notes.sh", secret.as_bytes())]).await;
     assert_eq!(refused.err(), Some("credential_in_workspace"));
-    assert!(!dir.path().join("notes.sh").exists());
+    assert!(!dir.path().join("work/notes.sh").exists());
 }
 
 #[test]

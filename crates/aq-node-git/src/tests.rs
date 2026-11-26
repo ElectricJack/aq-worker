@@ -368,7 +368,10 @@ fn a_returned_task_starts_from_its_branch_head_without_main() {
         std::fs::read_to_string(path.join("a.txt")).unwrap(),
         "one\n"
     );
-    assert!(wt.conflicts.is_empty() && conflict_note(&path).is_none());
+    assert!(wt.conflicts.is_empty());
+    let note = checkout_note(&path).unwrap();
+    assert!(note.contains(wt.grant.lease.as_deref().unwrap()));
+    assert!(note.contains("did not integrate current main"));
     node.end(&wt).unwrap();
 }
 
@@ -407,7 +410,7 @@ fn update_from_main_commits_a_clean_merge_of_the_main_head() {
         [lease.as_str(), &main]
     );
     assert!(wt.conflicts.is_empty());
-    let note = conflict_note(&path).unwrap();
+    let note = checkout_note(&path).unwrap();
     assert!(note.contains("The merge was clean") && note.contains("AQ handles Git publication"));
     assert_eq!(
         std::fs::read_to_string(path.join("a.txt")).unwrap(),
@@ -444,7 +447,7 @@ fn update_from_main_leaves_conflict_markers_committed_and_lists_the_paths() {
     let parents = git(&path, &["rev-list", "--parents", "-n1", "HEAD"]);
     assert_eq!(parents.split(' ').count(), 3, "the merge is committed");
     assert_eq!(git(&path, &["status", "--porcelain"]), "");
-    assert!(conflict_note(&path).unwrap().contains("a.txt"));
+    assert!(checkout_note(&path).unwrap().contains("a.txt"));
     node.end(&wt).unwrap();
 }
 
@@ -600,6 +603,7 @@ fn the_final_result_push_still_succeeds_after_a_checkpoint() {
 }
 
 #[test]
+<<<<<<< HEAD
 fn test_git_prefers_the_pinned_sandbox_git_then_the_native_runtime() {
     let all = |_: &Path| true;
     assert_eq!(
@@ -625,4 +629,300 @@ fn test_git_is_an_existing_candidate() {
     let selected = git_executable();
     assert!(GIT_CANDIDATES.contains(&selected));
     assert!(Path::new(selected).is_file(), "{selected} must exist");
+=======
+fn sibling_grants_checkout_exact_revisions_and_replay_only_writable_outputs() {
+    use axum::{
+        Json, Router,
+        http::HeaderMap,
+        routing::{get, put},
+    };
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+    use workspaces::{Access, Project, Workspaces, checkout_path, project_endpoint};
+
+    let plan = Arc::new(Mutex::new(Workspaces::default()));
+    let receipts = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let grants = plan.clone();
+    let received = receipts.clone();
+    let router = Router::new()
+        .route(
+            "/v1/git/grants/{id}/workspaces",
+            get(move |headers: HeaderMap| async move {
+                assert_eq!(headers["authorization"], "Bearer node-secret");
+                Json(grants.lock().unwrap().clone())
+            }),
+        )
+        .route(
+            "/v1/git/grants/{id}/workspaces/result",
+            put(
+                move |headers: HeaderMap, Json(value): Json<Value>| async move {
+                    assert_eq!(headers["authorization"], "Bearer node-secret");
+                    received.lock().unwrap().push(value);
+                    axum::http::StatusCode::NO_CONTENT
+                },
+            ),
+        );
+    let central = Central::start_with(router);
+    let base = central.head("refs/heads/main").unwrap();
+    let (read, write, unchanged) = (
+        Uuid::from_u128(12),
+        Uuid::from_u128(13),
+        Uuid::from_u128(14),
+    );
+    let project = |id, access, name| {
+        let mut grant = central.grant(name, None);
+        grant.repository_id = id;
+        grant.endpoint = project_endpoint(id, id);
+        Project {
+            project_id: id,
+            project_revision: 5,
+            binding_generation: 2,
+            access,
+            checkout_head: grant.base.clone(),
+            git: grant,
+        }
+    };
+    plan.lock().unwrap().workspaces = vec![
+        project(read, Access::Read, "source"),
+        project(write, Access::Write, "output"),
+        project(unchanged, Access::Write, "unchanged"),
+    ];
+    let state = tempfile::tempdir().unwrap();
+    let node = config(state.path()).node(remote(&central));
+    let primary = state.path().join("primary");
+    let attempt = Uuid::from_u128(77);
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        node.start_siblings(attempt, &primary, Duration::from_secs(10), true).await.unwrap();
+        for id in [read, write, unchanged] {
+            let path = checkout_path(&primary, id);
+            assert_eq!(git(&path, &["rev-parse", "HEAD"]), base);
+        }
+        std::fs::write(checkout_path(&primary, read).join("a.txt"), "cannot publish").unwrap();
+        std::fs::write(checkout_path(&primary, write).join("a.txt"), "write-only update").unwrap();
+        node.finish_siblings(attempt, &primary, None).await.unwrap();
+        let head = central.head("refs/heads/aq/output").unwrap();
+        assert!(central.head("refs/heads/aq/source").is_none());
+        assert!(central.head("refs/heads/aq/unchanged").is_none());
+        std::fs::write(checkout_path(&primary, write).join("a.txt"), "late edit").unwrap();
+        node.finish_siblings(attempt, &primary, None).await.unwrap();
+        assert_eq!(central.head("refs/heads/aq/output"), Some(head.clone()));
+        let payload = json!({"workspaces":[
+            {"project_id":write,"repository_id":write,"result":{"status":"pushed","head":head}},
+            {"project_id":unchanged,"repository_id":unchanged,"result":{"status":"unchanged","head":base}}
+        ]});
+        assert_eq!(*receipts.lock().unwrap(), [payload.clone(), payload]);
+        node.end_siblings(&primary).await.unwrap();
+        assert_eq!(workspaces::load(&primary).unwrap(), Workspaces::default());
+        let head = central.head("refs/heads/aq/output").unwrap();
+        let mut resumed_grant = project(write, Access::Write, "output");
+        resumed_grant.git.lease = Some(head.clone());
+        resumed_grant.checkout_head = head.clone();
+        plan.lock().unwrap().workspaces = vec![resumed_grant];
+        let successor = Uuid::from_u128(78);
+        node.start_siblings(successor, &primary, Duration::from_secs(10), true).await.unwrap();
+        let resumed = checkout_path(&primary, write);
+        assert_eq!(git(&resumed, &["rev-parse", "HEAD"]), head);
+        assert_eq!(std::fs::read(resumed.join("a.txt")).unwrap(), b"write-only update");
+        node.finish_siblings(successor, &primary, None).await.unwrap();
+        assert_eq!(receipts.lock().unwrap().last().unwrap(), &json!({"workspaces":[{
+            "project_id":write,"repository_id":write,"result":{"status":"unchanged","head":head}
+        }]}));
+        node.end_siblings(&primary).await.unwrap();
+    });
+}
+
+#[test]
+fn old_git_wildcard_400_is_absence_but_other_400s_are_refused() {
+    use axum::{Router, extract::Path, http::StatusCode, routing::get};
+    let old = Router::new().route(
+        "/v1/git/grants/{attempt}/workspaces",
+        get(|| async {
+            (
+                StatusCode::BAD_REQUEST,
+                "Invalid URL: Cannot parse `repository` with value `grants`: UUID parsing failed: invalid character",
+            )
+        }),
+    );
+    let new = Router::new().route(
+        "/v1/git/grants/{attempt}/workspaces",
+        get(|Path(_): Path<Uuid>| async { (StatusCode::BAD_REQUEST, "invalid sealed grant") }),
+    );
+    let old = Central::start_with(old);
+    let new = Central::start_with(new);
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let attempt = Uuid::from_u128(90);
+            let timeout = Duration::from_secs(10);
+            assert_eq!(
+                remote(&old).workspaces(attempt, timeout).await.unwrap(),
+                workspaces::Workspaces::default()
+            );
+            assert!(remote(&new).workspaces(attempt, timeout).await.is_err());
+        });
+}
+
+#[test]
+fn a_bundle_home_supports_sealed_projects_and_service_only_grants() {
+    use axum::{Json, Router, routing::get};
+    use std::sync::{Arc, Mutex};
+    use workspaces::{Access, Project, Service, Workspaces};
+
+    let plan = Arc::new(Mutex::new(Workspaces::default()));
+    let grants = plan.clone();
+    let central = Central::start_with(Router::new().route(
+        "/v1/git/grants/{attempt}/workspaces",
+        get(move || async move { Json(grants.lock().unwrap().clone()) }),
+    ));
+    let state = tempfile::tempdir().unwrap();
+    let node = config(state.path()).node(remote(&central));
+    let attempt = Uuid::from_u128(81);
+    let timeout = Duration::from_secs(10);
+    let primary = state.path().join("archive-home");
+    std::fs::create_dir(&primary).unwrap();
+    std::fs::write(primary.join("original"), "bundle source").unwrap();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            assert!(node.grant(attempt, timeout).await.unwrap().is_none());
+            assert!(
+                node.start_siblings(attempt, &primary, timeout, true)
+                    .await
+                    .is_err()
+            );
+            node.start_siblings(attempt, &primary, timeout, false)
+                .await
+                .unwrap();
+
+            plan.lock().unwrap().services.push(Service::Postgres);
+            assert!(
+                node.start_siblings(attempt, &primary, timeout, false)
+                    .await
+                    .is_err()
+            );
+            node.start_siblings(attempt, &primary, timeout, true)
+                .await
+                .unwrap();
+            assert_eq!(
+                workspaces::load(&primary).unwrap().services,
+                [Service::Postgres]
+            );
+            node.end_siblings(&primary).await.unwrap();
+            assert!(primary.join("original").is_file());
+
+            let project = Uuid::from_u128(19);
+            let mut git = central.grant("related", None);
+            git.endpoint = workspaces::project_endpoint(project, git.repository_id);
+            let checkout_head = git.base.clone();
+            *plan.lock().unwrap() = Workspaces {
+                workspaces: vec![Project {
+                    project_id: project,
+                    project_revision: 1,
+                    binding_generation: 1,
+                    access: Access::Read,
+                    checkout_head: checkout_head.clone(),
+                    git,
+                }],
+                services: vec![],
+            };
+            assert!(node.grant(attempt, timeout).await.unwrap().is_none());
+            node.start_siblings(attempt, &primary, timeout, true)
+                .await
+                .unwrap();
+            assert_eq!(
+                test_support::git(
+                    &workspaces::checkout_path(&primary, project),
+                    &["rev-parse", "HEAD"]
+                ),
+                checkout_head,
+            );
+            node.end_siblings(&primary).await.unwrap();
+            assert_eq!(
+                std::fs::read(primary.join("original")).unwrap(),
+                b"bundle source"
+            );
+        });
+}
+
+#[test]
+fn sibling_hydrates_retained_commit_absent_from_advertised_branches() {
+    use axum::{Router, http::HeaderMap, routing::get};
+    use workspaces::project_endpoint;
+
+    let state = tempfile::tempdir().unwrap();
+    let source = state.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    git(&source, &["init", "-b", "retained"]);
+    std::fs::write(source.join("proof.txt"), "retained sibling contents").unwrap();
+    git(&source, &["add", "proof.txt"]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-m",
+            "retained",
+        ],
+    );
+    let oid = git(&source, &["rev-parse", "HEAD"]);
+    let file = state.path().join("retained.bundle");
+    git(
+        &source,
+        &["bundle", "create", file.to_str().unwrap(), "retained"],
+    );
+    let bytes = std::fs::read(file).unwrap();
+    let attempt = Uuid::from_u128(25);
+    let project = Uuid::from_u128(55);
+    let central = Central::start_with(Router::new().route(
+        "/v1/git/workspaces/{project}/{repo}/aq-source-bundle",
+        get(move |headers: HeaderMap| {
+            let bytes = bytes.clone();
+            async move {
+                assert_eq!(headers["authorization"], "Bearer node-secret");
+                assert_eq!(headers["aq-attempt"], attempt.to_string());
+                use sha2::{Digest, Sha256};
+                let digest = format!("{:x}", Sha256::digest(&bytes));
+                (
+                    [
+                        ("content-type", "application/x-git-bundle".into()),
+                        ("aq-workspace-bundle-sha256", digest),
+                        ("aq-workspace-bundle-size", bytes.len().to_string()),
+                    ],
+                    bytes,
+                )
+            }
+        }),
+    ));
+    let mut grant = central.grant("retained", None);
+    assert_ne!(grant.base, oid);
+    grant.base = oid.clone();
+    grant.repository_id = project;
+    grant.endpoint = project_endpoint(project, project);
+    let node = node(&state.path().join("repositories"));
+    let remote = remote(&central);
+    let checkout = state.path().join("checkout");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let checked = checkout.clone();
+    runtime.block_on(async {
+        tokio::task::spawn_blocking(move || node.start(&remote, &grant, attempt, &checked))
+            .await
+            .unwrap()
+            .unwrap()
+    });
+    assert_eq!(git(&checkout, &["rev-parse", "HEAD"]), oid);
+    assert_eq!(
+        std::fs::read_to_string(checkout.join("proof.txt")).unwrap(),
+        "retained sibling contents"
+    );
+>>>>>>> refs/remotes/central/main
 }

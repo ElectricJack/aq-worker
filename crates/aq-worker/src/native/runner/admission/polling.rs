@@ -76,8 +76,10 @@ impl Admission {
         // From here a renewal of the node's report waits for this slot (see `poll_need`).
         Ok(found.map(|(offer, deadline)| {
             let git_author = page.git_authors.pop().flatten();
+            let workspace_required = page.workspace_required.pop().unwrap_or(false);
             (
                 aq_worker_protocol::git_author::AttemptOffer { offer, git_author },
+                workspace_required,
                 deadline,
                 self.pipeline.inventory.flight(),
             )

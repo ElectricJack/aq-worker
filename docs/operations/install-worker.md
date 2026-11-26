@@ -308,3 +308,37 @@ systemctl --user disable --now aq-sandbox-podman.service   # optional: the sandb
 On Windows, run `aq-wsl-autostart.ps1 -Uninstall`. Revoke the node on the
 server. `--purge` deletes credentials and journals, but not sandbox containers
 or volumes on the Podman daemon; remove those first if you want them gone.
+
+### Related project workspaces
+
+An admitted Docker-local task can receive explicitly approved sibling project
+checkouts when node Git is configured for sibling repositories and the worker
+has a state-path mapping. The home repository can use either source archive
+hydration or a node-Git grant. The Docker daemon mounts read-only projects from source-only
+snapshots. Git metadata and worker credentials stay on the node.
+
+The hosted systemd installer records a same-host mapping for the profile's
+private service state directory when node Git is configured. It derives the
+path from the existing profile on update, or from `XDG_STATE_HOME` on first
+install. The container launcher supplies `AQ_WORKER_DAEMON_STATE_ROOT` from the host
+directory bound at `/state`. A Compose worker should set that variable to
+a path the dedicated sandbox daemon can read that refers to exactly the same
+directory as `/state` in the worker, for example
+`/home/worker/.local/state/agent-q/workers/local`. Set it on the worker
+container so the launch driver can resolve its private files. The mapping
+stays in the worker process. Check the path through both daemon and worker
+views before setting it. Configure an explicit mapping under the native
+executor's `settings.host.docker_local` when running the worker directly:
+
+```json
+{
+  "workspace_bind_paths": {
+    "worker_root": "/var/lib/aq/worker-state",
+    "daemon_root": "/var/lib/aq/worker-state"
+  }
+}
+```
+
+For a worker in a container, `worker_root` is `/state` and `daemon_root`
+is the host source of that bind. Both prefixes must point to the same private
+state tree as seen by the respective process.

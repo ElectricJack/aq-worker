@@ -13,6 +13,7 @@
 //! take the repository's lock; work inside one worktree needs none.
 //! [`NodeGit`] blocks (it runs git); [`Node`] is its async face.
 pub mod transport;
+pub mod workspaces;
 
 use aq_worker_protocol::git_author::GitAuthor;
 
@@ -60,7 +61,8 @@ impl Grant {
             .strip_prefix("refs/heads/aq/")
             .unwrap_or_default();
         ensure!(
-            self.endpoint == endpoint(self.repository_id)
+            (self.endpoint == endpoint(self.repository_id)
+                || workspaces::scoped_endpoint(&self.endpoint, self.repository_id))
                 && oid(&self.base)
                 && self.lease.as_deref().is_none_or(oid)
                 && !task.is_empty()
@@ -180,22 +182,37 @@ fn checkpoint_tree(path: &Path) -> PathBuf {
     path.with_extension("try")
 }
 
-/// Tell the agent what happened when the node prepared a returned task's tree.
-pub fn conflict_note(path: &Path) -> Option<String> {
+/// Describe the retained task checkout from its frozen node Git grant.
+pub fn checkout_note(path: &Path) -> Option<String> {
+    use std::fmt::Write as _;
+
     let tree = NodeGit::open(path).ok()?;
-    if !tree.grant.update_from_main || tree.grant.lease.is_none() {
-        return None;
-    }
-    let mut note = String::from(
-        "\n\nAQ integrated the main revision fetched at startup into the retained task branch before preparing this source-only workspace. Verify the supplied tree and report the checks you ran. AQ handles Git publication after handoff.",
+    let retained = tree.grant.lease.as_deref()?;
+    let mut note = format!(
+        "\n\nHome checkout /aq/work starts from retained task commit {retained}. It can contain unpublished changes from earlier attempts. AQ handles Git publication after handoff.\n",
     );
-    if tree.conflicts.is_empty() {
-        note.push_str(" The merge was clean. Report any further edits truthfully, including when none were needed.\n");
+    if !tree.grant.update_from_main {
+        note.push_str("AQ did not integrate current main when it prepared this checkout. Verify the supplied tree and report the checks you ran.\n");
+    } else if tree.conflicts.is_empty() {
+        note.push_str("AQ integrated the main revision fetched at startup. The merge was clean. Verify the supplied tree and report the checks you ran.\n");
     } else {
-        note.push_str(&format!(
-            " Resolve the conflict markers in: {}.\n",
-            tree.conflicts.join(", ")
-        ));
+        note.push_str("AQ integrated the main revision fetched at startup with conflicts. Resolve conflict markers in these paths:\n");
+        let mut bytes_left = 4096;
+        for (index, path) in tree.conflicts.iter().enumerate() {
+            let quoted = serde_json::to_string(path).ok()?;
+            let line_bytes = quoted.len() + 3;
+            if line_bytes > bytes_left {
+                writeln!(
+                    note,
+                    "- {} additional conflicted paths omitted.",
+                    tree.conflicts.len() - index
+                )
+                .ok()?;
+                break;
+            }
+            writeln!(note, "- {quoted}").ok()?;
+            bytes_left -= line_bytes;
+        }
     }
     Some(note)
 }
@@ -408,7 +425,7 @@ impl NodeGit {
     fn sync(
         &self,
         remote: &Remote,
-        (repository, scope): (Uuid, Scope),
+        (endpoint, scope): (&str, Scope),
         commits: &[&str],
         repo: &Path,
     ) -> Result<Synced> {
@@ -421,7 +438,7 @@ impl NodeGit {
             self.ok(repo, &["init", "--bare", "--quiet"], None)?;
             Synced::Cloned
         };
-        let url = remote.url(repository);
+        let url = remote.url(endpoint);
         let refspec = format!("+refs/heads/*:{TRACKING}*");
         let fetch = [
             "fetch",
@@ -432,12 +449,49 @@ impl NodeGit {
         ];
         let args: Vec<&str> = fetch.into_iter().chain([url.as_str(), &refspec]).collect();
         self.ok(repo, &args, Some((remote, scope)))?;
-        for commit in commits {
+        for (index, commit) in commits.iter().enumerate() {
             let object = format!("{commit}^{{commit}}");
+            if index == 0
+                && endpoint.starts_with("/v1/git/workspaces/")
+                && let Scope::Attempt(attempt) = scope
+                && !self.run(repo, &["cat-file", "-e", &object], None)?.ok
+            {
+                self.import_workspace_bundle(remote, endpoint, attempt, repo, commit)?;
+            }
             self.ok(repo, &["cat-file", "-e", &object], None)
                 .context("the commit is not in central aq-git")?;
         }
         Ok(synced)
+    }
+
+    fn import_workspace_bundle(
+        &self,
+        remote: &Remote,
+        endpoint: &str,
+        attempt: Uuid,
+        repo: &Path,
+        commit: &str,
+    ) -> Result<()> {
+        // Called from Node::start_siblings's blocking task with the cache lock
+        // held. The temporary file is removed after success or a partial read.
+        let bundle = tempfile::NamedTempFile::new_in(&self.repositories)?;
+        let path = bundle
+            .path()
+            .to_str()
+            .context("workspace bundle path UTF-8")?;
+        tokio::runtime::Handle::try_current()?.block_on(remote.workspace_bundle(
+            attempt,
+            endpoint,
+            bundle.reopen()?,
+            self.limits.command_timeout,
+        ))?;
+        let heads = self.ok(repo, &["bundle", "list-heads", path], None)?;
+        ensure!(
+            !heads.contains('\n') && heads.split_once(' ').map(|(oid, _)| oid) == Some(commit),
+            "workspace bundle differs from the approved commit"
+        );
+        self.ok(repo, &["bundle", "unbundle", path], None)?;
+        Ok(())
     }
 
     /// Syncs the project's repository and adds the attempt's worktree at
@@ -469,7 +523,7 @@ impl NodeGit {
             .chain(&grant.lease)
             .map(String::as_str)
             .collect();
-        let scope = (grant.repository_id, Scope::Attempt(attempt));
+        let scope = (grant.endpoint.as_str(), Scope::Attempt(attempt));
         let synced = self.sync(remote, scope, &commits, &repo)?;
         let from = grant.lease.clone().unwrap_or_else(|| grant.base.clone());
         // A worktree an earlier boot left behind for this attempt is replaced.
@@ -604,7 +658,7 @@ impl NodeGit {
         target: &str,
         commit: String,
     ) -> Result<Pushed> {
-        let url = remote.url(worktree.grant.repository_id);
+        let url = remote.url(&worktree.grant.endpoint);
         let refspec = format!("{commit}:{target}");
         let args = ["push", "--porcelain", "--no-verify", force, &url, &refspec];
         let mut last = String::new();
@@ -707,7 +761,8 @@ impl NodeGit {
         ensure!(path.is_absolute(), "worktree path must be absolute");
         let repo = self.repository(repository);
         let _lock = self.lock(repository)?;
-        let scope = (repository, Scope::EnvironmentJob(job));
+        let endpoint = endpoint(repository);
+        let scope = (endpoint.as_str(), Scope::EnvironmentJob(job));
         let synced = self.sync(remote, scope, &[commit], &repo)?;
         self.remove_worktree(&repo, path)?;
         std::fs::create_dir_all(path.parent().context("worktree parent")?)?;

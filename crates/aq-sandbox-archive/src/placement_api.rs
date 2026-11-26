@@ -1,3 +1,4 @@
+//! Shared contracts for placed sandboxes, their resources, and retention evidence.
 use aq_lifecycle_protocol::{ArtifactRole, Binding, RetentionReceipt, validate_retention};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -90,6 +91,9 @@ pub struct CreateRequest {
     /// §5.1). The source is fixed by the node, never named by the request.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub agent_channel: bool,
+    /// A disposable task-local PostgreSQL cluster in DockerLocal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub postgres: bool,
 }
 impl CreateRequest {
     pub fn new(
@@ -107,6 +111,7 @@ impl CreateRequest {
             resources: None,
             mount_aliases: Vec::new(),
             agent_channel: false,
+            postgres: false,
         }
     }
     pub fn with_agent_channel(mut self) -> Self {
@@ -455,3 +460,27 @@ impl fmt::Display for BackendError {
     }
 }
 impl std::error::Error for BackendError {}
+
+impl From<crate::docker_engine::CallError> for BackendError {
+    fn from(error: crate::docker_engine::CallError) -> Self {
+        BackendError::Uncertain(match error {
+            crate::docker_engine::CallError::Timeout => UnconfirmedReason::Timeout,
+            crate::docker_engine::CallError::Transport
+            | crate::docker_engine::CallError::TooLarge => UnconfirmedReason::BackendFailure,
+        })
+    }
+}
+
+impl From<crate::docker_engine::ApiError> for BackendError {
+    fn from(error: crate::docker_engine::ApiError) -> Self {
+        match error {
+            crate::docker_engine::ApiError::Transport(error) => error.into(),
+            crate::docker_engine::ApiError::UnexpectedStatus => {
+                Self::Uncertain(UnconfirmedReason::BackendFailure)
+            }
+            crate::docker_engine::ApiError::InvalidBody => {
+                Self::Uncertain(UnconfirmedReason::UnknownState)
+            }
+        }
+    }
+}

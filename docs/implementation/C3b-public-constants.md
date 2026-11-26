@@ -38,6 +38,28 @@ Node 22.16.0/24.11.0 and pnpm 10.34.5 archives. The sole installation transform
 is Git's configured `#!/usr/bin/python` shebang for `git-p4.py`.
 No matched values or private-key example bodies are committed or printed.
 
+## PostgreSQL 17.12 bootstrap schema
+
+The reviewed OCI member is `usr/share/postgresql/17/postgres.bki` from PGDG's
+Bookworm amd64 package `postgresql-17 17.12-1.pgdg12+1`. The two credential-label
+matches are column type declarations, `rolpassword = text` and
+`prstoken = regproc`. The file has no token, URL credential, private-key, or
+JSON credential-assignment matches.
+
+Verification used the PostgreSQL Debian Repository signing key
+`B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8` to verify Bookworm PGDG
+`InRelease`. The signed `main/binary-amd64/Packages.gz` entry verified the
+package size of 16,739,096 bytes and SHA-256
+`40b74e0b676bab321b3d41acf7d5bed9a34ade59ac640b3e24c2fa87905e2ffd`.
+Extracting that member without modification yielded 953,550 bytes and SHA-256
+`cca00d600b22f06bf190b8b7e060da4937bde84c909904b9a8c38206203117eb`.
+[PGDG signed index](https://apt.postgresql.org/pub/repos/apt/dists/bookworm-pgdg/InRelease)
+and [published package](https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-17/postgresql-17_17.12-1.pgdg12%2B1_amd64.deb).
+
+The scanner requires the exact OCI member path, length, and digest after
+reading through EOF. For this entry, snapshots and other OCI member paths
+retain strict credential checks.
+
 ## Verification
 
 Environment: Linux amd64, Python 3.12.3, Rust 1.96.1, Docker/BuildKit's explicit

@@ -81,6 +81,17 @@ impl InputPipeline {
         deadline_ns: u64,
         disk_bytes: u64,
     ) -> Result<Uuid> {
+        self.reserve_with_workspaces(offer, runtime, deadline_ns, disk_bytes, false)
+            .await
+    }
+    pub(crate) async fn reserve_with_workspaces(
+        &self,
+        offer: impl Into<aq_worker_protocol::git_author::AttemptOffer>,
+        runtime: super::journal::RuntimeIdentity,
+        deadline_ns: u64,
+        disk_bytes: u64,
+        workspace_required: bool,
+    ) -> Result<Uuid> {
         let offer = offer.into();
         let retained = self.retained.clone();
         let launch = self.launch.clone();
@@ -90,9 +101,13 @@ impl InputPipeline {
                 .map_err(|_| anyhow::anyhow!("retained reservation owner poisoned"))?;
             let id = offer.offer.offered.offer.binding.attempt_id;
             retained.reserve(id, || {
-                owner
-                    .journal
-                    .reserve(offer, runtime, deadline_ns, disk_bytes)
+                owner.journal.reserve_with_workspaces(
+                    offer,
+                    runtime,
+                    deadline_ns,
+                    disk_bytes,
+                    workspace_required,
+                )
             })?;
             // A registry refusal preserves the durable reservation and all
             // resource claims; it never permits a launch or frees capacity.
