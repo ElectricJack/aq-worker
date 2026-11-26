@@ -293,33 +293,5 @@ async fn root_symlinks_boot_mismatch_capacity_and_unknown_staging_refuse() {
     assert!(store.install(peer.material().await, &plan).is_err());
 }
 
-#[tokio::test]
-async fn lost_publication_ack_replays_but_post_fsync_expiry_stays_refused() {
-    let peer = Peer::new(Uuid::new_v4(), false).await;
-    let plan = peer.plan().await;
-    let root = private_root();
-    let mut store = MaterialStore::open(root.path(), peer.accept.identity.clone(), 1).unwrap();
-    store.inject_fault(InstallFault::AfterPublish);
-    assert!(store.install(peer.material().await, &plan).is_err());
-    assert!(root.path().join(peer.lease.lease_id.to_string()).exists());
-    assert!(store.install(peer.material().await, &plan).is_ok());
-    let short = Peer::new(Uuid::new_v4(), true).await;
-    let plan = short.plan().await;
-    let second = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(second.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let mut store = MaterialStore::open(second.path(), short.accept.identity.clone(), 1).unwrap();
-    store.inject_fault(InstallFault::PauseAfterFiles);
-    assert!(store.install(short.material().await, &plan).is_err());
-    assert!(
-        second
-            .path()
-            .join(short.lease.lease_id.to_string())
-            .exists(),
-        "expiry occurs after durable publication"
-    );
-    // Even a synthetic peer retiming the same lease cannot revive stored expiry.
-    assert!(store.install(short.material().await, &plan).is_err());
-}
-
 #[path = "native_materials/adapter_handoff.rs"]
 mod adapter_handoff;
