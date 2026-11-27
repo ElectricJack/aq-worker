@@ -781,11 +781,13 @@ pub async fn run(
                 .agents
                 .values()
                 .any(|a| a.desired_running && a.sandbox.is_none() && a.status != "failed");
-            pause.send_replace(if session.aware() {
+            let paused = if session.aware() {
                 waiting || pending
             } else {
                 pending
-            });
+            };
+            // Notify pollers only on a change: every notification woke them to poll.
+            pause.send_if_modified(|v| std::mem::replace(v, paused) != paused);
         }
         tokio::select! {_=tokio::time::sleep(std::time::Duration::from_millis(500))=>{},_=shutdown.changed()=>{}}
     }
