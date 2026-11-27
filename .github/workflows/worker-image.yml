@@ -1,7 +1,7 @@
 name: worker-image
 
 # Builds aq-worker on every merge to main and publishes it to GHCR by digest as
-# ghcr.io/electricjack/aq-worker:sha-<sha> (packaging/worker/Dockerfile, the
+# ghcr.io/aq-platform/aq-worker:sha-<sha> (packaging/worker/Dockerfile, the
 # binary at /usr/local/bin/aq-worker). `:main` moves to it only while that
 # commit is still main's head. On the aq-ms1 host, scripts/ms1-worker-deploy.py
 # follows `:main`: it republishes the installer bundle with this worker and
@@ -26,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/electricjack/aq-worker
+  IMAGE: ghcr.io/aq-platform/aq-worker
   # The compile-time epic flags the aq-ms1 workers run with.
   CARGO_FEATURES: project_environments
 
