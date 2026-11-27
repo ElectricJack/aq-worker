@@ -35,7 +35,8 @@ impl NativeSlotBackend {
         let merge = tokio::spawn(async move {
             let mut manual_live = true;
             loop {
-                combined.send_replace(*native_pause.borrow() || *manual_pause.borrow());
+                let paused = *native_pause.borrow() || *manual_pause.borrow();
+                combined.send_if_modified(|v| std::mem::replace(v, paused) != paused);
                 tokio::select! {
                     r = native_pause.changed() => { if r.is_err() { break; } },
                     r = manual_pause.changed(), if manual_live => { manual_live = r.is_ok(); }
