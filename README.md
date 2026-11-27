@@ -1,34 +1,46 @@
 # aq-worker
 
-A standalone Rust worker-node framework for Agent Q. A node provides a bounded amount of agent execution capacity, prepares workspaces on demand, and maintains a bounded set of project caches. Nodes connect outward to the central daemon to enroll, heartbeat, receive assignments and messages, and hand off results.
+aq-worker is the worker-node component of AQ v2. A node provides a bounded amount of agent execution capacity: it enrolls with the AQ server, connects outward to it, receives assignments, runs each agent in a local Docker sandbox, prepares workspaces through aq-git, and reports results and handoffs back. This repository is the `aq-worker/` submodule of the umbrella repository [aq-platform/agent-queue](https://github.com/aq-platform/agent-queue), which has the overview and the other five components.
 
-Supervisor agents live centrally. The node runtime manages processes and local resources; it does not plan tasks, run supervisor agents, or decide integration policy. Repository operations go through the separately versioned aq-git interface.
+Supervisor agents and scheduling live centrally. The node runtime manages processes and local resources; it does not plan tasks, run supervisor agents, or decide integration policy. Repository operations go through the separately versioned aq-git interface.
 
-This repository contains the extracted foundation connector and an execution-protocol 2 candidate with a durable local journal and a synthetic process adapter. The existing version-1 enrollment, configuration, heartbeat and probe contract is preserved. This is local component implementation evidence; production harnesses, source handoff, deployment and product gates remain separate work.
+What the code does today:
+
+- `aq-worker service enroll|install|uninstall|status` enrolls a machine and runs it as a systemd user service (Linux and WSL2). `aq-worker run --service-config` is the production path: several slots of docker-local work per node, with observation stores under the service state root. See [installing the service](docs/operations/install-service.md).
+- `aq-worker run-native`, `check-native`, `reconcile-native` and `release-native-sandbox` drive and inspect single native attempts. A Claude executor runs in docker-local sandboxes and a Codex executor is present. The Gemini and OpenCode adapters have live tests that are `#[ignore]`d by default.
+- `aq-worker run-checks` claims and runs server check attempts in the same sandbox.
+- `aq-worker run --controller-config` is the legacy controller path. It still has no registration and issuance provider installed, so it refuses registration and keeps only the foundation heartbeat, with admission fenced. See [controller configuration and limits](docs/implementation/B5a.md).
+- The `synthetic-runtime` feature adds `aq-worker run-execution`, a protocol-2 execution runtime with a durable local journal that drives `aq-fixture-agent`, a deterministic test process and not a real agent harness. It is a test harness and is never enabled by a plain build.
+
+Per-change evidence is in [docs/implementation](docs/implementation/README.md). That evidence is historical: each record is bound to the source revision it names.
 
 - [Worker framework design](docs/specs/0001-worker-framework.md)
 - [Worker execution recovery and agent access](docs/specs/0002-execution-and-agent-access.md)
-- [Profiled tmux sessions and outbound terminal access](docs/specs/0003-profiled-tmux-sessions.md) (design; not current synthetic-runtime functionality)
-- [Session observation, transcript accounting and suspension](docs/specs/0004-session-observation-and-suspension.md) (design; includes cross-node continuation startup)
+- [Profiled tmux sessions and outbound terminal access](docs/specs/0003-profiled-tmux-sessions.md) (partly implemented; its status line says which parts)
+- [Session observation, transcript accounting and suspension](docs/specs/0004-session-observation-and-suspension.md) (implementation design; includes cross-node continuation startup; read its status line)
 - [Worker protocol ownership](protocol/README.md)
 - [Qualified opt-in Docker settings for Codex workspace tools](docs/operations/codex-docker-security.md)
+- [Installing the worker as a service](docs/operations/install-service.md)
 - [Local source workspaces](docs/source-workspaces.md)
 - [Resumable source transfer candidate](docs/source-transfers.md)
 - [Scoped agent client and protected provisioning](crates/aq-agent-client/README.md)
 - [Standalone pinned native interactive runtime image](packaging/native-runtime/README.md)
-- [Experimental observation engine and transport owner](docs/implementation/WRK-15-integration.md) (independently tested; not adopted by the worker runtime)
+- [Observation engine and transport owner integration](docs/implementation/WRK-15-integration.md) (historical component qualification record)
 - [Shared execution and recovery](../aq-server/docs/architecture/0002-execution-and-recovery.md)
 - [AQ ecosystem and releases](../aq-server/docs/architecture/0001-ecosystem-and-releases.md)
 - [Agent Q foundation](../aq-server/docs/specs/0001-infrastructure-foundation.md)
 - [aq-git design](../aq-git/docs/specs/0001-aq-git.md)
 
-Sibling links assume side-by-side checkouts. They are documentation references, not build dependencies. The worker's core tests will use a local fake coordinator and deterministic harness; real container and harness compatibility tests will be separate suites.
+Sibling links (`../aq-server/...`, `../aq-git/...`) resolve in an umbrella checkout, where the components sit side by side. They are documentation references, not build dependencies. The workspace's tests use local fake coordinators and deterministic harnesses; live tests that need a daemon, Docker images or provider credentials are `#[ignore]`d.
 
 Run `cargo test --workspace --locked --all-features` and
 `cargo fmt -- --check` from the repository root
 without sibling repositories or external services. The taskless supervisor host
 qualification tests require Linux with `/usr/bin/tmux` installed (CI installs
-tmux explicitly); they exercise real local processes without a provider.
+tmux explicitly); they exercise real local processes without a provider. CI also
+pulls a pinned Ubuntu image for the numeric-UID security probe, so a full local
+run needs Docker (see `.github/workflows/check.yml`). `cargo build --locked --bins`
+builds `aq-worker`, `aq-fixture-agent`, `aq-session-host` and `aq-agent`.
 The formatting command checks every member of this virtual workspace, including
 its tests and examples. Omit `-- --check` to apply formatting.
 
@@ -56,18 +68,20 @@ This checks the committed revision; commit local edits before using it to verify
 them. All local build dependencies are inside that extracted tree. Keep the
 temporary directory for inspection, then remove it when finished.
 
-The foundation connector retains `aq-worker enroll`, `run`, and `status`.
-`run` requires `--controller-config /absolute/node.json` in addition to enrollment
-configuration. Until B2 is installed, it logs the registration refusal and keeps
-foundation probe/heartbeat/reconnect active with admission fenced. It cannot
-execute sandboxes. See [controller configuration and limits](docs/implementation/B5a.md).
+`aq-worker enroll`, `run` and `status` come from the foundation connector. `run` takes
+either `--service-config /absolute/service.toml` (the service path above) or the
+legacy `--controller-config /absolute/node.json`; the two conflict. The legacy
+path logs the registration refusal and keeps foundation probe/heartbeat/reconnect
+active with admission fenced, and it cannot execute sandboxes.
 `aq-fixture-agent` is a synthetic deterministic test process, not a real agent harness.
 See [implementation evidence](docs/implementation/README.md).
 
-Run a synthetic assignment against a separately running compatible daemon:
+Run a synthetic assignment against a separately running compatible daemon. The
+`run-execution` subcommand exists only in a build with the `synthetic-runtime`
+feature:
 
 ```sh
-cargo build --locked --bins
+cargo build --locked -p aq-worker --bins --features synthetic-runtime
 target/debug/aq-worker --config worker.toml run-execution \
   --state-dir state --fixture-agent target/debug/aq-fixture-agent \
   --exit-after-result --idle-timeout-secs 60
@@ -81,7 +95,7 @@ the committed server action. The synthetic process's `AQ_FIXTURE_HOLD=1`
 injection waits for a `release` file inside its launch directory; cancellation
 and grant-expiry tests prove that control continues while it is blocked.
 
-Execution worker 0.2.0 uses the `linux-subreaper-guardian-v1` ownership profile.
+The synthetic runtime uses the `linux-subreaper-guardian-v1` ownership profile.
 A per-launch guardian survives a runtime process crash in the same PID namespace
 and independently enforces its grant. It stops and reaps adopted descendants,
 including double-forked processes that call `setsid`. Restart stops and preserves
