@@ -47,9 +47,12 @@ plan through node Git and need no entry either. Hand-started sessions take their
 from the server's session spec. Adding a project needs no change on any worker.
 
 `service.toml` no longer has `repositories` or `[manual.source_slugs]`, and
-`aq-worker service enroll` has no `--repositories`. A `service.toml` that still has
-either is refused with a message that says to remove it; edit the file and restart the
-service. Object format: the offer's binding does not carry one, so the worker registers
+`aq-worker service enroll` has no `--repositories`. An installed `service.toml` that
+still has either is rewritten once when the worker loads it, without them and with every
+other setting kept (the file as it was stays beside it as
+`service.toml.before-repository-removal`), so a remote update needs no edit. A document
+parsed without that rewrite (a hand-written one) is refused with a message that says to
+remove them. Object format: the offer's binding does not carry one, so the worker registers
 repositories as `sha1`.
 
 ### After a failed attempt

@@ -265,11 +265,15 @@ impl ServiceConfig {
     pub fn stop_timeout_secs(&self) -> u64 {
         self.shutdown_grace_ms.div_ceil(1000) + STOP_MARGIN.as_secs()
     }
-    /// Loads the file. One written before qualification measurement was removed is rewritten
-    /// once without its `measurement` setting first (`retire_measurement`).
+    /// Loads the file. One written before workers took repositories from the server's offer
+    /// is rewritten once without `repositories` and `manual.source_slugs`
+    /// (`retire_repositories`), and one written before qualification measurement was removed
+    /// without its `measurement` setting (`retire_measurement`).
     pub fn load(path: &Path) -> Result<Self> {
         let mut text = read_private(path)?;
-        refuse_removed_settings(&text).with_context(|| format!("parse {}", path.display()))?;
+        if let Some(migrated) = retire_repositories(path, &text)? {
+            text = migrated;
+        }
         if let Some(migrated) = retire_measurement(path, &text)? {
             text = migrated;
         }
@@ -446,21 +450,13 @@ fn retire_measurement(path: &Path, text: &str) -> Result<Option<String>> {
     let Some((migrated, carried)) = without_measurement(text) else {
         return Ok(None);
     };
-    let mut backup = path.as_os_str().to_owned();
-    backup.push(format!(".{BEFORE_MEASUREMENT_REMOVAL}"));
-    let backup = PathBuf::from(backup);
-    keep_first_copy(&backup, text.as_bytes())
-        .and_then(|()| write_private(path, migrated.as_bytes()))
+    let backup = replace_keeping_copy(path, text, &migrated, BEFORE_MEASUREMENT_REMOVAL)
         .with_context(|| {
             format!(
                 "{} still has the measurement setting, which was removed, and could not be rewritten without it",
                 path.display()
             )
         })?;
-    // Best effort: the rename is what readers see; this only makes it outlast a power cut.
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
-    }
     let token = match carried {
         CarriedToken::NoManual => "it has no [manual] section, so no token file was needed",
         CarriedToken::Kept => "[manual] claude_token_file was already set and is unchanged",
@@ -475,6 +471,61 @@ fn retire_measurement(path: &Path, text: &str) -> Result<Option<String>> {
         backup.display()
     );
     Ok(Some(migrated))
+}
+
+/// Suffix of the one-time copy of a `service.toml` as it was before `retire_repositories`.
+pub const BEFORE_REPOSITORY_REMOVAL: &str = "before-repository-removal";
+
+/// The document without `repositories` and `manual.source_slugs`, or `None` when it has
+/// neither or is not TOML (the caller's parse reports that). Every other key, its value, the
+/// comments and the order are kept.
+fn without_repositories(text: &str) -> Option<String> {
+    let mut document: toml_edit::DocumentMut = text.parse().ok()?;
+    let mut found = document.as_table_mut().remove("repositories").is_some();
+    if let Some(manual) = (document.get_mut("manual")).and_then(|m| m.as_table_like_mut()) {
+        found |= manual.remove("source_slugs").is_some();
+    }
+    found.then(|| document.to_string())
+}
+
+/// Rewrites, once, a `service.toml` that still lists `repositories` or `manual.source_slugs`,
+/// which a worker no longer reads (it takes each repository from the server's offer). Machines
+/// are updated remotely and nobody edits their configuration, so a worker that refused such a
+/// file would leave the machine offline. Returns the new text, or `None` when the file has
+/// neither (it is then not touched). Concurrent loaders and the kept copy are as for
+/// `retire_measurement`. `ServiceConfig::parse` of a document still holding them is refused.
+fn retire_repositories(path: &Path, text: &str) -> Result<Option<String>> {
+    let Some(migrated) = without_repositories(text) else {
+        return Ok(None);
+    };
+    let backup = replace_keeping_copy(path, text, &migrated, BEFORE_REPOSITORY_REMOVAL)
+        .with_context(|| {
+            format!(
+                "{} still has `repositories` or `manual.source_slugs`, which were removed, and could not be rewritten without them",
+                path.display()
+            )
+        })?;
+    tracing::warn!(
+        "rewrote {} once: `repositories` and `manual.source_slugs` were removed (a worker takes each repository from the server's offer). The file as it was is kept at {}",
+        path.display(),
+        backup.display()
+    );
+    Ok(Some(migrated))
+}
+
+/// Keeps the first copy of `old` beside `path` (`<path>.<suffix>`, 0600), then replaces `path`
+/// by rename with `new`. Returns the copy's path.
+fn replace_keeping_copy(path: &Path, old: &str, new: &str, suffix: &str) -> Result<PathBuf> {
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(format!(".{suffix}"));
+    let backup = PathBuf::from(backup);
+    keep_first_copy(&backup, old.as_bytes())?;
+    write_private(path, new.as_bytes())?;
+    // Best effort: the rename is what readers see; this only makes it outlast a power cut.
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+    }
+    Ok(backup)
 }
 
 /// Writes `body` to `path` (0600) unless the file already exists; the first writer's complete

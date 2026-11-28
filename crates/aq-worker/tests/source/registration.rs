@@ -86,8 +86,9 @@ fn recovery_registers_the_recorded_offer_and_refuses_a_changed_generation() {
     spawn_registration_peer(listener, state.clone(), requests.clone());
     let client = GitClient::new(&socket, temp.path()).unwrap();
     let recorded = new_repository();
-    client.ensure_registered(&recorded).unwrap();
-    client.ensure_registered(&recorded).unwrap();
+    let ensure = |b: &SourceBinding| client.registering(b, || client.validate_binding(b));
+    ensure(&recorded).unwrap();
+    ensure(&recorded).unwrap();
     let registers = |requests: &Mutex<Vec<Value>>| {
         let requests = requests.lock().unwrap();
         (requests.iter())
@@ -103,7 +104,7 @@ fn recovery_registers_the_recorded_offer_and_refuses_a_changed_generation() {
         binding_generation: 2,
         ..recorded
     };
-    let refused = client.ensure_registered(&moved).unwrap_err();
+    let refused = ensure(&moved).unwrap_err();
     assert!(
         format!("{refused:#}").contains("already registered"),
         "{refused:#}"

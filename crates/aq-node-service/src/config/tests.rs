@@ -57,9 +57,9 @@ fn load_text(text: &str) -> Result<ServiceConfig> {
 const MANUAL: &str = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
 mod migration;
 
-/// A worker takes each repository from the server's offer: a file that still lists
-/// repositories or manual source slugs is refused, by name, never silently accepted. The
-/// file is not rewritten.
+/// A worker takes each repository from the server's offer: a document that still lists
+/// repositories or manual source slugs is refused by `parse`, by name, never silently
+/// accepted. (`load` rewrites an installed file first: see the migration tests.)
 #[test]
 fn removed_repository_settings_are_refused_with_what_to_remove() {
     let listed = "\n[[repositories]]\nrepository_id = \"e0000000-0000-4000-8000-000000000001\"\nidentity = \"o/r\"\nbinding_generation = 1\nobject_format = \"sha1\"\n";
@@ -70,13 +70,11 @@ fn removed_repository_settings_are_refused_with_what_to_remove() {
         (format!("{empty}{MINIMAL}"), "repositories"),
         (format!("{MINIMAL}{MANUAL}{slugs}"), "manual.source_slugs"),
     ] {
-        let e = format!("{:#}", load_text(&text).unwrap_err());
+        let e = format!("{:#}", ServiceConfig::parse(&text).unwrap_err());
         assert!(
             e.contains(&format!("`{named}` is no longer a setting")) && e.contains("Remove"),
             "{e}"
         );
-        let e = format!("{:#}", ServiceConfig::parse(&text).unwrap_err());
-        assert!(e.contains("no longer a setting"), "{e}");
     }
     assert!(load_text(&format!("{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n")).is_ok());
 }

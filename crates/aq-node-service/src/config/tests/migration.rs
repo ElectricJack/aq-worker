@@ -160,6 +160,44 @@ fn manual_sessions_without_any_token_file_fail_naming_the_key() {
         );
     }
 }
+/// A machine updated remotely still has `repositories` and `manual.source_slugs`. Loading
+/// rewrites the file once without them (0600, the file as it was kept), every other key, the
+/// comments and the order stay, and the worker starts on the result. A second load does
+/// nothing more.
+#[test]
+fn installed_repository_settings_are_removed_once_and_the_rest_kept() {
+    let repositories = "\n[[repositories]]\nrepository_id = \"e0000000-0000-4000-8000-000000000001\"\nidentity = \"o/r\"\nbinding_generation = 1\nobject_format = \"sha1\"\n";
+    let slugs = "\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n";
+    let kept = format!("# kept\n{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n");
+    let old = format!("{kept}{slugs}{repositories}");
+    let (loaded, dir, path) = migrate(&old);
+    let loaded = loaded.unwrap();
+    assert_eq!(loaded.nodes, ServiceConfig::parse(&kept).unwrap().nodes);
+    assert_eq!(
+        loaded.manual.as_ref().unwrap().claude_token_file,
+        Path::new("/t")
+    );
+    let rewritten = std::fs::read_to_string(&path).unwrap();
+    assert!(!rewritten.contains("repositories") && !rewritten.contains("source_slugs"));
+    assert_eq!(rewritten.trim(), kept.trim());
+    assert_eq!(mode(&path), 0o600);
+    let copy = path.with_file_name(format!("service.toml.{BEFORE_REPOSITORY_REMOVAL}"));
+    assert_eq!(std::fs::read_to_string(&copy).unwrap(), old);
+    assert_eq!(mode(&copy), 0o600);
+    assert_eq!(names(dir.path()).len(), 2);
+    ServiceConfig::load(&path).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), rewritten);
+    // Each one alone, and an empty list, are removed the same way.
+    for text in [
+        format!("repositories = []\n{kept}"),
+        format!("{kept}{slugs}"),
+    ] {
+        let (loaded, _dir, path) = migrate(&text);
+        loaded.unwrap();
+        let rewritten = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(rewritten.trim(), kept.trim());
+    }
+}
 /// A file without the setting is not touched: same bytes, same file, no copy. Any other
 /// unknown key is still refused, and so is a document that is not TOML.
 #[test]

@@ -297,11 +297,6 @@ impl GitClient {
             }
         })
     }
-    /// aq-git holds this binding: read, and registered from the binding when it is not yet.
-    /// Refuses one the state holds under another generation or identity.
-    pub fn ensure_registered(&self, b: &SourceBinding) -> Result<()> {
-        self.registering(b, || self.validate_binding(b)).map(drop)
-    }
     pub fn validate_binding(&self, b: &SourceBinding) -> Result<()> {
         b.validate()?;
         Self::same_binding(b, &self.query(b, "repo.show", json!({}))?)

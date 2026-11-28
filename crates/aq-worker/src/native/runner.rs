@@ -22,7 +22,7 @@ mod profile;
 mod recovery;
 pub use recovery::{
     ReconcileDisposition, SalvageDisposition, claimed_attempts, lock_recovery_scope,
-    reconcile_native, register_recorded_source, retained_attempts, salvage_interrupted,
+    reconcile_native, retained_attempts, salvage_interrupted,
 };
 pub(super) mod publish_output;
 use super::{

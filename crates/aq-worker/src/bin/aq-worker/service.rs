@@ -25,10 +25,10 @@ use aq_protocol::{
 use aq_worker::{
     client::Client,
     config::WorkerConfig,
-    native::journal::RecoveryHold,
+    native::journal::{Journal, RecoveryHold},
     native::runner::{
         ClaudeDockerExecutor, ExecutorConfig, NativeConfig, NativeExecutor, RunDisposition,
-        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, register_recorded_source,
+        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, lock_recovery_scope,
         retained_attempts, run_node_slot, run_until_attempt, salvage_interrupted,
     },
 };
