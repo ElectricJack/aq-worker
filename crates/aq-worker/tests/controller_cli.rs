@@ -85,14 +85,7 @@ fn service_enroll_never_accepts_secrets_in_argv() {
             "--server",
             "http://127.0.0.1:9",
         ])
-        .args([
-            "--native-template",
-            "t",
-            "--aq-git",
-            "g",
-            "--repositories",
-            "r",
-        ])
+        .args(["--native-template", "t", "--aq-git", "g"])
         .args(["--code", "secret-code"])
         .output()
         .unwrap();
@@ -112,14 +105,7 @@ fn service_enroll_refuses_an_invalid_machine_key_before_any_request() {
             "--server",
             "http://127.0.0.1:9",
         ])
-        .args([
-            "--native-template",
-            "t",
-            "--aq-git",
-            "g",
-            "--repositories",
-            "r",
-        ])
+        .args(["--native-template", "t", "--aq-git", "g"])
         .args(["--machine-key", "Desk"])
         .output()
         .unwrap();
