@@ -500,6 +500,109 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
 
 
+def with_template_image(package, image):
+    template = json.loads((package / "native.json").read_text())
+    entry, = template["executor"]["settings"]["host"]["docker_local"]["templates"]
+    entry["image"], entry["digest"] = image, image.split("@", 1)[1]
+    (package / "native.json").write_text(json.dumps(template))
+
+
+def test_a_receiver_update_applies_the_bundle_template_and_pulls_its_image_first(tmp_path, monkeypatch):
+    """LW2 (2026-11-28): a hosted update replaced the worker but kept the template of its first
+    install, so it launched an older image than its environment names."""
+    import io
+    helper = login_helper()
+    origin, old_image = "https://worker.example", "registry.invalid/owner/rust@sha256:" + "0" * 64
+    new_image = "registry.invalid/owner/rust-node@sha256:" + "1" * 64
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    # The first install: its template names the old image.
+    package, config, runtime = hosted_profile(tmp_path, "a" * 64)
+    with_template_image(package, old_image)
+    socket = tmp_path / "run/aq-sandbox/podman.sock"
+    template, _ = helper.prepared_template(package, config, origin, socket)
+    native = config / "native.json"
+    helper.atomic_text(native, json.dumps(template, indent=2) + "\n")
+    (config / "service.toml").write_text(f'profile = "local"\nslots = 1\nnative_template = "{native}"\n')
+    (config / "slots/1/worker.toml").write_text(f'server_url = "{origin}"\n')
+    (config / "login-sync.json").write_text(json.dumps({"podman": "/opt/podman"}))
+    (config / "hosted-install.json").write_text(json.dumps({"origin": origin, "bundle_sha256": "a" * 64}))
+    (runtime / "aq-worker").write_text("old worker")
+    target = config / "login-sync.py"
+    target.write_text("old_receiver = True\n")
+    monkeypatch.setattr(helper, "__file__", str(target))
+    # The newer bundle names another image, and the installer that pins it.
+    newer = tmp_path / "newer"
+    shutil.copytree(package, newer)
+    with_template_image(newer, new_image)
+    (newer / "aq-worker").write_text("#!/bin/sh\necho aq-worker 0.6.0\n")
+    archive = tmp_path / "bundle.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        for item in sorted(newer.iterdir()):
+            bundle.add(item, arcname=item.name)
+    bundle_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    installer = f"digest='{bundle_digest}'\ncat > c <<'AQ_INSTALL_CONFIG'\nnew_receiver = True\nAQ_INSTALL_CONFIG\n".encode()
+    installer_digest = hashlib.sha256(installer).hexdigest()
+    served = {f"{origin}/install/{installer_digest}.sh": installer, f"{origin}/install/{bundle_digest}.tar.gz": archive.read_bytes()}
+    class Opener:
+        def open(self, url, timeout):
+            return io.BytesIO(served[url])
+    monkeypatch.setattr(helper.urllib.request, "build_opener", lambda *_args: Opener())
+    pinned = "worker.example/owner/rust-node@sha256:" + "1" * 64
+    commands, images, pull_fails = [], set(), [True]
+    def run(argv, **_kwargs):
+        argv = [str(a) for a in argv]
+        commands.append(argv)
+        if argv[-1] == "--version":
+            return subprocess.CompletedProcess(argv, 0, "aq-worker 0.6.0\n", "")
+        if argv[-3:-1] == ["image", "exists"]:
+            return subprocess.CompletedProcess(argv, 0 if argv[-1] in images else 1, "", "")
+        if argv[-2] == "pull":
+            if pull_fails and pull_fails.pop():
+                return subprocess.CompletedProcess(argv, 125, "", "manifest unknown")
+            images.add(argv[-1])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(helper.subprocess, "run", run)
+    job = {"kind": "receiver_update_v1", "installer_sha256": installer_digest}
+
+    # A pull that fails leaves the worker and its template as they were, and says why.
+    report = helper.run_diagnostic(config, job)
+    assert report["ok"] and "was not pulled: manifest unknown" in report["details"]["worker"]["error"]
+    assert (runtime / "aq-worker").read_text() == "old worker"
+    assert "rust@sha256:" in native.read_text() and "rust-node" not in native.read_text()
+    assert not any("restart" in c for c in commands)
+
+    monkeypatch.setattr(helper, "__file__", str(target))
+    commands.clear()
+    report = helper.run_diagnostic(config, job)
+    assert report["ok"], report
+    worker = report["details"]["worker"]
+    assert worker["image"] == pinned and worker["image_pulled"] and worker["version"] == "aq-worker 0.6.0"
+    updated = json.loads(native.read_text())
+    entry, = updated["executor"]["settings"]["host"]["docker_local"]["templates"]
+    assert entry == {"image": pinned, "digest": "sha256:" + "1" * 64}
+    unpacked = tmp_path / "data/agent-q/installer" / bundle_digest
+    assert updated["executor"]["settings"]["host"]["helper"]["path"] == str(unpacked / "aq-session-host")
+    assert updated["adapter_manifest"] == str(unpacked / "adapter.json")
+    assert (unpacked / "adapter.json").stat().st_mode & 0o777 == 0o600
+    assert updated["executor"]["settings"]["host"]["docker_local"]["socket"] == str(socket), "the profile's socket is kept"
+    assert native.stat().st_mode & 0o777 == 0o600
+    assert (runtime / "aq-worker").read_text() == (newer / "aq-worker").read_text()
+    # The image is pulled by its digest from AQ's sandbox daemon before the worker restarts.
+    cli = ["/opt/podman", "--remote", "--url", "unix://" + str(socket)]
+    pull = commands.index(cli + ["pull", pinned])
+    restart = next(i for i, c in enumerate(commands) if c[:3] == ["systemctl", "--user", "restart"])
+    assert pull < restart and commands[restart][-1] == "aq-node@config.service"
+    assert json.loads((config / "hosted-install.json").read_text()) == {"origin": origin, "bundle_sha256": bundle_digest}
+    assert (config / "slots/1/worker.toml").read_text() == f'server_url = "{origin}"\n', "the enrollment is kept"
+    # An image already present is not pulled again.
+    monkeypatch.setattr(helper, "__file__", str(target))
+    commands.clear()
+    assert helper.run_diagnostic(config, job)["details"]["worker"]["image_pulled"] is False
+    assert not any("pull" in c for c in commands)
+
+
 def test_an_update_stops_the_running_workers_before_replacing_their_files(host):
     profile = host["home"] / ".config/agent-q/service/local"
     profile.mkdir(parents=True)

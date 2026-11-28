@@ -181,3 +181,24 @@ async fn inventory_failure_is_err() {
     );
     assert_eq!(bounded(h.backend.inspect(&sandbox)).await, Err(unknown));
 }
+
+/// The launch template a node reports is the one its daemon holds under the pinned digest.
+#[tokio::test]
+async fn a_template_resolves_only_once_the_daemon_holds_it_under_its_digest() {
+    let mut h = harness().await;
+    assert_eq!(
+        bounded(h.backend.resolve_template(&digest())).await,
+        Ok(None)
+    );
+    assert!(posts(&h.docker).is_empty(), "resolving never pulls");
+    bounded(h.backend.pull_template(&digest())).await.unwrap();
+    assert_eq!(
+        bounded(h.backend.resolve_template(&digest())).await,
+        Ok(Some(digest()))
+    );
+    let other = TemplateDigest::parse(format!("sha256:{}", "b".repeat(64))).unwrap();
+    assert_eq!(
+        bounded(h.backend.resolve_template(&other)).await,
+        Err(NOT_ALLOWLISTED)
+    );
+}

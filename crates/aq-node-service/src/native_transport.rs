@@ -228,9 +228,61 @@ pub async fn body(mut response: Response, limit: usize) -> Result<zeroize::Zeroi
     Ok(bytes)
 }
 
+/// On `POST /v1/worker/profiled/inventory-v2`: the digest (`sha256:<hex>`) of the template image
+/// the node launches, as its sandbox daemon resolved it when the worker started. Absent = the
+/// node's template is not present locally, or the worker predates the header. It travels beside
+/// the pinned `InventoryV2` document, like `aq-node-slots` beside `Register`.
+pub const SANDBOX_TEMPLATE_HEADER: &str = "aq-sandbox-template";
+
+/// Headers a node sends beside the pinned document of a profiled route, each on its own route
+/// only: spec 0015's slot headers on `poll` and `register`, the launch template on inventories.
+#[derive(Clone, Debug, Default)]
+pub struct RouteHeaders(Vec<(&'static str, &'static str, header::HeaderValue)>);
+impl RouteHeaders {
+    /// Sends `name: value` on each request to `route`, replacing an earlier value; `None`, none.
+    pub fn on(
+        mut self,
+        route: &'static str,
+        name: &'static str,
+        value: Option<header::HeaderValue>,
+    ) -> Self {
+        self.0.retain(|&(r, n, _)| (r, n) != (route, name));
+        self.0.extend(value.map(|value| (route, name, value)));
+        self
+    }
+    /// `request`, a request to `route`, with the headers that route carries.
+    pub fn apply(&self, request: reqwest::RequestBuilder, route: &str) -> reqwest::RequestBuilder {
+        let carried = self.0.iter().filter(|(r, ..)| *r == route);
+        carried.fold(request, |request, (_, name, value)| {
+            request.header(*name, value.clone())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn route_headers_go_only_on_their_route_and_a_later_value_replaces_one() {
+        let headers = |routes: &RouteHeaders, route| {
+            let request = routes.apply(reqwest::Client::new().post("http://127.0.0.1:9"), route);
+            request.build().unwrap().headers().clone()
+        };
+        let value = |v: &str| Some(header::HeaderValue::from_str(v).unwrap());
+        let routes = RouteHeaders::default()
+            .on("poll", "aq-node-slot", value("1"))
+            .on("poll", "aq-node-slot", value("2"))
+            .on("inventory-v2", SANDBOX_TEMPLATE_HEADER, value("sha256:c"));
+        assert_eq!(headers(&routes, "poll").len(), 1);
+        assert_eq!(headers(&routes, "poll")["aq-node-slot"], "2");
+        assert_eq!(
+            headers(&routes, "inventory-v2")[SANDBOX_TEMPLATE_HEADER],
+            "sha256:c"
+        );
+        assert!(headers(&routes, "register").is_empty());
+        let cleared = routes.on("inventory-v2", SANDBOX_TEMPLATE_HEADER, None);
+        assert!(headers(&cleared, "inventory-v2").is_empty());
+    }
     use std::sync::{
         Arc,
         atomic::{AtomicU32, Ordering},

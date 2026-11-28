@@ -102,6 +102,20 @@ impl<T: DockerTransport> Api<T> {
         }
     }
 
+    /// Whether the daemon holds `image` recorded under `digest` (its `RepoDigests`): a pinned
+    /// template as the node resolves it locally. Never pulls.
+    pub async fn holds_image(&self, image: &str, digest: &str) -> Result<bool, ApiError> {
+        let path = format!("{}/json", image_path(image));
+        let Some(found) = self.get_optional(&path).await? else {
+            return Ok(false);
+        };
+        let suffix = format!("@{digest}");
+        let digests = found["RepoDigests"].as_array().into_iter().flatten();
+        Ok(digests
+            .filter_map(Value::as_str)
+            .any(|d| d.ends_with(&suffix)))
+    }
+
     pub async fn archive(&self, path: String, max: usize) -> Result<Option<Vec<u8>>, CallError> {
         archive(&self.transport, path, max, self.timeout).await
     }

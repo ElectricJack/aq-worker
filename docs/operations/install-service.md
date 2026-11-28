@@ -451,10 +451,27 @@ or provider files. Tests use a unique disposable container/volume and no model.
 Older receivers need the current hosted installer once. Afterwards **Update
 controls** queues a receiver update using the dashboard's pinned installer hash.
 The receiver downloads that script from its enrolled HTTPS origin, verifies it,
-and atomically replaces only its own embedded Python code. It does not execute
-the downloaded installer shell, change enrollment or replace runtime binaries.
+and atomically replaces its own embedded Python code. It then downloads the
+worker bundle the script pins and verifies it against that checksum. It unpacks
+the bundle where a full install puts it and pulls the image named by the
+bundle's native template, by its digest, into AQ's sandbox daemon. Only then does
+it replace `aq-worker` and the profile's native template, and restart the worker.
+So a remotely updated machine launches the image its bundle names, as a freshly
+installed one does. If the pull fails, the worker and template are left as they
+were, and the report gives the engine's reason. The report names the image and
+whether it was pulled.
+It does not execute the downloaded installer shell or change enrollment, and the
+bundle's other runtime programs change only with a full install.
 Updates and diagnostic receipts are durable and retried by identity. No generic
 remote shell command is accepted by this protocol.
+
+Each inventory report (`POST /v1/worker/profiled/inventory-v2`) of a docker-local
+worker carries the header `aq-sandbox-template: sha256:<hex>`. That is the digest of
+the template image the worker launches, as its sandbox daemon resolved it when the
+worker started. The header is sent only when that image is present locally under
+that digest. It travels beside the pinned `InventoryV2` document, the way
+`aq-node-slots` travels beside `Register`, so the server can compare it with the
+image its environment's definition names.
 
 The selected-worker update command uses `--controls-only`. It replaces the
 existing receiver and restarts its timer without native-template comparison,

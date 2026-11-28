@@ -194,6 +194,29 @@ impl NativeConfig {
         Ok(admit_reclaiming(|| docker.check_admission(), reclaim).await?)
     }
 
+    /// The digest of the template image this node launches, as its sandbox daemon resolves it:
+    /// `None` without a docker-local template, or while that image is not present there.
+    pub(super) async fn resolved_launch_template(&self) -> Option<crate::backend::TemplateDigest> {
+        use crate::backend::docker_local::DockerLocalBackend as Docker;
+        let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
+            &self.executor
+        else {
+            return None;
+        };
+        let (docker, template) = (&settings.host.docker_local, &settings.host.template);
+        let backend = Docker::connect_unix(docker.clone());
+        let resolved = async { backend.await?.resolve_template(template).await }.await;
+        if !matches!(resolved, Ok(Some(_))) {
+            let template = template.as_str();
+            tracing::warn!(
+                template,
+                ?resolved,
+                "launch template image not resolved: none reported"
+            );
+        }
+        resolved.ok().flatten()
+    }
+
     /// The slot's aq-git and, when `node_git` is configured, the node's git with its remote.
     pub fn git_client(&self, worker: &crate::config::WorkerConfig) -> Result<GitClient> {
         let mut git = GitClient::new(&self.git_socket, &self.git_root)?;

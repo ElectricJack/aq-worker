@@ -2,6 +2,7 @@
 //! No redirects, legacy execution decoder or runnable grant inference; only read-only
 //! preparation fetches (artifacts, materials, source) retry transient failures.
 //! Durable request ownership and recovery remain the caller's responsibility.
+use crate::backend::TemplateDigest;
 use crate::config::WorkerConfig;
 use anyhow::{Result, ensure};
 use aq_admission::{
@@ -45,12 +46,13 @@ pub struct NativeClient {
     phase_terminal_safety_slots: Arc<Semaphore>,
     /// Boot-clock deadline before which fetch retries must end (`fetch_until`).
     fetch_deadline_ns: u64,
-    node_slot: Option<(u32, u32)>,
+    route_headers: RouteHeaders,
     checkpoint_author: bool,
     workspace_expansion: bool,
 }
 pub use aq_node_service::native_transport::{
-    FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
+    FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, RouteHeaders, SANDBOX_TEMPLATE_HEADER,
+    TransportFailed, fetch_retry_wait,
 };
 pub(crate) use aq_node_service::native_transport::{refused, retry_same};
 pub async fn fetch_retried<T, F>(deadline_ns: u64, call: impl FnMut() -> F) -> Result<T>
@@ -207,7 +209,7 @@ impl NativeClient {
             phase_terminal_safety: client()?,
             phase_terminal_safety_slots: Arc::new(Semaphore::new(1)),
             fetch_deadline_ns: u64::MAX,
-            node_slot: None,
+            route_headers: RouteHeaders::default(),
             checkpoint_author: false,
             workspace_expansion: false,
         })
@@ -215,7 +217,9 @@ impl NativeClient {
     /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
     /// boot-clock preparation or retrieval deadline of the inputs it reads.
     pub fn for_node_slot(mut self, slot: u32, registered_slots: u32) -> Self {
-        self.node_slot = Some((slot, registered_slots));
+        use aq_admission::node_slots::{SLOT_HEADER, SLOTS_HEADER};
+        let routes = (self.route_headers).on("poll", SLOT_HEADER, Some(slot.into()));
+        self.route_headers = routes.on("register", SLOTS_HEADER, Some(registered_slots.into()));
         self
     }
     pub fn with_git_author_support(mut self, supported: bool) -> Self {
@@ -226,21 +230,18 @@ impl NativeClient {
         self.workspace_expansion = supported;
         self
     }
-
-    fn slot_headers(
-        &self,
-        request: reqwest::RequestBuilder,
-        path: &str,
-    ) -> reqwest::RequestBuilder {
-        match (self.node_slot, path) {
-            (Some((slot, _)), "poll") => {
-                request.header(aq_admission::node_slots::SLOT_HEADER, slot)
-            }
-            (Some((_, slots)), "register") => {
-                request.header(aq_admission::node_slots::SLOTS_HEADER, slots)
-            }
-            _ => request,
-        }
+    /// Reports `resolved`, the launch template digest found on the node's daemon, with each
+    /// inventory; `None` reports none.
+    pub fn with_sandbox_template(mut self, resolved: Option<&TemplateDigest>) -> Self {
+        let value = resolved.and_then(|digest| header::HeaderValue::from_str(digest.as_str()).ok());
+        self.route_headers =
+            (self.route_headers).on("inventory-v2", SANDBOX_TEMPLATE_HEADER, value);
+        self
+    }
+    /// The headers this client adds per profiled route (slot, launch template).
+    #[cfg(feature = "test-support")]
+    pub fn route_headers(&self) -> &RouteHeaders {
+        &self.route_headers
     }
     pub fn fetch_until(&self, deadline_ns: u64) -> Self {
         let mut client = self.clone();
@@ -259,7 +260,7 @@ impl NativeClient {
             .post(format!("{}/v1/worker/profiled/{path}", self.base))
             .header(header::AUTHORIZATION, self.credential.clone())
             .header(header::CONTENT_TYPE, "application/json");
-        self.slot_headers(request, path)
+        self.route_headers.apply(request, path)
     }
     pub async fn register(&self, request: &Register) -> Result<Register> {
         let document = TransportDocument::Register(request.clone());
@@ -434,48 +435,5 @@ impl NativeClient {
             login_version,
             bytes,
         })
-    }
-}
-
-#[cfg(test)]
-mod node_slot_tests {
-    use super::*;
-    #[test]
-    fn headers_are_per_slot_only_on_poll_and_registration_and_never_on_legacy() {
-        let config = WorkerConfig {
-            server_url: "https://aq.example".into(),
-            node_id: Uuid::new_v4(),
-            credential: "synthetic".into(),
-            cf_client_id: None,
-            cf_client_secret: None,
-        };
-        let legacy = NativeClient::from_config(&config).unwrap();
-        for slot in [1, 2, 1024] {
-            let node = legacy.clone().for_node_slot(slot, 3);
-            for path in ["poll", "register", "started", "stopped"] {
-                let request = node
-                    .slot_headers(node.control.post("https://aq.example"), path)
-                    .build()
-                    .unwrap();
-                let expected = match path {
-                    "poll" => Some(("aq-node-slot", slot)),
-                    "register" => Some(("aq-node-slots", 3)),
-                    _ => None,
-                };
-                if let Some((name, value)) = expected {
-                    assert_eq!(request.headers()[name], value.to_string());
-                } else {
-                    assert!(request.headers().is_empty());
-                }
-                assert!(
-                    legacy
-                        .slot_headers(legacy.control.post("https://aq.example"), path)
-                        .build()
-                        .unwrap()
-                        .headers()
-                        .is_empty()
-                );
-            }
-        }
     }
 }

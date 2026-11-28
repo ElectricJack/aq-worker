@@ -414,29 +414,85 @@ def release_refused_slots(config):
     return released
 
 
+def unpacked_bundle(archive, digest):
+    """The bundle's package directory, as the bootstrap unpacks it: the native template names its
+    definitions and programs by their paths there."""
+    root = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "agent-q/installer"
+    package = root / digest
+    if package.is_dir():
+        return package
+    root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="stage.", dir=root) as stage:
+        unpacked = Path(stage) / "package"
+        unpacked.mkdir()
+        with tarfile.open(archive) as bundle:
+            bundle.extractall(unpacked, filter="data")
+        unpacked.rename(package)
+    return package
+
+
+def bundle_template(config, package, origin):
+    """The bundle's native template resolved for this profile, as a full install writes it, and
+    the template image it names. The sandbox socket stays the one this profile uses."""
+    path = Path(read_toml(config / "service.toml")["native_template"])
+    current = json.loads(path.read_text())
+    socket = current["executor"]["settings"]["host"]["docker_local"]["socket"]
+    template, image = prepared_template(package, config, origin, socket)
+    prepare_definitions(template, package)
+    return path, json.dumps(template, indent=2) + "\n", image, socket
+
+
+def pull_template_image(config, socket, image):
+    """Pulls the template image by its pinned digest into AQ's sandbox daemon, so the restarted
+    worker launches it and never reports ready without it."""
+    podman = json.loads((config / "login-sync.json").read_text())["podman"]
+    cli = [str(podman), "--remote", "--url", "unix://" + str(socket)]
+    def present():
+        return subprocess.run(cli + ["image", "exists", image], capture_output=True, timeout=30).returncode == 0
+    pulled = False
+    if not present():
+        # The receiver's unit allows it 240 s; a pull cut short keeps its layers and is retried.
+        result = subprocess.run(cli + ["pull", image], capture_output=True, text=True, timeout=180)
+        if result.returncode:
+            raise ValueError("The sandbox image " + image + " was not pulled: " + (result.stderr.strip()[-512:] or "no engine diagnostic"))
+        pulled = True
+    if not present():
+        raise ValueError("The sandbox image " + image + " is not present after its pull.")
+    return pulled
+
+
 def worker_binary_update(config, installer, origin):
-    """Replaces the installed aq-worker with the one in the bundle the pinned installer names, and
-    restarts the worker service, so a machine takes a worker fix without anyone running the
-    installer on it. The bundle is checked against the checksum the installer pins. Only the
-    worker binary is replaced; the bundle's other programs change with a full install.
+    """Updates the worker to the bundle the pinned installer names, and restarts the worker
+    service, so a machine takes a worker fix without anyone running the installer on it. The
+    bundle is checked against the checksum the installer pins. The worker binary and the native
+    template are replaced, as a full install's update replaces them, and the template's image is
+    pulled by its digest first: a worker never runs the new bundle with an older sandbox image.
+    The bundle's other runtime programs change with a full install.
     """
     pinned = re.search(r"^digest='([a-f0-9]{64})'$", installer, re.M)
     if not pinned:
         raise ValueError("The pinned installer names no worker bundle.")
+    digest = pinned.group(1)
     runtime = Path.home() / ".local/share/agent-q/runtime"
     worker = runtime / "aq-worker"
     if not worker.is_file() or worker.is_symlink():
         raise ValueError("No installed worker to update.")
     with tempfile.TemporaryDirectory(dir=runtime) as work:
         archive, fresh = Path(work) / "bundle.tar.gz", Path(work) / "aq-worker"
-        download_worker_bundle(origin, pinned.group(1), archive)
+        download_worker_bundle(origin, digest, archive)
         extract_worker_binary(archive, fresh)
         fresh.chmod(0o755)
         version = subprocess.run([str(fresh), "--version"], check=True, timeout=20, capture_output=True, text=True).stdout.strip()
+        package = unpacked_bundle(archive, digest)
+        path, native, image, socket = bundle_template(config, package, origin)
+        # Nothing is replaced until the image the new template names is on this machine.
+        pulled = pull_template_image(config, socket, image)
         os.replace(fresh, worker)
+        atomic_text(path, native)
+    atomic_text(config / "hosted-install.json", json.dumps({"origin": origin, "bundle_sha256": digest}) + "\n")
     released = release_refused_slots(config)
     subprocess.run(["systemctl", "--user", "restart", "--no-block", "aq-node@" + config.name + ".service"], check=True, timeout=20, capture_output=True)
-    return {"version": version, "bundle_sha256": pinned.group(1), "restarted": True, "released_slots": released}
+    return {"version": version, "bundle_sha256": digest, "image": image, "image_pulled": pulled, "restarted": True, "released_slots": released}
 
 
 def session_state_file(directory):

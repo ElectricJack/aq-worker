@@ -297,6 +297,18 @@ impl<T: DockerTransport> DockerLocalBackend<T> {
         }
     }
 
+    /// The digest of an allowlisted template as this daemon resolves it: `None` while the
+    /// node would have to pull it first. Never pulls.
+    pub async fn resolve_template(
+        &mut self,
+        digest: &TemplateDigest,
+    ) -> Result<Option<TemplateDigest>, BackendError> {
+        let not_allowed = BackendError::InvalidRequest("template digest not allowlisted");
+        let image = self.config.template_image(digest).ok_or(not_allowed)?;
+        let held = self.api.holds_image(image, digest.as_str()).await?;
+        Ok(held.then(|| digest.clone()))
+    }
+
     /// Spec 0017 §6.7: removes a template image no container (running, stopped
     /// or preserved) uses. A template this configuration allowlists is never removed.
     #[cfg(feature = "project_environments")]
