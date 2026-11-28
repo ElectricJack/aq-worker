@@ -310,8 +310,12 @@ impl ServerLink {
                 .header("cf-access-client-secret", secret);
         }
         let path = path.split('?').next().unwrap_or(path);
-        crate::transport_health::observe(request.send().await)
-            .map_err(|e| anyhow::anyhow!("request to {path} failed: {}", crate::transport_health::chain(e)))
+        crate::transport_health::observe(request.send().await).map_err(|e| {
+            anyhow::anyhow!(
+                "request to {path} failed: {}",
+                crate::transport_health::chain(e)
+            )
+        })
     }
 }
 pub fn validate_control(reply: &ControlResponse) -> Result<()> {
