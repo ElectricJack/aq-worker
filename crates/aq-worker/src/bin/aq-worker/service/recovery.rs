@@ -50,6 +50,11 @@ impl Recovery<'_> {
     }
 
     async fn one(&self, attempt: Uuid) -> Result<RecoverOutcome> {
+        // The worker lists no repositories: the one this attempt's offer named is registered
+        // again from the offer, as it was when the attempt began.
+        register_recorded_source(&self.worker, &self.cfg, attempt)
+            .await
+            .with_context(|| format!("register the repository of attempt {attempt}"))?;
         // R4: boxed (as are the recovery futures inside): about 78 KiB inline.
         let salvaged = Box::pin(salvage_interrupted(&self.worker, &self.cfg, attempt)).await;
         if let Some((proof, why)) = unproven(&salvaged) {

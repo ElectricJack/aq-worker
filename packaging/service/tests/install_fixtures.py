@@ -71,7 +71,6 @@ def host(tmp_path):
         shutil.copy(stub, bundle / name)
         (bundle / name).chmod(0o755)
     (bundle / "native.json").write_text("{}")
-    (bundle / "repositories.json").write_text("[]")
     home = tmp_path / "home"
     runtime = tmp_path / "run"
     (runtime / "aq-sandbox").mkdir(parents=True)

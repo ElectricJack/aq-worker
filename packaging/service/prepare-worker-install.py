@@ -194,16 +194,10 @@ http {{
 
 
 def installation_metadata(service):
-    repos = [{key: row[key] for key in ("repository_id", "identity", "binding_generation", "object_format")} for row in service.get("repositories", [])]
-    manual = service.get("manual", {})
-    slugs = manual.get("source_slugs", {})
-    if any(not SLUG.fullmatch(slug) for slug in slugs.values()):
-        raise ValueError("Use owner/repository names in the source map.")
-    metadata = {
-        "manual_sessions": "manual" in service,
-        "source_slugs": slugs,
-    }
-    return repos, metadata
+    """A worker takes each repository from the server's offer: the service file lists none."""
+    if "repositories" in service or "source_slugs" in service.get("manual", {}):
+        raise ValueError("Remove `repositories` and `[manual.source_slugs]` from the service file: a worker takes each repository from the server's offer.")
+    return {"manual_sessions": "manual" in service}
 
 
 def stage_tools(args, stage, host):
@@ -299,7 +293,7 @@ def build(args):
     host = native["executor"]["settings"]["host"]
     entry, = host["docker_local"]["templates"]
     registry, routes = registry_paths(entry["image"], entry["digest"])
-    repos, metadata = installation_metadata(service)
+    metadata = installation_metadata(service)
     args.output.mkdir(parents=True, exist_ok=True)
     download = args.output / "install"
     download.mkdir(exist_ok=True)
@@ -310,7 +304,7 @@ def build(args):
         stage_tools(args, stage, host)
         stage_definitions(args, stage, native)
         set_bundle_paths(native, host)
-        for name, value in [("native", native), ("repositories", repos), ("bootstrap", metadata)]:
+        for name, value in [("native", native), ("bootstrap", metadata)]:
             (stage / (name + ".json")).write_text(safe_json(value))
         stage_runtime(args, stage)
         digest, installer_digest = publish_bundle(stage, download)

@@ -19,7 +19,7 @@ def login_profile(tmp_path):
     package, config = tmp_path / "package", tmp_path / "config"
     package.mkdir(); config.mkdir()
     (package / "codex-bundle").mkdir()
-    (package / "bootstrap.json").write_text(json.dumps({"source_slugs": {"repo": "owner/repo"}}))
+    (package / "bootstrap.json").write_text(json.dumps({"manual_sessions": True}))
     (config / "login-sync.json").write_text(json.dumps({"podman": "/opt/podman"}))
     (config / "service.toml").write_text('profile = "local"\nslots = 1\n')
     return package, config
@@ -31,7 +31,7 @@ def test_server_login_enables_manual_sessions_and_remains_private(tmp_path):
     logins = [{"provider": "anthropic", "material": "synthetic-claude"}]
     assert helper.apply_logins(package, config, logins)
     parsed = helper.read_toml(config / "service.toml")
-    assert parsed["manual"]["source_slugs"] == {"repo": "owner/repo"}
+    assert "source_slugs" not in parsed["manual"] and "repositories" not in parsed
     assert "measurement" not in parsed
     assert parsed["manual"]["claude_token_file"] == str(config / "provider-auth/claude-token")
     # Codex is installed without a login file: its login is leased from the server.

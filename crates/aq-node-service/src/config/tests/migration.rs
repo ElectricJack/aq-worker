@@ -27,7 +27,7 @@ fn migrate(text: &str) -> (Result<ServiceConfig>, tempfile::TempDir, PathBuf) {
 /// stay, the file as it was is kept (0600), and the result loads.
 #[test]
 fn an_old_measurement_setting_is_removed_once_and_its_token_file_carried() {
-    let slugs = "\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n\n[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n";
+    let slugs = "\n[manual.codex]\nexecutable = \"/opt/aq/bin/codex\"\n";
     let section = "\n# set by Push logins\n[measurement]\nenabled = true\ntoken_file = \"/c/provider-auth/claude-token\"\nmodel = \"m\"\nrenew_before_ms = 14400000\n";
     let inline = "measurement = { enabled = true, token_file = \"/c/provider-auth/claude-token\", model = \"m\" }\n";
     let dotted = "measurement.token_file = \"/c/provider-auth/claude-token\"\n";
@@ -48,7 +48,7 @@ fn an_old_measurement_setting_is_removed_once_and_its_token_file_carried() {
             manual.claude_token_file,
             Path::new("/c/provider-auth/claude-token")
         );
-        assert_eq!(manual.source_slugs.len(), 1);
+        assert!(manual.codex.is_some());
         let new = std::fs::read_to_string(&path).unwrap();
         assert_eq!(mode(&path), 0o600);
         let migration = Migration {

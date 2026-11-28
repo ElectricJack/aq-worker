@@ -86,27 +86,6 @@ fn restart_reason_follows_the_handoff_marker() {
 async fn enroll_validates_everything_before_a_secret_or_a_request() {
     let server = fake_server(0).await;
     let p = profile();
-    let repo = |format: &str| {
-        serde_json::json!({"repository_id": Uuid::nil(), "identity": "r",
-            "binding_generation": 1, "object_format": format})
-    };
-    let write_repos = |repos: Vec<serde_json::Value>| {
-        std::fs::write(
-            p.dir.path().join("repositories.json"),
-            serde_json::to_vec(&repos).unwrap(),
-        )
-        .unwrap()
-    };
-    write_repos(vec![repo("sha1"); 17]);
-    let e = p.enroll(&p.args(&server.origin), None).await.unwrap_err();
-    assert!(
-        format!("{e:#}").contains("at most 16 repositories"),
-        "{e:#}"
-    );
-    write_repos(vec![repo("sha256")]);
-    let e = p.enroll(&p.args(&server.origin), None).await.unwrap_err();
-    assert!(format!("{e:#}").contains("object_format"), "{e:#}");
-    write_repos(vec![repo("sha1")]);
     for origin in ["http://10.0.0.5:8081", "http://aq.example.com"] {
         let e = p.enroll(&p.args(origin), None).await.unwrap_err();
         assert!(format!("{e:#}").contains("must be https"), "{e:#}");

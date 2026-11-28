@@ -32,20 +32,25 @@ supported yet; the script refuses it.
 
 - the four binaries `aq-worker`, `aq-session-host`, `aq-agent` and `aq-git`
   (the sandbox driver is `aq-worker` itself: `aq-worker sandbox-harness`);
-- `native.json` and `repositories.json`.
+- `native.json`.
 
-Copy `native.json` and `repositories.json` from an enrolled machine of the same
-build. `native.json` pins exact image and tool digests, so a file from another
-build will not match the binaries. `--native-template` and `--repositories`
-override the two defaults.
+Copy `native.json` from an enrolled machine of the same build. `native.json` pins exact
+image and tool digests, so a file from another build will not match the binaries.
+`--native-template` overrides the default.
 
-`repositories.json` only pre-registers repositories. A worker runs work for any
-repository: one that is not listed is registered with the slot's `aq-git` from the
-offer that names it (its id, identity and binding generation come with the offer's
-source), the first time the slot sees it. `aq-worker service enroll` runs without
-`--repositories`, and `service.toml` needs no `repositories` key. Manual sessions are
-the exception: they clone from `[manual] source_slugs` (or a listed repository whose
-identity is an `owner/name`), so they run only for listed repositories.
+A worker lists no repositories. It runs work for any repository the server's offer names:
+the repository (its id, identity and binding generation come with the offer's source) is
+registered with the slot's `aq-git` the first time the slot sees it, and again from the
+attempt's recorded offer when the service restarts and recovers the attempt. A changed
+binding generation is refused. Sibling workspace sources come from the offer's workspace
+plan through node Git and need no entry either. Hand-started sessions take their repository
+from the server's session spec. Adding a project needs no change on any worker.
+
+`service.toml` no longer has `repositories` or `[manual.source_slugs]`, and
+`aq-worker service enroll` has no `--repositories`. A `service.toml` that still has
+either is refused with a message that says to remove it; edit the file and restart the
+service. Object format: the offer's binding does not carry one, so the worker registers
+repositories as `sha1`.
 
 ### After a failed attempt
 
@@ -71,7 +76,7 @@ packaging/service/aq-install.sh --server https://aq.example --bundle ~/aq-bundle
 
 Options: `--profile` (default `local`; lower-case letters, digits and `-`, at
 most 32 characters), `--nodes` (default 1, at most 8; `--slots` is its legacy alias), `--name`,
-`--machine-key`, `--cf-service-token`, `--native-template`, `--repositories`,
+`--machine-key`, `--cf-service-token`, `--native-template`,
 `--sandbox-bundle` and `--reconfigure`.
 
 The script refuses to replace a `~/.local/bin/aq-worker` that is not its own
@@ -110,7 +115,7 @@ With `--cf-service-token` the next two prompts (or lines) are the node's Access
 client id and secret. Nothing secret is ever put in an argument, the
 environment, a log or a unit file. The code works once.
 
-`enroll` checks every argument (the server origin, the repositories file)
+`enroll` checks every argument (the server origin, the native template)
 before it reads the code, so a typo never uses it up. The
 server must be `https`; plain `http` is accepted only to `127.0.0.1` or `::1`.
 If the machine key claim fails after the code was redeemed (for example the key

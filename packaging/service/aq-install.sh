@@ -9,7 +9,7 @@ usage() {
   cat >&2 <<'USAGE'
 usage: aq-install.sh --server URL --bundle DIR [--profile NAME=local] [--nodes N=1] [--name NAME]
                      [--machine-key KEY] [--cf-service-token]
-                     [--native-template FILE=DIR/native.json] [--repositories FILE=DIR/repositories.json]
+                     [--native-template FILE=DIR/native.json]
                      [--sandbox-bundle podman-linux-amd64.tar.gz] [--reconfigure] [--defer-start]
 USAGE
   exit 2
@@ -17,13 +17,13 @@ USAGE
 
 KEY_GIVEN=0 RECONFIGURE=0 DEFER_START=0
 SERVER="" BUNDLE="" PROFILE="local" NODES="1" NAME="" MACHINE_KEY="" CF=0
-TEMPLATE="" REPOS="" SANDBOX_BUNDLE=""
+TEMPLATE="" SANDBOX_BUNDLE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cf-service-token) CF=1; shift; continue ;;
     --reconfigure) RECONFIGURE=1; shift; continue ;;
     --defer-start) DEFER_START=1; shift; continue ;;
-    --server|--bundle|--profile|--nodes|--slots|--name|--machine-key|--native-template|--repositories|\
+    --server|--bundle|--profile|--nodes|--slots|--name|--machine-key|--native-template|\
     --sandbox-bundle)
       [[ $# -ge 2 ]] || usage ;;
     *) usage ;;
@@ -36,7 +36,6 @@ while [[ $# -gt 0 ]]; do
     --name) NAME="$2" ;;
     --machine-key) MACHINE_KEY="$2"; KEY_GIVEN=1 ;;
     --native-template) TEMPLATE="$2" ;;
-    --repositories) REPOS="$2" ;;
     --sandbox-bundle) SANDBOX_BUNDLE="$2" ;;
   esac
   shift 2
@@ -47,7 +46,6 @@ done
 # The service config's rule (aq-node-service valid_profile).
 [[ "$PROFILE" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "invalid --profile: lower-case letters, digits and '-', at most 32 characters." >&2; exit 2; }
 TEMPLATE="${TEMPLATE:-$BUNDLE/native.json}"
-REPOS="${REPOS:-$BUNDLE/repositories.json}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -158,7 +156,6 @@ for f in aq-worker aq-session-host aq-agent aq-git; do
   [[ -f "$BUNDLE/$f" ]] || { echo "bundle is missing $f." >&2; exit 2; }
 done
 [[ -f "$TEMPLATE" ]] || { echo "native template $TEMPLATE not found." >&2; exit 2; }
-[[ -f "$REPOS" ]] || { echo "repositories file $REPOS not found." >&2; exit 2; }
 # A running worker keeps executing the files it was started from, so replacing
 # them under it would leave the old worker running. When any runtime file
 # changes (an update), first stop every worker service that runs this runtime
@@ -220,7 +217,7 @@ else
   [[ -n "$MACHINE_KEY" ]] && ENROLL+=(--machine-key "$MACHINE_KEY")
   [[ "$CF" == 1 ]] && ENROLL+=(--cf-service-token)
   [[ "$RECONFIGURE" == 1 ]] && ENROLL+=(--reconfigure)
-  ENROLL+=(--native-template "$TEMPLATE" --aq-git "$RUNTIME_DIR/aq-git" --repositories "$REPOS")
+  ENROLL+=(--native-template "$TEMPLATE" --aq-git "$RUNTIME_DIR/aq-git")
   "${ENROLL[@]}"
 fi
 

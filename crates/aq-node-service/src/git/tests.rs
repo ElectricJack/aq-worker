@@ -1,106 +1,5 @@
 use super::*;
 use tokio::net::UnixListener;
-fn repo(identity: &str) -> RepositoryBinding {
-    RepositoryBinding {
-        repository_id: Uuid::from_u128(9),
-        identity: identity.into(),
-        binding_generation: 1,
-        object_format: "sha1".into(),
-    }
-}
-fn binding(identity: &str, mode: &str) -> serde_json::Value {
-    serde_json::json!({"identity": identity, "mode": mode, "binding_generation": 1,
-            "object_format": "sha1", "repository_id": Uuid::from_u128(9)})
-}
-/// A fake aq-git socket: answers each connection's frame with `answer(request)`.
-fn serve(
-    socket: &Path,
-    answers: Vec<fn(&serde_json::Value) -> serde_json::Value>,
-) -> tokio::task::JoinHandle<Vec<serde_json::Value>> {
-    let listener = UnixListener::bind(socket).unwrap();
-    tokio::spawn(async move {
-        let mut seen = Vec::new();
-        for answer in answers {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut stream = BufReader::new(stream);
-            let mut line = String::new();
-            stream.read_line(&mut line).await.unwrap();
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            let reply = answer(&request);
-            stream
-                .get_mut()
-                .write_all(format!("{reply}\n").as_bytes())
-                .await
-                .unwrap();
-            seen.push(request);
-        }
-        seen
-    })
-}
-fn ok(r: &serde_json::Value, result: serde_json::Value) -> serde_json::Value {
-    serde_json::json!({"ok": true, "request_id": r["request_id"], "result": result})
-}
-fn refused(r: &serde_json::Value, code: &str, message: &str) -> serde_json::Value {
-    serde_json::json!({"ok": false, "request_id": r["request_id"],
-            "error": {"code": code, "message": message, "details": null}})
-}
-const ALREADY: &str = "Repository already registered";
-#[tokio::test]
-async fn register_sends_repo_register_frames() {
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("git.sock");
-    let server = serve(
-        &socket,
-        vec![|r| ok(r, binding("e0-development", "worker")), |r| {
-            ok(r, binding("e0-development", "other"))
-        }],
-    );
-    let git = AqGit::over_socket(socket);
-    let repo = repo("e0-development");
-    git.register(std::slice::from_ref(&repo)).await.unwrap();
-    let refused = git.register(&[repo]).await.unwrap_err();
-    assert!(refused.to_string().contains("mismatch"), "{refused:#}");
-    let seen = server.await.unwrap();
-    assert_eq!(seen[0]["operation"], "repo.register");
-    assert_eq!(seen[0]["expected_binding_generation"], 0);
-    assert_eq!(seen[0]["params"]["binding"]["mode"], "worker");
-    assert_eq!(seen[0]["params"]["binding"]["identity"], "e0-development");
-    git.stop().await.unwrap();
-}
-/// D2 (a): recovery restarts aq-git on the attempt's state, where the repository is
-/// registered: the existing registration is read and accepted when it is this binding.
-#[tokio::test]
-async fn register_accepts_the_existing_registration_of_this_binding() {
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("git.sock");
-    let server = serve(
-        &socket,
-        vec![
-            |r| refused(r, "binding_conflict", ALREADY),
-            |r| ok(r, binding("e0", "worker")),
-            |r| refused(r, "binding_conflict", ALREADY),
-            |r| ok(r, binding("another", "worker")),
-            |r| {
-                refused(
-                    r,
-                    "binding_conflict",
-                    "Registration requires generation zero",
-                )
-            },
-        ],
-    );
-    let git = AqGit::over_socket(socket);
-    git.register(&[repo("e0")]).await.unwrap();
-    let e = git.register(&[repo("e0")]).await.unwrap_err();
-    assert!(e.to_string().contains("worker binding mismatch"), "{e:#}");
-    let e = git.register(&[repo("e0")]).await.unwrap_err();
-    assert!(e.to_string().contains("generation zero"), "{e:#}");
-    let seen = server.await.unwrap();
-    assert_eq!(seen[1]["operation"], "repo.show");
-    assert_eq!(seen[1]["repository_id"], Uuid::from_u128(9).to_string());
-    assert_eq!(seen[1]["expected_binding_generation"], 1);
-}
-
 /// A stand-in aq-git: `serve` listens on `--listen` (python3), `recovery clear-fence`
 /// saves its request beside the script and answers ok; `AQ_FAKE_EXIT` exits at once.
 pub(crate) fn fake_aq_git(dir: &Path, exit: Option<u8>) -> AqGitConfig {
@@ -221,9 +120,8 @@ async fn real_aq_git_restarts_after_a_sigkill() {
         binary: binary.into(),
         git_executable: "/usr/bin/git".into(),
     };
-    let repo = repo("e0-development");
     let mut git = AqGit::start(&config, &state, &socket).await.unwrap();
-    git.register(std::slice::from_ref(&repo)).await.unwrap();
+    register_e0(&git).await;
     let pgid = git.child.as_ref().unwrap().id().unwrap() as i32;
     // SAFETY: the test's own aq-git process group.
     unsafe { libc::kill(-pgid, libc::SIGKILL) };
@@ -231,10 +129,10 @@ async fn real_aq_git_restarts_after_a_sigkill() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(socket.exists(), "the killed aq-git left its socket");
     let git = AqGit::start(&config, &state, &socket).await.unwrap();
-    git.register(std::slice::from_ref(&repo)).await.unwrap();
+    register_e0(&git).await;
     git.stop().await.unwrap();
     let git = AqGit::start(&config, &state, &socket).await.unwrap();
-    git.register(&[repo]).await.unwrap();
+    register_e0(&git).await;
     git.stop().await.unwrap();
 }
 /// #51 review M3: a stopped or dropped aq-git takes its whole process group (the forked
@@ -300,4 +198,23 @@ async fn the_group_kill_fires_after_the_leader_was_reaped() {
         })
     });
     assert!(gone, "the engine is gone after the stop");
+}
+
+/// Registers (or re-registers: aq-git answers `binding_conflict` for a repository its state
+/// already holds) the repository the restart test keeps in its state.
+async fn register_e0(git: &AqGit) {
+    let id = Uuid::new_v4().to_string();
+    let reply = git
+        .exchange(&serde_json::json!({
+            "protocol_version": 1, "request_id": id, "operation_id": id,
+            "operation": "repo.register", "repository_id": Uuid::from_u128(9),
+            "expected_binding_generation": 0,
+            "params": {"binding": {"identity": "e0-development", "mode": "worker",
+                "binding_generation": 1, "object_format": "sha1"}}}))
+        .await
+        .unwrap();
+    assert!(
+        reply["ok"] == true || reply["error"]["code"] == "binding_conflict",
+        "{reply}"
+    );
 }

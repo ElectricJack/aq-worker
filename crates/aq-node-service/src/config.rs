@@ -25,8 +25,6 @@ pub struct ServiceConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_root: Option<PathBuf>,
     pub aq_git: AqGitConfig,
-    #[serde(default)]
-    pub repositories: Vec<RepositoryBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual: Option<ManualConfig>,
     #[serde(default = "default_shutdown_grace_ms")]
@@ -172,8 +170,6 @@ pub struct ManualConfig {
     /// Owner-only Claude subscription token file (`claude setup-token`) that manual Claude
     /// sessions log in with.
     pub claude_token_file: PathBuf,
-    #[serde(default)]
-    pub source_slugs: std::collections::BTreeMap<uuid::Uuid, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex: Option<ManualCodexConfig>,
 }
@@ -199,13 +195,26 @@ pub struct AqGitConfig {
     pub binary: PathBuf,
     pub git_executable: PathBuf,
 }
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RepositoryBinding {
-    pub repository_id: Uuid,
-    pub identity: String,
-    pub binding_generation: u64,
-    pub object_format: String,
+/// Settings that no longer exist: a worker takes each repository from the server's offer.
+/// Refused by name, so an owner is told what to remove instead of reading an
+/// "unknown field" error, and nothing is silently ignored.
+fn refuse_removed_settings(text: &str) -> Result<()> {
+    let Ok(toml::Value::Table(doc)) = text.parse::<toml::Value>() else {
+        return Ok(()); // not a document: the real parse reports it
+    };
+    ensure!(
+        !doc.contains_key("repositories"),
+        "`repositories` is no longer a setting: a worker takes each repository from the server's \
+         offer. Remove `repositories` (and any repositories.json) from service.toml"
+    );
+    ensure!(
+        doc.get("manual")
+            .and_then(|m| m.get("source_slugs"))
+            .is_none(),
+        "`manual.source_slugs` is no longer a setting: a hand-started session's repository \
+         comes from the server. Remove `[manual.source_slugs]` from service.toml"
+    );
+    Ok(())
 }
 fn default_manual_slots() -> u32 {
     1
@@ -260,6 +269,7 @@ impl ServiceConfig {
     /// once without its `measurement` setting first (`retire_measurement`).
     pub fn load(path: &Path) -> Result<Self> {
         let mut text = read_private(path)?;
+        refuse_removed_settings(&text).with_context(|| format!("parse {}", path.display()))?;
         if let Some(migrated) = retire_measurement(path, &text)? {
             text = migrated;
         }
@@ -272,6 +282,7 @@ impl ServiceConfig {
     }
     /// Parses the document, refusing unknown keys.
     pub fn parse(text: &str) -> Result<Self> {
+        refuse_removed_settings(text)?;
         Ok(toml::from_str(text)?)
     }
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -295,7 +306,6 @@ impl ServiceConfig {
             "nodes must be 1..={MAX_MACHINE_SLOTS}"
         );
         self.validate_paths()?;
-        self.validate_repositories()?;
         self.validate_retry()?;
         self.validate_observations()?;
         self.validate_manual()
@@ -314,18 +324,6 @@ impl ServiceConfig {
             ensure!(root.is_absolute(), "runtime_root must be an absolute path");
         }
         crate::layout::check_socket_paths(&self.runtime_root(), self.nodes)
-    }
-
-    fn validate_repositories(&self) -> Result<()> {
-        ensure!(self.repositories.len() <= 16, "at most 16 repositories");
-        for r in &self.repositories {
-            ensure!(
-                !r.identity.is_empty() && r.identity.len() <= 128,
-                "invalid repository identity"
-            );
-            ensure!(r.object_format == "sha1", "unsupported object_format");
-        }
-        Ok(())
     }
 
     fn validate_retry(&self) -> Result<()> {
@@ -370,13 +368,6 @@ impl ServiceConfig {
             ensure!(
                 m.podman_executable.is_absolute() && (1..=8).contains(&m.max_slots),
                 "invalid manual worker configuration"
-            );
-            ensure!(
-                m.source_slugs.len() <= 16
-                    && m.source_slugs.values().all(|v| v.split('/').count() == 2
-                        && v.bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b))),
-                "invalid manual repository source"
             );
             if let Some(c) = &m.codex {
                 ensure!(

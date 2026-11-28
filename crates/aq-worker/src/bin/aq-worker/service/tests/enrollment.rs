@@ -76,7 +76,6 @@ pub(super) struct Profile {
 }
 pub(super) fn profile() -> Profile {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("repositories.json"), b"[]").unwrap();
     std::fs::write(dir.path().join("native.json"), b"{}").unwrap();
     std::fs::write(dir.path().join("aq-git"), b"").unwrap();
     let layout = Layout {
@@ -100,7 +99,6 @@ impl Profile {
             native_template: at("native.json"),
             aq_git: at("aq-git"),
             git_executable: "/usr/bin/git".into(),
-            repositories: Some(at("repositories.json")),
             reconfigure: false,
         }
     }

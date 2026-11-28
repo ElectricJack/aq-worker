@@ -19,7 +19,7 @@ fi
 [[ -n "${XDG_RUNTIME_DIR:-}" ]] || { echo 'The systemd user session has no runtime directory.' >&2; exit 3; }
 for arg in "$@"; do
   case "$arg" in
-    --server|--bundle|--native-template|--repositories|--sandbox-bundle|--defer-start)
+    --server|--bundle|--native-template|--sandbox-bundle|--defer-start)
       echo "The downloaded bundle sets $arg." >&2; exit 2 ;;
   esac
 done

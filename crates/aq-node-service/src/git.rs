@@ -1,18 +1,20 @@
 //! The worker-side aq-git child, a port of the exchange/stop steps of aq-server's
 //! `scripts/ms1-node-run.py`.
-use crate::config::{AqGitConfig, RepositoryBinding};
+use crate::config::AqGitConfig;
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     os::{
         fd::AsRawFd,
         unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt},
     },
-    path::{Path, PathBuf},
+    path::Path,
     process::Stdio,
     time::Duration,
 };
+#[cfg(test)]
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::AsyncWriteExt,
     net::UnixStream,
     process::{Child, Command},
 };
@@ -23,7 +25,8 @@ pub struct AqGit {
     /// The leader's pid, taken at spawn: `Child::id` is gone once the leader is reaped, and
     /// the group (the engine) may outlive it.
     leader: Option<u32>,
-    socket: PathBuf,
+    #[cfg(test)]
+    socket: std::path::PathBuf,
 }
 /// What a SIGKILLed aq-git leaves behind (a crash, or `systemctl kill`): its socket, which a
 /// new aq-git cannot bind, and its ownership fence (`incarnation.json` still active), which
@@ -143,12 +146,6 @@ async fn clear_fence(config: &AqGitConfig, git_dir: &Path) -> Result<()> {
 fn brief(v: &serde_json::Value) -> String {
     v.to_string().chars().take(500).collect()
 }
-fn matches(binding: &serde_json::Value, repo: &RepositoryBinding) -> bool {
-    binding["mode"] == "worker"
-        && binding["identity"] == repo.identity.as_str()
-        && binding["binding_generation"] == repo.binding_generation
-        && binding["object_format"] == repo.object_format.as_str()
-}
 impl AqGit {
     /// Spawns `<binary> --state-dir <dir>/git --listen <socket> --git-executable <git> serve`
     /// (stdio null, own process group) after `reclaim`, and waits up to 10 s until the socket
@@ -188,65 +185,11 @@ impl AqGit {
         Ok(Self {
             leader: child.id(),
             child: Some(child),
+            #[cfg(test)]
             socket: socket.to_path_buf(),
         })
     }
     #[cfg(test)]
-    pub(crate) fn over_socket(socket: PathBuf) -> Self {
-        Self {
-            child: None,
-            leader: None,
-            socket,
-        }
-    }
-    /// repo.register for each binding (expected_binding_generation 0). A repository the state
-    /// already holds (a recovery restarts aq-git on the attempt's state) is answered
-    /// `binding_conflict` "Repository already registered": then its registration is read with
-    /// repo.show and accepted when it is this binding. Refuses unless the binding matches.
-    pub async fn register(&self, repos: &[RepositoryBinding]) -> Result<()> {
-        for repo in repos {
-            let id = Uuid::new_v4().to_string();
-            let request = serde_json::json!({
-                "protocol_version": 1, "request_id": id, "operation_id": id,
-                "operation": "repo.register", "repository_id": repo.repository_id,
-                "expected_binding_generation": 0,
-                "params": {"binding": {"identity": repo.identity, "mode": "worker",
-                    "binding_generation": repo.binding_generation, "object_format": repo.object_format}}});
-            let reply = self.exchange(&request).await?;
-            let error = &reply["error"];
-            let binding = if reply["ok"] == true && reply["request_id"] == id.as_str() {
-                reply["result"].clone()
-            } else if error["code"] == "binding_conflict"
-                && error["message"] == "Repository already registered"
-            {
-                self.show(repo).await?
-            } else {
-                bail!("aq-git refused repo.register: {}", brief(error));
-            };
-            ensure!(
-                matches(&binding, repo),
-                "worker binding mismatch for repository {}: {}",
-                repo.repository_id,
-                brief(&binding)
-            );
-        }
-        Ok(())
-    }
-    async fn show(&self, repo: &RepositoryBinding) -> Result<serde_json::Value> {
-        let id = Uuid::new_v4().to_string();
-        let request = serde_json::json!({
-            "protocol_version": 1, "request_id": id, "operation": "repo.show",
-            "repository_id": repo.repository_id,
-            "expected_binding_generation": repo.binding_generation, "params": {}});
-        let reply = self.exchange(&request).await?;
-        ensure!(
-            reply["ok"] == true && reply["request_id"] == id.as_str(),
-            "aq-git refused repo.show of the registered repository {}: {}",
-            repo.repository_id,
-            brief(&reply["error"])
-        );
-        Ok(reply["result"].clone())
-    }
     async fn exchange(&self, request: &serde_json::Value) -> Result<serde_json::Value> {
         tokio::time::timeout(Duration::from_secs(10), async {
             let mut stream = UnixStream::connect(&self.socket)

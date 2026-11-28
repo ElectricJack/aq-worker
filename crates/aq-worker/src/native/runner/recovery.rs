@@ -78,6 +78,37 @@ fn attempts_where(
         .collect())
 }
 
+/// Registers the repository an attempt's recorded offer names with this slot's aq-git, from
+/// the offer's own binding. Recovery restarts aq-git on the attempt's state, which may hold
+/// the registration (accepted when it is this binding) or predate it (an attempt that was
+/// interrupted after its offer was recorded). The worker has no configured repositories, so
+/// this is how recovery gets one. A binding that differs (another generation or identity) is
+/// refused. `false` when the attempt recorded no source.
+pub async fn register_recorded_source(
+    worker: &WorkerConfig,
+    config: &NativeConfig,
+    attempt: Uuid,
+) -> Result<bool> {
+    let binding = {
+        let _held = lock_recovery_scope(config)?;
+        let root = config.state_dir.join("journal");
+        let journal = Journal::open(&root, worker.node_id, config.capacity.clone())?;
+        let recorded = journal.state().attempts.get(&attempt);
+        let recorded = recorded.context("native recovery attempt absent")?;
+        recorded
+            .source
+            .as_ref()
+            .and_then(|s| s.manifest.as_ref())
+            .map(|m| m.source.clone())
+    };
+    let Some(binding) = binding else {
+        return Ok(false);
+    };
+    let git = config.git_client(worker)?;
+    tokio::task::spawn_blocking(move || git.ensure_registered(&binding)).await??;
+    Ok(true)
+}
+
 /// Reconcile one preserved, physically stopped attempt using its original IDs
 /// and outboxes. Repeated calls are safe after partial delivery/response loss.
 /// A successful call does not authorize new execution or release local holds.
