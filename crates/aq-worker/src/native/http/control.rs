@@ -275,8 +275,8 @@ impl NativeClient {
             } else {
                 request
             };
-            let sent = request.send().await;
-            let response = sent.map_err(|_| {
+            let response = aq_node_service::transport_health::observe(request.send().await).map_err(|e| {
+                tracing::warn!(cause = %aq_node_service::transport_health::chain(e), "native control transport failed");
                 anyhow::anyhow!("native control transport failed; disposition unknown")
             })?;
             // A 503 asks for the same operation again: resent in place, not failed.

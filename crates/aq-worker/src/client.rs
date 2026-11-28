@@ -78,7 +78,7 @@ impl Client {
             headers.insert("cf-access-client-id", secret_header(&id)?);
             headers.insert("cf-access-client-secret", secret_header(&secret)?);
         }
-        let http = reqwest::Client::builder()
+        let http = aq_node_service::transport_health::tune(reqwest::Client::builder())
             .redirect(redirect::Policy::none())
             .timeout(Duration::from_secs(10))
             .default_headers(headers)
@@ -141,9 +141,7 @@ impl Client {
                 .map_err(|_| CallError::Other("credential is not a valid header value".into()))?;
             rb = rb.header(reqwest::header::AUTHORIZATION, v);
         }
-        let resp = rb
-            .send()
-            .await
+        let resp = aq_node_service::transport_health::observe(rb.send().await)
             // Connect failures, timeouts and mid-flight resets are all retryable.
             .map_err(|e| {
                 if e.is_builder() {

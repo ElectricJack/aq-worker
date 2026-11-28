@@ -147,7 +147,7 @@ impl ServerLink {
             !credential.is_empty() && credential.bytes().all(|b| b.is_ascii_graphic()),
             "invalid node credential"
         );
-        let http = reqwest::Client::builder()
+        let http = crate::transport_health::tune(reqwest::Client::builder())
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -310,10 +310,12 @@ impl ServerLink {
                 .header("cf-access-client-secret", secret);
         }
         let path = path.split('?').next().unwrap_or(path);
-        request
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("request to {path} failed: {}", e.without_url()))
+        crate::transport_health::observe(request.send().await).map_err(|e| {
+            anyhow::anyhow!(
+                "request to {path} failed: {}",
+                crate::transport_health::chain(e)
+            )
+        })
     }
 }
 pub fn validate_control(reply: &ControlResponse) -> Result<()> {

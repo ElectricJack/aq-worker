@@ -159,11 +159,11 @@ async fn send_json(
 ) -> Result<Response> {
     let bytes = serde_json::to_vec(payload)?;
     ensure!(bytes.len() <= limit, "native request size");
-    let response = builder
-        .body(bytes)
-        .send()
-        .await
-        .map_err(|_| TransportFailed("native request transport failed; disposition unknown"))?;
+    let response = aq_node_service::transport_health::observe(builder.body(bytes).send().await)
+        .map_err(|e| {
+            tracing::warn!(cause = %aq_node_service::transport_health::chain(e), "native request transport failed");
+            TransportFailed("native request transport failed; disposition unknown")
+        })?;
     if !response.status().is_success() {
         return Err(refused(response).await);
     }
@@ -187,7 +187,7 @@ impl NativeClient {
             headers.insert("cf-access-client-secret", secret(key)?);
         }
         let client = || {
-            reqwest::Client::builder()
+            aq_node_service::transport_health::tune(reqwest::Client::builder())
                 .redirect(reqwest::redirect::Policy::none())
                 .retry(reqwest::retry::never())
                 .no_proxy()

@@ -83,7 +83,7 @@ impl TransferClient {
             headers.insert("cf-access-client-id", secret_header(id)?);
             headers.insert("cf-access-client-secret", secret_header(secret)?);
         }
-        let http = reqwest::Client::builder()
+        let http = aq_node_service::transport_health::tune(reqwest::Client::builder())
             .connect_timeout(Duration::from_secs(3))
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
