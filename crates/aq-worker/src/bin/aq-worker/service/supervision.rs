@@ -52,7 +52,9 @@ fn machine_reporter(
                 interval,
                 move |mut report| {
                     // Any slot's deferral is the machine's: they share its disk and daemon.
-                    report.sandbox_admission = layout.admission_deferral();
+                    report.sandbox_admission = layout
+                        .admission_deferral()
+                        .or_else(aq_node_service::transport_health::deferral);
                     let link = link.clone();
                     async move {
                         link.machine_report(&report)

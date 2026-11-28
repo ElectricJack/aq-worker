@@ -180,6 +180,10 @@ http {{
     proxy_buffering off;
     proxy_connect_timeout 5s;
     proxy_read_timeout 300s;
+    # Workers close their idle pooled connections after 20 s, well before nginx would; the
+    # explicit values keep the gateway from closing a client connection a request is racing.
+    keepalive_timeout 75s;
+    keepalive_requests 10000;
     location ~ "^/install/[a-f0-9]{{64}}\\.sh$" {{
       limit_except GET {{ deny all; }}
       root {quote_path(args.output)};

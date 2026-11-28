@@ -31,7 +31,7 @@ impl ExecutionClient {
                 headers.insert(key, v);
             }
         }
-        let http = reqwest::Client::builder()
+        let http = aq_node_service::transport_health::tune(reqwest::Client::builder())
             .timeout(Duration::from_secs(10))
             .redirect(reqwest::redirect::Policy::none())
             .default_headers(headers)

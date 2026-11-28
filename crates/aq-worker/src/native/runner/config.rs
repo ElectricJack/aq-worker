@@ -180,6 +180,10 @@ impl NativeConfig {
     /// Why the node cannot admit a sandbox now, if it cannot. A disk shortfall first
     /// reclaims stale build-cache keys and checks again.
     pub(super) async fn check_backend_admission(&self) -> Result<(), AdmissionDeferral> {
+        // A node that cannot complete requests to the server cannot launch what it is offered.
+        if let Some(degraded) = aq_node_service::transport_health::deferral() {
+            return Err(degraded);
+        }
         use aq_sandbox_archive::{build_cache::BuildCacheConfig, docker_engine::admit_reclaiming};
         let Some(super::codex::ExecutorConfig::ClaudeDockerLocalResultLocal { settings, .. }) =
             &self.executor
