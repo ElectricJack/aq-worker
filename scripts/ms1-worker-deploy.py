@@ -9,7 +9,11 @@
 moves). For a revision it has not published yet it copies the worker out of the image, checks
 that it reports that revision, and republishes the gateway's current bundle with it and with
 that revision's installer files (prepare-worker-install.py --base-bundle from a `git archive`
-of the revision): the bundle and installer land under `<gateway>/install/<sha256>`.
+of the revision): the bundle and installer land under `<gateway>/install/<sha256>`. Before it
+publishes, the builder makes the gateway serve the manifest and every blob of the template image
+the bundle's native template names (it rewrites the image routes of `<gateway>/nginx.conf` and
+reloads that nginx) and checks each with a GET through `gateway_url`; if they are not served,
+nothing is published and no machine is told to update.
 
 Then, one machine at a time, every machine with a live hosted receiver that does not run the
 revision is drained (`aq worker drain`, only if it was taking work), waited on until no agent
@@ -65,6 +69,8 @@ class Config:
     aq: str
     image: str
     gateway: Path
+    gateway_url: str
+    nginx: str
     manifest: Path
     source: Path
     state_dir: Path
@@ -81,7 +87,8 @@ class Config:
         raw = tomllib.loads(Path(path).read_text())
         cfg = Config(
             origin=raw["origin"], aq=raw.get("aq", "aq"), image=raw["image"],
-            gateway=Path(raw["gateway"]), manifest=Path(raw["manifest"]), source=Path(raw["source"]),
+            gateway=Path(raw["gateway"]), gateway_url=raw.get("gateway_url", "http://127.0.0.1:28443"),
+            nginx=raw.get("nginx", "nginx"), manifest=Path(raw["manifest"]), source=Path(raw["source"]),
             state_dir=Path(raw["state_dir"]), max_workspace_bytes=raw.get("max_workspace_bytes"),
             drain_timeout_secs=raw.get("drain_timeout_secs", 1800),
             update_timeout_secs=raw.get("update_timeout_secs", 900),
@@ -145,7 +152,8 @@ class Host:
                                      capture_output=True, timeout=self.cfg.command_timeout_secs, check=True).stdout
             subprocess.run(["tar", "-x", "-C", src], input=archive, check=True, timeout=self.cfg.command_timeout_secs)
             argv = [sys.executable, "-I", f"{src}/packaging/service/prepare-worker-install.py", "--base-bundle", str(base),
-                    "--worker", str(worker), "--output", str(self.cfg.gateway), "--manifest", str(manifest)]
+                    "--worker", str(worker), "--output", str(self.cfg.gateway), "--manifest", str(manifest),
+                    "--gateway-url", self.cfg.gateway_url, "--nginx", self.cfg.nginx]
             if self.cfg.max_workspace_bytes is not None:
                 argv += ["--max-workspace-bytes", str(self.cfg.max_workspace_bytes)]
             return json.loads(self.run(argv).splitlines()[-1])

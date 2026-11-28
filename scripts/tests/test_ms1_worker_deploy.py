@@ -253,3 +253,30 @@ def test_a_run_that_died_with_a_machine_drained_restores_it(cfg):
     host.machines["laptop"]["control"]["desired"] = "draining"
     d.apply()
     assert host.machines["laptop"]["control"]["desired"] == "running" and d.load()["drained"] == []
+
+
+def test_publication_requires_the_gateway_to_serve_the_template_image(cfg, monkeypatch):
+    """The builder is told which gateway to check, so a bundle whose template image the gateway
+    does not serve is never published and no machine is told to update to it."""
+    import subprocess
+    cfg.gateway.mkdir()
+    argv = []
+
+    class Recording(wd.Host):
+        def run(self, command, **_kw):
+            argv.append([str(a) for a in command])
+            return '{"installer_sha256": "i", "bundle_sha256": "b", "worker_revision": "r"}\n'
+    monkeypatch.setattr(wd.subprocess, "run", lambda *a, **_kw: subprocess.CompletedProcess(a, 0, b"", b""))
+    Recording(cfg).restage(NEW, cfg.gateway / "base.tar.gz", cfg.state_dir / "aq-worker", cfg.state_dir / "m.json")
+    builder = argv[-1]
+    assert builder[builder.index("--output") + 1] == str(cfg.gateway)
+    assert builder[builder.index("--gateway-url") + 1] == "http://127.0.0.1:28443"  # the builder's default listener
+    assert builder[builder.index("--nginx") + 1] == "nginx"
+    # A refused publication fails the run before any machine is drained or updated.
+    d, host = deployer(cfg)
+    def refused(*_args):
+        raise wd.Failure("prepare-worker-install.py exited 1: The install gateway does not serve 2 of the 4 paths")
+    host.restage = refused
+    with pytest.raises(wd.Failure, match="does not serve"):
+        d.apply()
+    assert not any(c[0] in ("drain", "update", "manifest") for c in host.calls)

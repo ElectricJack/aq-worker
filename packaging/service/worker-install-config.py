@@ -371,10 +371,20 @@ def receiver_update(config, digest):
     details = {"installer_sha256": digest}
     # The receiver is already replaced; a worker update that fails is reported, not raised.
     try:
-        details["worker"] = worker_binary_update(config, text, origin)
-    except (ValueError, OSError, KeyError, subprocess.SubprocessError, tarfile.TarError) as error:
+        details["worker"] = installed_receiver(target).worker_binary_update(config, text, origin)
+    except (ValueError, OSError, KeyError, AttributeError, ImportError, subprocess.SubprocessError, tarfile.TarError) as error:
         details["worker"] = {"error": str(error)[:1024]}
     return {"ok": True, "phase": "receiver_update", "details": details}
+
+
+def installed_receiver(target):
+    """The receiver just installed at `target`, loaded from that file: the worker update runs the
+    procedure the new installer ships, not the one of the receiver that fetched it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("aq_installed_receiver", target)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def download_worker_bundle(origin, digest, archive):

@@ -10,15 +10,22 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import time
 import tomllib
+import urllib.error
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 TOOLS = ("aq-worker", "aq-session-host", "aq-agent", "aq-git")
 DIGEST = re.compile(r"sha256:[a-f0-9]{64}")
 SLUG = re.compile(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+")
+MANIFEST_ACCEPT = "application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json"
+# One allowlisted registry path of the gateway's nginx configuration, as nginx_config writes it.
+IMAGE_ROUTE = re.compile(r"^[ \t]*location = /v2/\S* \{ limit_except GET \{ deny all; \} proxy_pass http://[^;\s]+; \}\n", re.M)
+# nginx starts its reloaded workers asynchronously: the gateway is asked again before it is refused.
+GATEWAY_ATTEMPTS, GATEWAY_RETRY_SECS = 10, 0.5
 
 
 def sha(path):
@@ -72,9 +79,7 @@ def registry_reference(image, pinned):
 
 
 def manifest_blobs(registry, manifest_path, pinned):
-    request = Request(f"http://{registry}{manifest_path}", headers={
-        "Accept": "application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json",
-    })
+    request = Request(f"http://{registry}{manifest_path}", headers={"Accept": MANIFEST_ACCEPT})
     with urlopen(request, timeout=10) as response:
         raw = response.read(65537)
     if len(raw) > 65536 or "sha256:" + hashlib.sha256(raw).hexdigest() != pinned:
@@ -137,12 +142,23 @@ def quote_path(path):
     return '"' + str(path.absolute()).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$") + '"'
 
 
-def nginx_config(args, registry, paths):
-    listen, certs = listener_settings(args)
-    image_routes = "\n".join(
-        f"location = {path} {{ limit_except GET {{ deny all; }} proxy_pass http://{registry}; }}"
+def image_routes(registry, paths):
+    return "".join(
+        f"    location = {path} {{ limit_except GET {{ deny all; }} proxy_pass http://{registry}; }}\n"
         for path in sorted(set(paths))
     )
+
+
+def with_image_routes(config, registry, paths):
+    """`config` with its image allowlist replaced by exactly `paths`; everything else is kept."""
+    first = IMAGE_ROUTE.search(config)
+    if first is None:
+        raise ValueError("The gateway's nginx.conf has no image routes to replace: regenerate it with a full build.")
+    return config[:first.start()] + image_routes(registry, paths) + IMAGE_ROUTE.sub("", config[first.start():])
+
+
+def nginx_config(args, registry, paths):
+    listen, certs = listener_settings(args)
     return f"""worker_processes 1;
 pid nginx.pid;
 error_log stderr warn;
@@ -176,8 +192,7 @@ http {{
       default_type application/gzip;
     }}
     location /install/ {{ return 404; }}
-    {image_routes}
-    # The worker protocol's own /v2/ paths (the agent channel's credential) are not the
+{image_routes(registry, paths)}    # The worker protocol's own /v2/ paths (the agent channel's credential) are not the
     # image registry's: without this an enrolled machine cannot launch an agent.
     location /v2/worker/ {{
       proxy_pass http://127.0.0.1:{args.worker_port};
@@ -191,6 +206,74 @@ http {{
   }}
 }}
 """
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *_args):
+        return None
+
+
+def gateway_serves(gateway_url, path):
+    """Whether a GET through the gateway answers `path` as the source registry would: a manifest
+    with its pinned bytes, a blob (not read) under its own digest."""
+    pinned = path.rsplit("/", 1)[1]
+    manifest = "/manifests/" in path
+    request = Request(gateway_url.rstrip("/") + path, headers={"Accept": MANIFEST_ACCEPT} if manifest else {})
+    try:
+        with build_opener(NoRedirect()).open(request, timeout=20) as response:
+            if response.status != 200:
+                return False
+            if manifest:
+                return "sha256:" + hashlib.sha256(response.read(65537)).hexdigest() == pinned
+            served = response.headers.get("Docker-Content-Digest")
+            return "/blobs/" not in path or served in (None, pinned)
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def verify_gateway(gateway_url, paths):
+    """Refuse the publication unless the gateway serves every path of the template image."""
+    for attempt in range(GATEWAY_ATTEMPTS):
+        missing = [path for path in sorted(set(paths)) if not gateway_serves(gateway_url, path)]
+        if not missing:
+            return
+        if attempt + 1 < GATEWAY_ATTEMPTS:
+            time.sleep(GATEWAY_RETRY_SECS)
+    raise ValueError(f"The install gateway {gateway_url} does not serve {len(missing)} of the {len(set(paths))} paths "
+                     f"of the bundle's template image, so no machine could pull it: {', '.join(missing[:4])}")
+
+
+def reload_gateway(args):
+    """Check and reload the gateway's nginx, started as `nginx -p OUTPUT/ -c nginx.conf`."""
+    command = [str(getattr(args, "nginx", None) or "nginx"), "-p", str(args.output.absolute()) + "/", "-c", "nginx.conf"]
+    for flags in (["-t", "-q"], ["-s", "reload"]):
+        done = subprocess.run(command + flags, capture_output=True, text=True, timeout=30)
+        if done.returncode:
+            raise ValueError(f"The install gateway did not take its new image routes ({' '.join(flags)}): {done.stderr.strip()[-400:]}")
+
+
+def serve_template_image(args, native, config=None):
+    """Before a bundle is published, make the gateway at `--gateway-url` serve exactly the manifest
+    and blobs of the template image its native template names, and check it with a GET of each.
+
+    `config` is a full build's new nginx.conf; a restage replaces only the image routes of the one
+    in `--output`. If `--output` has no nginx.conf the gateway is configured elsewhere and is only
+    checked. A configuration nginx refuses is put back as it was.
+    """
+    entry, = native["executor"]["settings"]["host"]["docker_local"]["templates"]
+    registry, paths = registry_paths(entry["image"], entry["digest"])
+    path = args.output / "nginx.conf"
+    current = path.read_text() if path.is_file() else None
+    if config is None and current is not None:
+        config = with_image_routes(current, registry, paths)
+    if config is not None and config != current:
+        path.write_text(config)
+        try:
+            reload_gateway(args)
+        except (ValueError, OSError, subprocess.SubprocessError):
+            path.write_text(current) if current is not None else path.unlink()
+            raise
+    verify_gateway(args.gateway_url, paths)
 
 
 def installation_metadata(service):
@@ -298,6 +381,8 @@ def build(args):
     download = args.output / "install"
     download.mkdir(exist_ok=True)
     config = nginx_config(args, registry, routes)
+    if getattr(args, "gateway_url", None):
+        serve_template_image(args, native, config)
     with tempfile.TemporaryDirectory(dir=args.output) as temp:
         stage = Path(temp) / "bundle"
         stage.mkdir()
@@ -329,9 +414,10 @@ def restage(args):
 
     The base's host-pinned contents (session host, aq-agent, aq-git, tmux, Podman, Codex helpers,
     native template and definitions, repositories) are kept byte for byte, so a worker built in CI
-    ships with the runtime the operator qualified. Its nginx routes stay valid: the template image
-    does not change. `--max-workspace-bytes` sets that native template limit for every machine
-    that installs the bundle.
+    ships with the runtime the operator qualified. With `--gateway-url` the gateway is made to serve
+    the template image the base's native template names before anything is published (see
+    serve_template_image). `--max-workspace-bytes` sets that native template limit for every
+    machine that installs the bundle.
     """
     download = args.output / "install"
     download.mkdir(parents=True, exist_ok=True)
@@ -339,6 +425,8 @@ def restage(args):
         stage = Path(temp) / "bundle"
         with tarfile.open(args.base_bundle) as base:
             base.extractall(stage, filter="data")
+        if getattr(args, "gateway_url", None):
+            serve_template_image(args, json.loads((stage / "native.json").read_text()))
         for name in CHECKOUT_FILES:
             path = stage / name
             shutil.rmtree(path) if path.is_dir() else path.unlink()
@@ -371,6 +459,9 @@ if __name__ == "__main__":
     parser.add_argument("--listen", default="127.0.0.1:28443")
     parser.add_argument("--worker-port", type=int, default=28081)
     parser.add_argument("--max-workspace-bytes", type=int)
+    parser.add_argument("--gateway-url", help="the running install gateway (as http://127.0.0.1:28443): publish only "
+                        "once it serves the manifest and blobs of the bundle's template image")
+    parser.add_argument("--nginx", default="nginx", help="the nginx that runs the gateway from --output")
     parsed = parser.parse_args()
     if parsed.base_bundle:
         restage(parsed)
