@@ -664,6 +664,68 @@ fn incomplete_machine_auth_and_credential_bearing_urls_refuse_without_echo() {
     assert!(NativeClient::from_config(&config).is_err());
 }
 
+/// Each profiled route carries only its own node headers: the slot on a poll, the slot count on
+/// a registration, the launch template its daemon resolved on each inventory; a legacy node, none.
+#[test]
+fn node_headers_go_per_slot_on_poll_and_register_and_the_template_on_each_inventory() {
+    use aq_worker::{backend::TemplateDigest, native::http::SANDBOX_TEMPLATE_HEADER};
+    let digest = TemplateDigest::parse(format!("sha256:{}", "c".repeat(64))).unwrap();
+    let config = WorkerConfig {
+        server_url: "https://aq.example".into(),
+        node_id: identity().node_id,
+        credential: "synthetic".into(),
+        cf_client_id: None,
+        cf_client_secret: None,
+    };
+    let legacy = NativeClient::from_config(&config).unwrap();
+    let headers = |client: &NativeClient, route: &str| {
+        let request = reqwest::Client::new().post("https://aq.example");
+        let request = client
+            .route_headers()
+            .apply(request, route)
+            .build()
+            .unwrap();
+        request.headers().clone()
+    };
+    let routes = [
+        "poll",
+        "register",
+        "inventory-v2",
+        "material-presence",
+        "started",
+        "stopped",
+    ];
+    for slot in [1, 2, 1024] {
+        let node = legacy.clone().for_node_slot(slot, 3);
+        let reporting = node.clone().with_sandbox_template(Some(&digest));
+        for route in routes {
+            let expected = match route {
+                "poll" => vec![("aq-node-slot", slot.to_string())],
+                "register" => vec![("aq-node-slots", "3".to_string())],
+                _ => vec![],
+            };
+            let reported = match route {
+                "inventory-v2" => vec![(SANDBOX_TEMPLATE_HEADER, digest.as_str().to_string())],
+                _ => expected.clone(),
+            };
+            for (client, expected) in [(&node, expected), (&reporting, reported)] {
+                let sent = headers(client, route);
+                assert_eq!(sent.len(), expected.len(), "{route}");
+                for (name, value) in expected {
+                    assert_eq!(sent[name], value, "{route}");
+                }
+            }
+            assert!(headers(&legacy, route).is_empty(), "{route}");
+            // A node whose template is not present on its daemon reports none.
+            let unresolved = node.clone().with_sandbox_template(None);
+            assert_eq!(
+                headers(&unresolved, route).len(),
+                headers(&node, route).len()
+            );
+        }
+    }
+}
+
 #[test]
 fn native_transport_ignores_ambient_proxy_configuration() {
     // Child process isolates environment changes from parallel HTTP tests.

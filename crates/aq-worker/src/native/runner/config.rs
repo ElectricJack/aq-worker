@@ -204,24 +204,17 @@ impl NativeConfig {
             return None;
         };
         let (docker, template) = (&settings.host.docker_local, &settings.host.template);
-        let resolved = async {
-            Docker::connect_unix(docker.clone())
-                .await?
-                .resolve_template(template)
-                .await
-        };
-        match resolved.await {
-            Ok(Some(found)) => Some(found),
-            outcome => {
-                let template = template.as_str();
-                tracing::warn!(
-                    template,
-                    ?outcome,
-                    "launch template image not resolved: none reported"
-                );
-                None
-            }
+        let backend = Docker::connect_unix(docker.clone());
+        let resolved = async { backend.await?.resolve_template(template).await }.await;
+        if !matches!(resolved, Ok(Some(_))) {
+            let template = template.as_str();
+            tracing::warn!(
+                template,
+                ?resolved,
+                "launch template image not resolved: none reported"
+            );
         }
+        resolved.ok().flatten()
     }
 
     /// The slot's aq-git and, when `node_git` is configured, the node's git with its remote.

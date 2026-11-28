@@ -49,37 +49,3 @@ impl NativeClient {
         operation.finish(receipt)
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::backend::TemplateDigest;
-    fn client() -> NativeClient {
-        NativeClient::from_config(&WorkerConfig {
-            server_url: "http://127.0.0.1:9".into(),
-            node_id: Uuid::from_u128(1),
-            credential: "synthetic-node-secret".into(),
-            cf_client_id: None,
-            cf_client_secret: None,
-        })
-        .unwrap()
-    }
-    fn template(client: &NativeClient, path: &str) -> Option<header::HeaderValue> {
-        let request = client.profiled_post(&client.control, path).build().unwrap();
-        request.headers().get(SANDBOX_TEMPLATE_HEADER).cloned()
-    }
-    #[test]
-    fn each_inventory_names_the_resolved_launch_template_and_no_other_request_does() {
-        let digest = TemplateDigest::parse(format!("sha256:{}", "c".repeat(64))).unwrap();
-        let reporting = client().with_sandbox_template(Some(&digest));
-        assert_eq!(
-            template(&reporting, "inventory-v2").unwrap(),
-            digest.as_str()
-        );
-        for path in ["register", "poll", "material-presence", "accept"] {
-            assert_eq!(template(&reporting, path), None, "{path}");
-        }
-        // A node whose template is not present on its daemon reports none.
-        let unresolved = client().with_sandbox_template(None);
-        assert_eq!(template(&unresolved, "inventory-v2"), None);
-    }
-}
