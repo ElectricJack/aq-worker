@@ -542,7 +542,9 @@ def test_a_receiver_update_applies_the_bundle_template_and_pulls_its_image_first
         for item in sorted(newer.iterdir()):
             bundle.add(item, arcname=item.name)
     bundle_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    installer = f"digest='{bundle_digest}'\ncat > c <<'AQ_INSTALL_CONFIG'\nnew_receiver = True\nAQ_INSTALL_CONFIG\n".encode()
+    # The installer ships this checkout's receiver: its update step is the one that runs.
+    receiver = SCRIPT.with_name("worker-install-config.py").read_text()
+    installer = f"digest='{bundle_digest}'\ncat > c <<'AQ_INSTALL_CONFIG'\n{receiver}AQ_INSTALL_CONFIG\n".encode()
     installer_digest = hashlib.sha256(installer).hexdigest()
     served = {f"{origin}/install/{installer_digest}.sh": installer, f"{origin}/install/{bundle_digest}.tar.gz": archive.read_bytes()}
     class Opener:
@@ -765,3 +767,137 @@ def test_restaged_bundle_keeps_host_pins_and_takes_worker_and_installer_files(ho
             assert native == json.loads((original / rel).read_text())
         else:
             assert (restaged / rel).read_bytes() == (original / rel).read_bytes(), rel
+
+
+
+class ImageRegistry:
+    """A loopback source registry, and a gateway in front of it that serves only the paths its
+    nginx.conf allowlists, re-read when nginx is reloaded (as a running nginx does)."""
+
+    def __init__(self, tmp_path):
+        import http.server
+        import threading
+        self.content = {"/v2/": b"{}"}
+        self.calls = tmp_path / "nginx-calls"
+        self.calls.write_text("")
+        self.conf = tmp_path / "gateway/nginx.conf"
+        self.reloads, self.allowed = None, set()
+        self.servers = [http.server.ThreadingHTTPServer(("127.0.0.1", 0), self.handler(gateway)) for gateway in (False, True)]
+        for server in self.servers:
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.registry, gateway = (f"127.0.0.1:{s.server_address[1]}" for s in self.servers)
+        self.gateway_url = "http://" + gateway
+
+    def add_image(self, repo, blobs, served=True):
+        """The image `repo` with `blobs` (its config first); the registry lacks them unless `served`."""
+        layers = {"sha256:" + hashlib.sha256(blob).hexdigest(): blob for blob in blobs}
+        config, *rest = layers
+        raw = json.dumps({"schemaVersion": 2, "config": {"digest": config, "size": len(layers[config])},
+                          "layers": [{"digest": d, "size": len(layers[d])} for d in rest]}).encode()
+        digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+        image = {f"/v2/{repo}/manifests/{digest}": raw, **{f"/v2/{repo}/blobs/{d}": blob for d, blob in layers.items()}}
+        self.content.update(image if served else dict(list(image.items())[:1]))
+        return f"{self.registry}/{repo}@{digest}", digest, sorted(["/v2/", *image])
+
+    def handler(self, gateway):
+        import http.server
+        import re
+        registry = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                if gateway:
+                    seen = registry.calls.read_text().count("-s reload")
+                    if registry.reloads != seen:
+                        registry.reloads = seen
+                        registry.allowed = set(re.findall(r"location = (/v2/\S*) \{", registry.conf.read_text()))
+                body = registry.content.get(self.path) if not gateway or self.path in registry.allowed else None
+                self.send_response(200 if body is not None else 404)
+                if body is not None and "/blobs/" in self.path:
+                    self.send_header("Docker-Content-Digest", self.path.rsplit("/", 1)[1])
+                self.send_header("Content-Length", str(len(body or b"")))
+                self.end_headers()
+                self.wfile.write(body or b"")
+        return Handler
+
+
+def gateway_base_bundle(tmp_path, image, digest):
+    """A published bundle whose native template names `image`, with the files a restage replaces."""
+    base = tmp_path / ("base-" + digest[-8:])
+    (base / "sandbox-daemon").mkdir(parents=True, exist_ok=True)
+    for name in ("aq-install.sh", "worker-install-config.py", "aq-wsl-autostart.ps1", "aq-worker"):
+        (base / name).write_text("older " + name)
+    native = {"executor": {"settings": {"host": {"docker_local": {"templates": [{"image": image, "digest": digest}]}}}}}
+    (base / "native.json").write_text(json.dumps(native))
+    archive = base.with_suffix(".tar.gz")
+    with tarfile.open(archive, "w:gz") as bundle:
+        for item in sorted(base.iterdir()):
+            bundle.add(item, arcname=item.name)
+    return archive
+
+
+def test_publishing_a_bundle_makes_the_gateway_serve_its_template_image_first(tmp_path, monkeypatch):
+    """2026-11-28: the gateway allowlisted only an older template's manifest and blobs, so every
+    machine told to update answered 404 pulling the bundle's template image."""
+    import re
+    import urllib.error
+    import urllib.request
+    spec = importlib.util.spec_from_file_location("prepare_gateway", SCRIPT.with_name("prepare-worker-install.py"))
+    prepare = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(prepare)
+    monkeypatch.setattr(prepare, "GATEWAY_RETRY_SECS", 0)
+    gateway = tmp_path / "gateway"
+    gateway.mkdir()
+    source = ImageRegistry(tmp_path)
+    try:
+        _, _, old_paths = source.add_image("owner/claude-rust", [b"old config", b"shared layer"])
+        image, digest, paths = source.add_image("owner/rust-node", [b"new config", b"shared layer", b"node layer"])
+        # The running gateway was configured for the older template.
+        listener = argparse.Namespace(listen="127.0.0.1:28443", worker_port=28081, tls_cert=None, tls_key=None, output=gateway)
+        (gateway / "nginx.conf").write_text(prepare.nginx_config(listener, source.registry, old_paths))
+        nginx = tmp_path / "nginx"
+        nginx.write_text(f'#!/bin/sh\necho "$@" >> {source.calls}\ncase "$*" in *" -t "*) exit "${{FAKE_NGINX_T:-0}}";; esac\n')
+        nginx.chmod(0o755)
+        with pytest.raises(urllib.error.HTTPError, match="404"):
+            urllib.request.urlopen(source.gateway_url + paths[-1], timeout=5)
+        worker = tmp_path / "aq-worker"
+        worker.write_text("#!/bin/sh\necho 'aq-worker 0.6.0+" + "d" * 40 + "'\n")
+        worker.chmod(0o755)
+        manifest = tmp_path / "install-manifest.json"
+
+        def restage(image, digest):
+            return prepare.restage(argparse.Namespace(
+                base_bundle=gateway_base_bundle(tmp_path, image, digest), worker=worker, output=gateway,
+                manifest=manifest, max_workspace_bytes=None, gateway_url=source.gateway_url, nginx=nginx))
+
+        published = restage(image, digest)
+        assert json.loads(manifest.read_text()) == published
+        # The gateway serves exactly the new template's manifest and all its blobs; the rest of its
+        # configuration is kept.
+        conf = (gateway / "nginx.conf").read_text()
+        assert conf == prepare.nginx_config(listener, source.registry, paths)
+        assert re.findall(r"location = (/v2/\S*) \{ limit_except GET", conf) == paths and len(paths) == 5
+        assert source.calls.read_text().splitlines() == [f"-p {gateway}/ -c nginx.conf -t -q", f"-p {gateway}/ -c nginx.conf -s reload"]
+        for path in paths:
+            with urllib.request.urlopen(source.gateway_url + path, timeout=5) as response:
+                assert response.read() == source.content[path]
+
+        # A template image whose blobs cannot be served is refused before anything is published.
+        missing, missing_digest, _ = source.add_image("owner/rust-gpu", [b"gpu config", b"gpu layer"], served=False)
+        before = sorted((gateway / "install").iterdir())
+        manifest.write_text("kept")
+        with pytest.raises(ValueError, match="does not serve 2 of the 4 paths"):
+            restage(missing, missing_digest)
+        assert sorted((gateway / "install").iterdir()) == before and manifest.read_text() == "kept"
+        # A configuration nginx refuses is put back, and nothing is published.
+        monkeypatch.setenv("FAKE_NGINX_T", "1")
+        with pytest.raises(ValueError, match="did not take its new image routes"):
+            restage(image, digest)
+        assert "owner/rust-gpu" in (gateway / "nginx.conf").read_text() and "owner/rust-node" not in (gateway / "nginx.conf").read_text()
+        assert sorted((gateway / "install").iterdir()) == before and manifest.read_text() == "kept"
+    finally:
+        for server in source.servers:
+            server.shutdown()

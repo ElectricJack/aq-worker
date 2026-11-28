@@ -230,7 +230,15 @@ def test_receiver_update_checks_digest_and_updates_only_its_installed_helper(tmp
     target = config / 'login-sync.py'; target.write_text('old_receiver = True\n')
     monkeypatch.setattr(helper, '__file__', str(target))
     (config / 'hosted-install.json').write_text(json.dumps({'origin': 'https://worker.example'}))
-    content = b"cat > temp <<'AQ_INSTALL_CONFIG'\nnew_receiver = True\nAQ_INSTALL_CONFIG\n"
+    # The new receiver's own update step records its call where the test can read it.
+    record = tmp_path / 'new-receiver-ran.json'
+    new_receiver = (
+        'import json\nnew_receiver = True\n'
+        'def worker_binary_update(config, installer, origin):\n'
+        f'    open({str(record)!r}, "w").write(json.dumps([str(config), origin, installer]))\n'
+        '    return {"version": "new", "ran": __file__}'
+    )
+    content = f"cat > temp <<'AQ_INSTALL_CONFIG'\n{new_receiver}\nAQ_INSTALL_CONFIG\n".encode()
     class Opener:
         def open(self, url, timeout):
             assert url.startswith('https://worker.example/install/')
@@ -239,18 +247,22 @@ def test_receiver_update_checks_digest_and_updates_only_its_installed_helper(tmp
     with pytest.raises(ValueError, match='checksum'):
         helper.receiver_update(config, '0' * 64)
     assert target.read_text() == 'old_receiver = True\n'
-    updated = []
-    monkeypatch.setattr(helper, 'worker_binary_update', lambda c, text, origin: updated.append(origin) or {'version': 'new'})
+    old_ran = []
+    monkeypatch.setattr(helper, 'worker_binary_update', lambda *args: old_ran.append(args) or {'version': 'old'})
     report = helper.receiver_update(config, hashlib.sha256(content).hexdigest())
-    assert report['ok'] and report['details']['worker'] == {'version': 'new'}
-    assert updated == ['https://worker.example']
-    assert target.read_text() == 'new_receiver = True\n'
+    # 2026-11-28: the update step ran the old receiver's code, so a change to the update
+    # procedure took effect only on the update after the one that shipped it.
+    assert report['ok'] and report['details']['worker'] == {'version': 'new', 'ran': str(target)}
+    assert not old_ran, "the receiver that fetched the update does not run its own update step"
+    assert json.loads(record.read_text()) == [str(config), 'https://worker.example', content.decode()]
+    assert target.read_text() == new_receiver + '\n'
     assert target.stat().st_mode & 0o777 == 0o600
     # A worker update that fails is reported; the receiver update itself stands.
-    monkeypatch.undo(); monkeypatch.setattr(helper, '__file__', str(target))
-    monkeypatch.setattr(helper.urllib.request, 'build_opener', lambda *_args: Opener())
+    receiver = (SCRIPT.parent / 'worker-install-config.py').read_text()
+    content = f"cat > temp <<'AQ_INSTALL_CONFIG'\n{receiver}AQ_INSTALL_CONFIG\n".encode()
     report = helper.receiver_update(config, hashlib.sha256(content).hexdigest())
     assert report['ok'] and 'names no worker bundle' in report['details']['worker']['error']
+    assert not old_ran and target.read_text() == receiver
 
 
 def test_remote_diagnostic_rejects_main_container_socket(tmp_path):

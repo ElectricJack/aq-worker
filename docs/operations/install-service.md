@@ -389,6 +389,16 @@ configuration listens at `127.0.0.1:28443` and proxies the worker API on
 using the existing loopback registry as source. Leave the AQ admin listener
 separate.
 
+Once that gateway runs, publish each later bundle with `--gateway-url` (for
+example `http://127.0.0.1:28443`, the default listener). The builder then
+replaces the image routes of the output's `nginx.conf` with the manifest and
+blobs of the template image the bundle's `native.json` names, checks and
+reloads that nginx (`nginx -p OUTPUT/ -c nginx.conf`, or `--nginx PATH`) and
+GETs each path through the gateway. If any is not served it publishes nothing
+and exits non-zero, so no machine is told to update to an image it cannot pull.
+`scripts/ms1-worker-deploy.py` always passes it (`gateway_url` and `nginx` in
+its configuration).
+
 - **Tailscale**. Run `tailscale serve --bg --https=8443 http://127.0.0.1:28443`
   on the server host. On Windows, use its PowerShell and the Windows Tailscale
   client. Complete the tailnet HTTPS approval if prompted. Copy the private
