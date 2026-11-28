@@ -271,20 +271,14 @@ async fn create(
     a: &mut Agent,
     root: &Path,
 ) -> Result<()> {
-    let repo = a.spec["repository_id"]
+    // The server names the repository it assigned: no list of repositories lives here.
+    let slug = a.spec["repository_identity"]
         .as_str()
-        .context("repository identity")?;
-    let repo = config
-        .repositories
-        .iter()
-        .find(|r| r.repository_id.to_string() == repo)
-        .context("project repository is not installed on this worker")?;
-    let slug = config
-        .manual
-        .as_ref()
-        .and_then(|m| m.source_slugs.get(&repo.repository_id))
-        .unwrap_or(&repo.identity);
-    ensure!(valid_slug(slug), "repository source is not configured");
+        .context("the server's session spec names no repository_identity")?;
+    ensure!(
+        valid_slug(slug),
+        "the session's repository is not an owner/name"
+    );
     let plan = provider::plan(config, settings, &a.spec)?;
     // Before any sandbox exists: a refused lease leaves nothing to retain.
     let bytes = match &plan.secret {
@@ -635,7 +629,7 @@ pub async fn run(
                 .values()
                 .map(|a| a.report(node.snapshots.get(&a.id).cloned()))
                 .collect::<Vec<_>>();
-            let request = json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":session.retired() || if session.aware() { session.full() } else { active.load(Ordering::SeqCst)>0 },"reports":reports});
+            let request = json!({"providers":providers,"max_slots":max_slots,"busy":session.retired() || if session.aware() { session.full() } else { active.load(Ordering::SeqCst)>0 },"reports":reports});
             let response = match node.link.manual_poll(&request).await {
                 Ok(v) => v,
                 Err(_) => {
@@ -815,7 +809,7 @@ pub async fn run(
                 }
             }
         }
-        let _=node.link.manual_poll(&json!({"providers":providers,"max_slots":max_slots,"repositories":supported_repositories(&config),"busy":true,"reports":node.agents.values().map(|a|a.report(None)).collect::<Vec<_>>()})).await;
+        let _=node.link.manual_poll(&json!({"providers":providers,"max_slots":max_slots,"busy":true,"reports":node.agents.values().map(|a|a.report(None)).collect::<Vec<_>>()})).await;
     }
     for task in conversation_tasks {
         task.abort();
@@ -850,22 +844,6 @@ fn valid_slug(slug: &str) -> bool {
         && slug
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b))
-}
-fn supported_repositories(config: &ServiceConfig) -> Vec<Uuid> {
-    config
-        .repositories
-        .iter()
-        .filter(|r| {
-            valid_slug(
-                config
-                    .manual
-                    .as_ref()
-                    .and_then(|m| m.source_slugs.get(&r.repository_id))
-                    .unwrap_or(&r.identity),
-            )
-        })
-        .map(|r| r.repository_id)
-        .collect()
 }
 fn memory_available() -> bool {
     std::fs::read_to_string("/proc/meminfo")

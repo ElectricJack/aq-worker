@@ -98,13 +98,6 @@ impl Plan {
             .clone()
             .or(hostname)
             .context("cannot determine hostname; pass --name")?;
-        let repositories: Vec<RepositoryBinding> = match &args.repositories {
-            None => vec![],
-            Some(path) => serde_json::from_slice(
-                &std::fs::read(path).with_context(|| format!("read {}", path.display()))?,
-            )
-            .context("repositories must be a JSON array of repository bindings")?,
-        };
         let template = std::fs::read(&args.native_template)
             .with_context(|| format!("read {}", args.native_template.display()))?;
 
@@ -121,7 +114,6 @@ impl Plan {
                     .with_context(|| format!("aq-git {}", args.aq_git.display()))?,
                 git_executable: args.git_executable.clone(),
             },
-            repositories,
             manual: None,
             shutdown_grace_ms: 120_000,
             retry: Default::default(),

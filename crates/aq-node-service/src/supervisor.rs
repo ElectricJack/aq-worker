@@ -1,7 +1,7 @@
 //! The slot supervisor: one polling loop per slot, the control poll, handoff
 //! markers and the graceful stop.
 use crate::{
-    EnrollmentFile, Layout, LinkError, RepositoryBinding, ServerLink, ServiceConfig,
+    EnrollmentFile, Layout, LinkError, ServerLink, ServiceConfig,
     config::{AqGitConfig, RetryConfig, STOP_MARGIN},
     enrollment_file::write_private,
     git::AqGit,
@@ -123,7 +123,6 @@ pub trait GitFactory: Send + Sync {
 }
 #[async_trait::async_trait]
 pub trait GitChild: Send + Sync {
-    async fn register(&self, repos: &[RepositoryBinding]) -> Result<()>;
     async fn stop(self: Box<Self>) -> Result<()>;
 }
 /// Starts the real aq-git child.
@@ -136,9 +135,6 @@ impl GitFactory for AqGitFactory {
 }
 #[async_trait::async_trait]
 impl GitChild for AqGit {
-    async fn register(&self, repos: &[RepositoryBinding]) -> Result<()> {
-        AqGit::register(self, repos).await
-    }
     async fn stop(self: Box<Self>) -> Result<()> {
         AqGit::stop(*self).await
     }
@@ -560,11 +556,7 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
     async fn recover(&self, ctx: &SlotContext) -> Result<RecoverOutcome> {
         self.sup.layout.slot_runtime_for_recovery(ctx.slot)?;
         let git = self.sup.git.start(&ctx.state_dir, &ctx.git_socket).await?;
-        let out = async {
-            git.register(&self.sup.config.repositories).await?;
-            self.sup.backend.recover(ctx.clone()).await
-        }
-        .await;
+        let out = self.sup.backend.recover(ctx.clone()).await;
         let _ = git.stop().await;
         out
     }
@@ -578,14 +570,11 @@ impl<B: SlotBackend, C: ControlSource> Shared<B, C> {
         let (merger, slot_pause) = self.watch_slot_pause(slot);
         let result = async {
             let git = self.sup.git.start(&dir, &ctx.git_socket).await?;
-            let run = async {
-                git.register(&self.sup.config.repositories).await?;
-                self.sup
-                    .backend
-                    .run_attempt(ctx.clone(), self.force.subscribe(), slot_pause)
-                    .await
-            }
-            .await;
+            let run = self
+                .sup
+                .backend
+                .run_attempt(ctx.clone(), self.force.subscribe(), slot_pause)
+                .await;
             if let Err(e) = git.stop().await {
                 tracing::warn!(slot, "aq-git stop: {e:#}");
             }

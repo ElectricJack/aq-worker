@@ -21,7 +21,6 @@ fn valid() -> ServiceConfig {
             binary: "/opt/aq-git".into(),
             git_executable: "/usr/bin/git".into(),
         },
-        repositories: vec![],
         manual: None,
         shutdown_grace_ms: 120_000,
         retry: Default::default(),
@@ -35,7 +34,6 @@ fn manual(token: &str) -> ManualConfig {
         podman_executable: "/usr/bin/podman".into(),
         max_slots: 1,
         claude_token_file: token.into(),
-        source_slugs: Default::default(),
         codex: None,
     }
 }
@@ -58,6 +56,28 @@ fn load_text(text: &str) -> Result<ServiceConfig> {
 }
 const MANUAL: &str = "[manual]\npodman_executable = \"/usr/bin/podman\"\nmax_slots = 1\n";
 mod migration;
+
+/// A worker takes each repository from the server's offer: a document that still lists
+/// repositories or manual source slugs is refused by `parse`, by name, never silently
+/// accepted. (`load` rewrites an installed file first: see the migration tests.)
+#[test]
+fn removed_repository_settings_are_refused_with_what_to_remove() {
+    let listed = "\n[[repositories]]\nrepository_id = \"e0000000-0000-4000-8000-000000000001\"\nidentity = \"o/r\"\nbinding_generation = 1\nobject_format = \"sha1\"\n";
+    let empty = "repositories = []\n";
+    let slugs = "claude_token_file = \"/t\"\n[manual.source_slugs]\n\"e0000000-0000-4000-8000-000000000002\" = \"o/r\"\n";
+    for (text, named) in [
+        (format!("{MINIMAL}{listed}"), "repositories"),
+        (format!("{empty}{MINIMAL}"), "repositories"),
+        (format!("{MINIMAL}{MANUAL}{slugs}"), "manual.source_slugs"),
+    ] {
+        let e = format!("{:#}", ServiceConfig::parse(&text).unwrap_err());
+        assert!(
+            e.contains(&format!("`{named}` is no longer a setting")) && e.contains("Remove"),
+            "{e}"
+        );
+    }
+    assert!(load_text(&format!("{MINIMAL}{MANUAL}claude_token_file = \"/t\"\n")).is_ok());
+}
 
 /// Manual sessions name their Claude subscription token file in `[manual]`; it is
 /// required there and must be absolute.
@@ -96,7 +116,7 @@ fn loads_valid_and_refuses_bounds() {
     let path = dir.path().join("service.toml");
     valid().save(&path).unwrap();
     assert_eq!(ServiceConfig::load(&path).unwrap().nodes, 2);
-    let bad: [fn(&mut ServiceConfig); 9] = [
+    let bad: [fn(&mut ServiceConfig); 8] = [
         |c| c.nodes = 0,
         |c| c.nodes = 9,
         |c| c.native_template = "native.json".into(),
@@ -110,14 +130,6 @@ fn loads_valid_and_refuses_bounds() {
             })
         },
         |c| c.runtime_root = Some("run/aq".into()),
-        |c| {
-            c.repositories = vec![RepositoryBinding {
-                repository_id: Uuid::nil(),
-                identity: "x".into(),
-                binding_generation: 1,
-                object_format: "sha256".into(),
-            }]
-        },
     ];
     for edit in bad {
         let mut c = valid();
@@ -175,7 +187,7 @@ git_executable = "/usr/bin/git"
         ..c.clone()
     };
     assert_eq!(longest.stop_timeout_secs(), 630);
-    assert!(c.repositories.is_empty() && c.manual.is_none());
+    assert!(c.manual.is_none());
     assert!(c.runtime_root.is_none());
     assert!(!toml::to_string(&c).unwrap().contains("runtime_root"));
 }
@@ -226,9 +238,7 @@ fn socket_paths_fit_or_the_config_is_refused() {
 }
 
 fn assert_retry_defaults(c: &ServiceConfig) {
-    // No repositories list: every repository is registered from its offer. No [retry]:
-    // the defaults, which are not written back.
-    assert!(c.repositories.is_empty());
+    // No [retry]: the defaults, which are not written back.
     let r = &c.retry;
     assert_eq!(
         (r.offer_pause_ms, r.offer_pause_max_ms),

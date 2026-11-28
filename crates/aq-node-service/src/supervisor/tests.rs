@@ -248,9 +248,6 @@ impl GitFactory for FakeGit {
 }
 #[async_trait::async_trait]
 impl GitChild for FakeGit {
-    async fn register(&self, _: &[RepositoryBinding]) -> Result<()> {
-        Ok(())
-    }
     async fn stop(self: Box<Self>) -> Result<()> {
         Ok(())
     }
@@ -332,7 +329,6 @@ fn rig(slots: u32) -> Rig {
             binary: "/g".into(),
             git_executable: "/usr/bin/git".into(),
         },
-        repositories: vec![],
         manual: None,
         shutdown_grace_ms: 10_000,
         retry: Default::default(),

@@ -12,9 +12,8 @@ use anyhow::{Context, Result, bail, ensure};
 use aq_node_service::session::NodeSession;
 use aq_node_service::{
     AqGitConfig, AqGitFactory, AttemptOutcome, EnrollmentFile, Layout, LinkError, MachineLink,
-    RecoverOutcome, RepositoryBinding, ServerLink, ServiceConfig, ServiceState, SlotBackend,
-    SlotContext, Supervisor, UnitSpec, default_machine_key, recorded_handoff, write_machine_json,
-    write_private,
+    RecoverOutcome, ServerLink, ServiceConfig, ServiceState, SlotBackend, SlotContext, Supervisor,
+    UnitSpec, default_machine_key, recorded_handoff, write_machine_json, write_private,
 };
 use aq_observation_store::{
     HttpOwnerPeer,
@@ -26,11 +25,11 @@ use aq_protocol::{
 use aq_worker::{
     client::Client,
     config::WorkerConfig,
-    native::journal::RecoveryHold,
+    native::journal::{Journal, RecoveryHold},
     native::runner::{
         ClaudeDockerExecutor, ExecutorConfig, NativeConfig, NativeExecutor, RunDisposition,
-        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, retained_attempts,
-        run_node_slot, run_until_attempt, salvage_interrupted,
+        SalvageDisposition, claimed_attempts, destroy_claimed_sandboxes, lock_recovery_scope,
+        retained_attempts, run_node_slot, run_until_attempt, salvage_interrupted,
     },
 };
 use clap::{Args, Subcommand};
@@ -96,10 +95,6 @@ pub struct ServiceEnrollArgs {
     aq_git: PathBuf,
     #[arg(long, default_value = "/usr/bin/git")]
     git_executable: PathBuf,
-    /// JSON array of RepositoryBinding to register before any offer (optional: a repository
-    /// an offer names is registered from the offer when it is first seen).
-    #[arg(long)]
-    repositories: Option<PathBuf>,
     /// Enroll a profile that is already enrolled (after a revoke): redeems a new code and
     /// replaces its credentials and configuration. `service install` then restarts it.
     #[arg(long)]

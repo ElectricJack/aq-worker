@@ -149,16 +149,14 @@ def prepare(package, work, origin, socket, config, digest):
     (work / "image").write_text(image + "\n")
 
 
-def manual_settings(package, podman, slots, source_slugs, claude_token):
+def manual_settings(package, podman, slots, claude_token):
     """The `[manual]` section. `claude_token_file` is the Claude subscription token file manual
     Claude sessions log in with; the worker requires the key and offers Claude only while the file
     is readable."""
     lines = [
         "", "[manual]", f"podman_executable = {json.dumps(str(podman))}",
         f"claude_token_file = {json.dumps(str(claude_token))}",
-        "", "[manual.source_slugs]",
     ]
-    lines.extend(f"{json.dumps(key)} = {json.dumps(slug)}" for key, slug in source_slugs.items())
     if (package / "codex-bundle").is_dir():
         lines.extend([
             # No login file: every Codex session leases AQ's saved login from the server.
@@ -179,7 +177,7 @@ def configure(package, config, origin, podman, slots, digest, claude_token=None)
     metadata = json.loads((package / "bootstrap.json").read_text())
     manual = "manual" in current
     if metadata["manual_sessions"] and not manual and claude_token is not None:
-        atomic_text(service, contents.rstrip() + manual_settings(package, podman, slots, metadata["source_slugs"], claude_token))
+        atomic_text(service, contents.rstrip() + manual_settings(package, podman, slots, claude_token))
         manual = True
     # Without this directory the worker fails every attempt with "No such file or directory"
     # and never reports its capabilities.
@@ -911,7 +909,7 @@ def configure_login_path(package, config, claude):
     metadata = json.loads((package / "bootstrap.json").read_text())
     if "manual" not in current:
         settings = json.loads((config / "login-sync.json").read_text())
-        contents = contents.rstrip() + manual_settings(package, settings["podman"], node_count(current), metadata["source_slugs"], claude)
+        contents = contents.rstrip() + manual_settings(package, settings["podman"], node_count(current), claude)
     else:
         contents = set_toml_value(contents, "manual", "claude_token_file", claude)
     if contents != previous:

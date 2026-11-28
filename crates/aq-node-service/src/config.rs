@@ -25,8 +25,6 @@ pub struct ServiceConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_root: Option<PathBuf>,
     pub aq_git: AqGitConfig,
-    #[serde(default)]
-    pub repositories: Vec<RepositoryBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manual: Option<ManualConfig>,
     #[serde(default = "default_shutdown_grace_ms")]
@@ -172,8 +170,6 @@ pub struct ManualConfig {
     /// Owner-only Claude subscription token file (`claude setup-token`) that manual Claude
     /// sessions log in with.
     pub claude_token_file: PathBuf,
-    #[serde(default)]
-    pub source_slugs: std::collections::BTreeMap<uuid::Uuid, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex: Option<ManualCodexConfig>,
 }
@@ -199,13 +195,26 @@ pub struct AqGitConfig {
     pub binary: PathBuf,
     pub git_executable: PathBuf,
 }
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct RepositoryBinding {
-    pub repository_id: Uuid,
-    pub identity: String,
-    pub binding_generation: u64,
-    pub object_format: String,
+/// Settings that no longer exist: a worker takes each repository from the server's offer.
+/// Refused by name, so an owner is told what to remove instead of reading an
+/// "unknown field" error, and nothing is silently ignored.
+fn refuse_removed_settings(text: &str) -> Result<()> {
+    let Ok(toml::Value::Table(doc)) = text.parse::<toml::Value>() else {
+        return Ok(()); // not a document: the real parse reports it
+    };
+    ensure!(
+        !doc.contains_key("repositories"),
+        "`repositories` is no longer a setting: a worker takes each repository from the server's \
+         offer. Remove `repositories` (and any repositories.json) from service.toml"
+    );
+    ensure!(
+        doc.get("manual")
+            .and_then(|m| m.get("source_slugs"))
+            .is_none(),
+        "`manual.source_slugs` is no longer a setting: a hand-started session's repository \
+         comes from the server. Remove `[manual.source_slugs]` from service.toml"
+    );
+    Ok(())
 }
 fn default_manual_slots() -> u32 {
     1
@@ -256,10 +265,15 @@ impl ServiceConfig {
     pub fn stop_timeout_secs(&self) -> u64 {
         self.shutdown_grace_ms.div_ceil(1000) + STOP_MARGIN.as_secs()
     }
-    /// Loads the file. One written before qualification measurement was removed is rewritten
-    /// once without its `measurement` setting first (`retire_measurement`).
+    /// Loads the file. One written before workers took repositories from the server's offer
+    /// is rewritten once without `repositories` and `manual.source_slugs`
+    /// (`retire_repositories`), and one written before qualification measurement was removed
+    /// without its `measurement` setting (`retire_measurement`).
     pub fn load(path: &Path) -> Result<Self> {
         let mut text = read_private(path)?;
+        if let Some(migrated) = retire_repositories(path, &text)? {
+            text = migrated;
+        }
         if let Some(migrated) = retire_measurement(path, &text)? {
             text = migrated;
         }
@@ -272,6 +286,7 @@ impl ServiceConfig {
     }
     /// Parses the document, refusing unknown keys.
     pub fn parse(text: &str) -> Result<Self> {
+        refuse_removed_settings(text)?;
         Ok(toml::from_str(text)?)
     }
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -295,7 +310,6 @@ impl ServiceConfig {
             "nodes must be 1..={MAX_MACHINE_SLOTS}"
         );
         self.validate_paths()?;
-        self.validate_repositories()?;
         self.validate_retry()?;
         self.validate_observations()?;
         self.validate_manual()
@@ -314,18 +328,6 @@ impl ServiceConfig {
             ensure!(root.is_absolute(), "runtime_root must be an absolute path");
         }
         crate::layout::check_socket_paths(&self.runtime_root(), self.nodes)
-    }
-
-    fn validate_repositories(&self) -> Result<()> {
-        ensure!(self.repositories.len() <= 16, "at most 16 repositories");
-        for r in &self.repositories {
-            ensure!(
-                !r.identity.is_empty() && r.identity.len() <= 128,
-                "invalid repository identity"
-            );
-            ensure!(r.object_format == "sha1", "unsupported object_format");
-        }
-        Ok(())
     }
 
     fn validate_retry(&self) -> Result<()> {
@@ -370,13 +372,6 @@ impl ServiceConfig {
             ensure!(
                 m.podman_executable.is_absolute() && (1..=8).contains(&m.max_slots),
                 "invalid manual worker configuration"
-            );
-            ensure!(
-                m.source_slugs.len() <= 16
-                    && m.source_slugs.values().all(|v| v.split('/').count() == 2
-                        && v.bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || b"/-_.".contains(&b))),
-                "invalid manual repository source"
             );
             if let Some(c) = &m.codex {
                 ensure!(
@@ -455,21 +450,13 @@ fn retire_measurement(path: &Path, text: &str) -> Result<Option<String>> {
     let Some((migrated, carried)) = without_measurement(text) else {
         return Ok(None);
     };
-    let mut backup = path.as_os_str().to_owned();
-    backup.push(format!(".{BEFORE_MEASUREMENT_REMOVAL}"));
-    let backup = PathBuf::from(backup);
-    keep_first_copy(&backup, text.as_bytes())
-        .and_then(|()| write_private(path, migrated.as_bytes()))
+    let backup = replace_keeping_copy(path, text, &migrated, BEFORE_MEASUREMENT_REMOVAL)
         .with_context(|| {
             format!(
                 "{} still has the measurement setting, which was removed, and could not be rewritten without it",
                 path.display()
             )
         })?;
-    // Best effort: the rename is what readers see; this only makes it outlast a power cut.
-    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
-    }
     let token = match carried {
         CarriedToken::NoManual => "it has no [manual] section, so no token file was needed",
         CarriedToken::Kept => "[manual] claude_token_file was already set and is unchanged",
@@ -484,6 +471,61 @@ fn retire_measurement(path: &Path, text: &str) -> Result<Option<String>> {
         backup.display()
     );
     Ok(Some(migrated))
+}
+
+/// Suffix of the one-time copy of a `service.toml` as it was before `retire_repositories`.
+pub const BEFORE_REPOSITORY_REMOVAL: &str = "before-repository-removal";
+
+/// The document without `repositories` and `manual.source_slugs`, or `None` when it has
+/// neither or is not TOML (the caller's parse reports that). Every other key, its value, the
+/// comments and the order are kept.
+fn without_repositories(text: &str) -> Option<String> {
+    let mut document: toml_edit::DocumentMut = text.parse().ok()?;
+    let mut found = document.as_table_mut().remove("repositories").is_some();
+    if let Some(manual) = (document.get_mut("manual")).and_then(|m| m.as_table_like_mut()) {
+        found |= manual.remove("source_slugs").is_some();
+    }
+    found.then(|| document.to_string())
+}
+
+/// Rewrites, once, a `service.toml` that still lists `repositories` or `manual.source_slugs`,
+/// which a worker no longer reads (it takes each repository from the server's offer). Machines
+/// are updated remotely and nobody edits their configuration, so a worker that refused such a
+/// file would leave the machine offline. Returns the new text, or `None` when the file has
+/// neither (it is then not touched). Concurrent loaders and the kept copy are as for
+/// `retire_measurement`. `ServiceConfig::parse` of a document still holding them is refused.
+fn retire_repositories(path: &Path, text: &str) -> Result<Option<String>> {
+    let Some(migrated) = without_repositories(text) else {
+        return Ok(None);
+    };
+    let backup = replace_keeping_copy(path, text, &migrated, BEFORE_REPOSITORY_REMOVAL)
+        .with_context(|| {
+            format!(
+                "{} still has `repositories` or `manual.source_slugs`, which were removed, and could not be rewritten without them",
+                path.display()
+            )
+        })?;
+    tracing::warn!(
+        "rewrote {} once: `repositories` and `manual.source_slugs` were removed (a worker takes each repository from the server's offer). The file as it was is kept at {}",
+        path.display(),
+        backup.display()
+    );
+    Ok(Some(migrated))
+}
+
+/// Keeps the first copy of `old` beside `path` (`<path>.<suffix>`, 0600), then replaces `path`
+/// by rename with `new`. Returns the copy's path.
+fn replace_keeping_copy(path: &Path, old: &str, new: &str, suffix: &str) -> Result<PathBuf> {
+    let mut backup = path.as_os_str().to_owned();
+    backup.push(format!(".{suffix}"));
+    let backup = PathBuf::from(backup);
+    keep_first_copy(&backup, old.as_bytes())?;
+    write_private(path, new.as_bytes())?;
+    // Best effort: the rename is what readers see; this only makes it outlast a power cut.
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+    }
+    Ok(backup)
 }
 
 /// Writes `body` to `path` (0600) unless the file already exists; the first writer's complete

@@ -69,6 +69,47 @@ fn a_repository_aq_git_has_not_seen_is_registered_once_from_the_offer() {
         "owner/never-configured"
     );
 }
+/// Recovery restarts aq-git on an attempt's state and registers the repository its recorded
+/// offer named, since the worker lists none: an unseen one is registered from the offer's
+/// binding, one the state holds is accepted without a second registration, and the same
+/// repository under another binding generation is refused.
+#[test]
+fn recovery_registers_the_recorded_offer_and_refuses_a_changed_generation() {
+    let temp = TempDir::new().unwrap();
+    std::fs::set_permissions(temp.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let socket = temp.path().join("git.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600)).unwrap();
+    // Nothing registered; the peer does not wait for a second concurrent reader.
+    let state = Arc::new((Mutex::new((Value::Null, 2)), std::sync::Condvar::new()));
+    let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    spawn_registration_peer(listener, state.clone(), requests.clone());
+    let client = GitClient::new(&socket, temp.path()).unwrap();
+    let recorded = new_repository();
+    let ensure = |b: &SourceBinding| client.registering(b, || client.validate_binding(b));
+    ensure(&recorded).unwrap();
+    ensure(&recorded).unwrap();
+    let registers = |requests: &Mutex<Vec<Value>>| {
+        let requests = requests.lock().unwrap();
+        (requests.iter())
+            .filter(|r| r["operation"] == "repo.register")
+            .count()
+    };
+    assert_eq!(registers(&requests), 1, "the second call found it registered");
+    assert_eq!(
+        state.0.lock().unwrap().0["identity"],
+        "owner/never-configured"
+    );
+    let moved = SourceBinding {
+        binding_generation: 2,
+        ..recorded
+    };
+    let refused = ensure(&moved).unwrap_err();
+    assert!(
+        format!("{refused:#}").contains("already registered"),
+        "{refused:#}"
+    );
+}
 /// The same against a real aq-git (any build the worker is installed beside).
 #[test]
 #[ignore = "requires AQ_GIT_TEST_BINARY (an aq-git build)"]

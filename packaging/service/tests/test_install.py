@@ -128,13 +128,13 @@ def test_installs_binaries_and_calls_enroll_install_status_in_order(host):
     assert "allow_enrolled_nodes" in result.stdout
 
 
-def test_defaults_template_and_repositories_from_the_bundle(host):
+def test_defaults_template_from_the_bundle_and_no_repositories_are_passed(host):
     with with_socket(host):
         result = run(host)
     assert result.returncode == 0, result.stderr
     enroll = worker_calls(host)[0]["args"]
     assert enroll[enroll.index("--native-template") + 1] == str(host["bundle"] / "native.json")
-    assert enroll[enroll.index("--repositories") + 1] == str(host["bundle"] / "repositories.json")
+    assert "--repositories" not in enroll
     assert enroll[enroll.index("--profile") + 1] == "local"
     assert enroll[enroll.index("--nodes") + 1] == "1"
 
@@ -353,7 +353,7 @@ def test_deferred_install_enrolls_without_starting_a_service(host):
 @pytest.mark.parametrize("with_token", [False, True])
 def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_path, manual_sessions, with_token):
     (tmp_path / "bootstrap.json").write_text(json.dumps({
-        "manual_sessions": manual_sessions, "source_slugs": {"repo": "owner/repo"},
+        "manual_sessions": manual_sessions,
     }))
     service = tmp_path / "service.toml"
     service.write_text("slots = 1\n")
@@ -370,7 +370,7 @@ def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_
         if manual_sessions and with_token:
             assert written["manual"] == {
                 "podman_executable": "/usr/bin/podman",
-                "claude_token_file": "/private/claude-token", "source_slugs": {"repo": "owner/repo"},
+                "claude_token_file": "/private/claude-token",
             }
             assert "Use Push Claude token" not in result.stdout
         else:
@@ -380,11 +380,11 @@ def test_hosted_install_writes_manual_sessions_with_their_claude_token_file(tmp_
 
 def test_hosted_install_keeps_an_existing_manual_section_and_enrollment(tmp_path):
     (tmp_path / "bootstrap.json").write_text(json.dumps({
-        "manual_sessions": True, "source_slugs": {},
+        "manual_sessions": True,
     }))
     service = tmp_path / "service.toml"
     original = ('slots = 1\nmachine_key = "existing-pc"\n\n[manual]\npodman_executable = "/usr/bin/podman"\n'
-                'max_slots = 1\nclaude_token_file = "/private/first"\n\n[manual.source_slugs]\n')
+                'max_slots = 1\nclaude_token_file = "/private/first"\n')
     service.write_text(original)
     enrollment = tmp_path / "worker.toml"
     enrollment.write_text('credential = "existing-enrollment"\n')
@@ -475,7 +475,7 @@ def test_a_newer_bundle_from_the_same_server_updates_an_enrolled_profile(tmp_pat
     update = run_config(tmp_path, "prepare", newer, work, origin, tmp_path / "podman.sock", config, new)
     assert update.returncode == 0, update.stderr
     assert str(newer) not in (config / "native.json").read_text(), "the template changes only once the binaries are in place"
-    (newer / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
+    (newer / "bootstrap.json").write_text(json.dumps({"manual_sessions": False}))
     done = run_config(tmp_path, "configure", newer, config, origin, "/usr/bin/podman", "1", new)
     assert done.returncode == 0, done.stderr
     assert "updated" in done.stdout
@@ -559,7 +559,7 @@ def test_the_remote_check_reports_what_the_worker_service_says_without_secrets(t
 
 @pytest.mark.parametrize("key", ["nodes", "slots"])
 def test_hosted_install_node_count_preserves_each_enrollment(tmp_path, key):
-    (tmp_path / "bootstrap.json").write_text(json.dumps({"manual_sessions": False, "source_slugs": {}}))
+    (tmp_path / "bootstrap.json").write_text(json.dumps({"manual_sessions": False}))
     (tmp_path / "service.toml").write_text(f"{key} = 2\n")
     for node in (1, 2):
         path = tmp_path / f"slots/{node}/worker.toml"

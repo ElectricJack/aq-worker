@@ -49,7 +49,38 @@ impl Recovery<'_> {
         }
     }
 
+    /// Registers the repository this attempt's recorded offer names with the slot's aq-git,
+    /// from the offer's own binding (the worker lists none). A binding that differs from the
+    /// one aq-git holds is refused. `false` when the attempt recorded no source.
+    async fn register_recorded_source(&self, attempt: Uuid) -> Result<bool> {
+        let binding = {
+            let _held = lock_recovery_scope(&self.cfg)?;
+            let root = self.cfg.state_dir.join("journal");
+            let capacity = self.cfg.capacity.clone();
+            let journal = Journal::open(&root, self.worker.node_id, capacity)?;
+            let recorded = (journal.state().attempts.get(&attempt))
+                .context("native recovery attempt absent")?;
+            (recorded.source.as_ref())
+                .and_then(|s| s.manifest.as_ref())
+                .map(|m| m.source.clone())
+        };
+        let Some(binding) = binding else {
+            return Ok(false);
+        };
+        let git = self.cfg.git_client(&self.worker)?;
+        tokio::task::spawn_blocking(move || {
+            git.registering(&binding, || git.validate_binding(&binding))
+        })
+        .await??;
+        Ok(true)
+    }
+
     async fn one(&self, attempt: Uuid) -> Result<RecoverOutcome> {
+        // The worker lists no repositories: the one this attempt's offer named is registered
+        // again from the offer, as it was when the attempt began.
+        self.register_recorded_source(attempt)
+            .await
+            .with_context(|| format!("register the repository of attempt {attempt}"))?;
         // R4: boxed (as are the recovery futures inside): about 78 KiB inline.
         let salvaged = Box::pin(salvage_interrupted(&self.worker, &self.cfg, attempt)).await;
         if let Some((proof, why)) = unproven(&salvaged) {
