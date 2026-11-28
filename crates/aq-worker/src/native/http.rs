@@ -2,6 +2,7 @@
 //! No redirects, legacy execution decoder or runnable grant inference; only read-only
 //! preparation fetches (artifacts, materials, source) retry transient failures.
 //! Durable request ownership and recovery remain the caller's responsibility.
+use crate::backend::TemplateDigest;
 use crate::config::WorkerConfig;
 use anyhow::{Result, ensure};
 use aq_admission::{
@@ -48,7 +49,14 @@ pub struct NativeClient {
     node_slot: Option<(u32, u32)>,
     checkpoint_author: bool,
     workspace_expansion: bool,
+    /// The launch template digest this node resolved on its sandbox daemon (inventory header).
+    sandbox_template: Option<header::HeaderValue>,
 }
+/// On `POST /v1/worker/profiled/inventory-v2`: the digest (`sha256:<hex>`) of the template image
+/// the node launches, as its sandbox daemon resolved it when the worker started. Absent = the
+/// node's template is not present locally, or the worker predates the header. It travels beside
+/// the pinned `InventoryV2` document, like `aq-node-slots` beside `Register`.
+pub const SANDBOX_TEMPLATE_HEADER: &str = "aq-sandbox-template";
 pub use aq_node_service::native_transport::{
     FETCH_BACKOFF, FETCH_SPAN, FETCH_TRIES, HttpStatus, TransportFailed, fetch_retry_wait,
 };
@@ -210,6 +218,7 @@ impl NativeClient {
             node_slot: None,
             checkpoint_author: false,
             workspace_expansion: false,
+            sandbox_template: None,
         })
     }
     /// This client, on the same lanes, with fetch retries that end before `deadline_ns`: the
@@ -226,6 +235,13 @@ impl NativeClient {
         self.workspace_expansion = supported;
         self
     }
+    /// Reports `resolved`, the launch template digest found on the node's daemon, with each
+    /// inventory; `None` reports none.
+    pub fn with_sandbox_template(mut self, resolved: Option<&TemplateDigest>) -> Self {
+        self.sandbox_template =
+            resolved.and_then(|digest| header::HeaderValue::from_str(digest.as_str()).ok());
+        self
+    }
 
     fn slot_headers(
         &self,
@@ -239,6 +255,10 @@ impl NativeClient {
             (Some((_, slots)), "register") => {
                 request.header(aq_admission::node_slots::SLOTS_HEADER, slots)
             }
+            (_, "inventory-v2") => match &self.sandbox_template {
+                Some(digest) => request.header(SANDBOX_TEMPLATE_HEADER, digest.clone()),
+                None => request,
+            },
             _ => request,
         }
     }

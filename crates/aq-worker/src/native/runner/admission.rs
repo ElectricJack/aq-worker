@@ -88,6 +88,9 @@ impl Admission {
         if let Some((node, slot)) = &node {
             client = client.for_node_slot(*slot, node.registered_slots());
         }
+        // Each inventory names the template image this node launches, as resolved here.
+        let template = config.resolved_launch_template().await;
+        client = client.with_sandbox_template(template.as_ref());
         let (held, journal) = open_scope(&config, worker.node_id, &node)?;
         let (heartbeat, shutdown) = if serviced {
             (None, shutdown)
